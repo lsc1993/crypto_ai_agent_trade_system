@@ -85,6 +85,22 @@ class FailingReportListApi extends EveryStatusReportsApi {
   }
 }
 
+class SpecialIdentifierReportApi extends EveryStatusReportsApi {
+  override listReports(): Promise<Page<AnalysisReportSummary>> {
+    const report = analysisReportSummarySchema.parse({
+      ...seedReport(),
+      id: "report/segment?query#fragment",
+      title: "特殊不可变 ID 研究样例",
+    });
+    return Promise.resolve({
+      items: [report],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+  }
+}
+
 class ControlledReportDetailApi extends MockWorkbenchApi {
   readonly retriedReportIds: string[] = [];
   readonly subscribedAnalysisIds: string[] = [];
@@ -365,6 +381,27 @@ describe("ReportListPage", () => {
       screen.getByRole("heading", { name: "历史报告" }),
     ).toBeVisible();
     expect(screen.queryByText("REPORT HISTORY")).not.toBeInTheDocument();
+  });
+
+  it("encodes a report ID as one safe path segment in the detail link", async () => {
+    window.history.replaceState({}, "", "/reports");
+    render(
+      <AppProviders api={new SpecialIdentifierReportApi()}>
+        <Routes>
+          <Route path="/reports" element={<ReportListPage />} />
+        </Routes>
+      </AppProviders>,
+    );
+
+    const report = await screen.findByRole("article", {
+      name: "特殊不可变 ID 研究样例",
+    });
+    expect(
+      within(report).getByRole("link", { name: "查看研究报告" }),
+    ).toHaveAttribute(
+      "href",
+      "/reports/report%2Fsegment%3Fquery%23fragment",
+    );
   });
 });
 

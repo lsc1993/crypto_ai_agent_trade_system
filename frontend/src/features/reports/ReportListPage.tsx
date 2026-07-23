@@ -102,7 +102,10 @@ export function ReportListPage() {
                     </dd>
                   </div>
                 </dl>
-                <Link className="text-link" to={`/reports/${report.id}`}>
+                <Link
+                  className="text-link"
+                  to={`/reports/${encodeURIComponent(report.id)}`}
+                >
                   查看研究报告
                 </Link>
               </article>
