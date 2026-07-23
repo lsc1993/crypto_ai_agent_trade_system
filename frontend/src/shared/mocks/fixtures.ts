@@ -1,7 +1,4 @@
 import {
-  analyticsSnapshotSchema,
-} from "../../domain/analytics";
-import {
   dashboardSnapshotSchema,
   marketDetailSchema,
   marketSummarySchema,
@@ -234,28 +231,7 @@ export const mockTrades = [
   }),
 ];
 
-export const mockAnalytics = analyticsSnapshotSchema.parse({
-  netPnl: "9.40",
-  winRate: "1",
-  profitFactor: "0",
-  expectancy: "9.40",
-  maxDrawdown: "0",
-  equityCurve: [
-    {
-      at: "2025-01-11T01:05:00Z",
-      equity: "9.40",
-      netPnl: "9.40",
-    },
-  ],
-  tradeCalendar: [
-    {
-      at: "2025-01-11T00:00:00Z",
-      netPnl: "9.40",
-      tradeCount: 1,
-    },
-  ],
-  generatedAt: "2025-01-15T12:05:00Z",
-});
+export const MOCK_ANALYTICS_GENERATED_AT = "2025-01-15T12:05:00Z";
 
 export const mockDashboard = dashboardSnapshotSchema.parse({
   markets: mockMarketSummaries,

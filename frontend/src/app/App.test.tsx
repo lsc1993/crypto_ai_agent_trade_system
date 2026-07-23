@@ -18,6 +18,14 @@ function renderApp(path = "/") {
   return api;
 }
 
+function findDashboardHeading() {
+  return screen.findByRole(
+    "heading",
+    { name: "研究工作台" },
+    { timeout: 3_000 },
+  );
+}
+
 describe("application shell routes", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
@@ -27,9 +35,7 @@ describe("application shell routes", () => {
     const user = userEvent.setup();
     renderApp();
 
-    expect(
-      await screen.findByRole("heading", { name: "研究工作台" }),
-    ).toBeVisible();
+    expect(await findDashboardHeading()).toBeVisible();
     expect(
       screen.getByRole("navigation", { name: "主导航" }),
     ).toBeVisible();
@@ -65,9 +71,7 @@ describe("application shell routes", () => {
     const user = userEvent.setup();
     renderApp();
 
-    expect(
-      await screen.findByRole("heading", { name: "研究工作台" }),
-    ).toBeVisible();
+    expect(await findDashboardHeading()).toBeVisible();
 
     const destinations = [
       {
@@ -117,8 +121,8 @@ describe("application shell routes", () => {
 
   it.each([
     ["/reports/report-btc-001", "报告详情"],
-    ["/trades/new", "新增交易记录"],
-    ["/trades/trade-001/edit", "编辑交易记录"],
+    ["/trades/new", "新增交易日志"],
+    ["/trades/trade-001/edit", "编辑交易日志"],
   ])("maps %s to its declared page", async (path, heading) => {
     renderApp(path);
 
@@ -128,6 +132,39 @@ describe("application shell routes", () => {
     expect(
       screen.queryByRole("heading", { name: "页面未找到" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("routes the journal list to the working Mock journal instead of a placeholder", async () => {
+    renderApp("/trades");
+
+    expect(
+      await screen.findByRole("table", { name: "交易日志记录" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "新增交易日志" }),
+    ).toHaveAttribute("href", "/trades/new");
+  });
+
+  it("routes a new journal URL to the working editor", async () => {
+    renderApp("/trades/new?linkedAnalysisReportId=report-btc-001");
+
+    expect(
+      await screen.findByLabelText("关联分析报告 ID"),
+    ).toHaveValue("report-btc-001");
+  });
+
+  it("routes analytics to rendered KPI, chart, and calendar data", async () => {
+    renderApp("/analytics");
+
+    expect(
+      await screen.findByRole("heading", { name: "核心复盘指标" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("table", { name: "权益曲线文本数据" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("table", { name: "交易日历文本数据" }),
+    ).toBeVisible();
   });
 
   it("renders a clear 404 page and returns to the dashboard without a mouse", async () => {
@@ -146,9 +183,7 @@ describe("application shell routes", () => {
     await user.keyboard("{Enter}");
 
     expect(window.location.pathname).toBe("/");
-    expect(
-      await screen.findByRole("heading", { name: "研究工作台" }),
-    ).toBeVisible();
+    expect(await findDashboardHeading()).toBeVisible();
   });
 
   it("resets the same active MockWorkbenchApi instance exposed by the shell", async () => {

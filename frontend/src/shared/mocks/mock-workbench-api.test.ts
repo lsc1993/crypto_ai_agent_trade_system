@@ -161,4 +161,49 @@ describe("MockWorkbenchApi", () => {
     ]);
     expect(retriedEvents).toEqual(startedEvents);
   });
+
+  it("derives an analytics snapshot from only trades matching its filters", async () => {
+    const api = new MockWorkbenchApi();
+
+    const allTrades = await api.getAnalytics({});
+    const unmatchedSymbol = await api.getAnalytics({
+      symbol: "ETHUSDT",
+    });
+    const afterSeedWindow = await api.getAnalytics({
+      from: "2025-01-12T00:00:00Z",
+    });
+
+    expect(allTrades).toMatchObject({
+      netPnl: "9.40",
+      winRate: "1",
+      profitFactor: "0",
+      expectancy: "9.40",
+      maxDrawdown: "0",
+      equityCurve: [
+        {
+          at: "2025-01-11T01:05:00Z",
+          equity: "9.40",
+          netPnl: "9.40",
+        },
+      ],
+      tradeCalendar: [
+        {
+          at: "2025-01-11T00:00:00Z",
+          netPnl: "9.40",
+          tradeCount: 1,
+        },
+      ],
+    });
+    expect(unmatchedSymbol).toMatchObject({
+      netPnl: "0",
+      winRate: "0",
+      profitFactor: "0",
+      expectancy: "0",
+      maxDrawdown: "0",
+      equityCurve: [],
+      tradeCalendar: [],
+    });
+    expect(afterSeedWindow).toEqual(unmatchedSymbol);
+    expect(unmatchedSymbol.generatedAt).toBe(allTrades.generatedAt);
+  });
 });

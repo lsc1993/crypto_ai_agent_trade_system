@@ -41,9 +41,9 @@ import {
   type TradeFilters,
 } from "../../domain/trade";
 import {
-  mockAnalytics,
   mockDashboard,
   mockMarketDetails,
+  MOCK_ANALYTICS_GENERATED_AT,
 } from "../mocks/fixtures";
 import { MOCK_STORAGE_KEY } from "../mocks/reset";
 import {
@@ -121,6 +121,124 @@ function resolveTradeStatus(draft: TradeDraft): {
 function deterministicTimestamp(sequence: number): string {
   const minute = String(sequence % 60).padStart(2, "0");
   return `2025-02-01T00:${minute}:00Z`;
+}
+
+function matchesAnalyticsFilters(
+  trade: Trade,
+  filters: AnalyticsFilters,
+): boolean {
+  return (
+    (filters.symbol === undefined || trade.symbol === filters.symbol) &&
+    (filters.direction === undefined ||
+      trade.direction === filters.direction) &&
+    (filters.horizon === undefined || trade.horizon === filters.horizon) &&
+    (filters.label === undefined || trade.labels.includes(filters.label)) &&
+    (filters.from === undefined ||
+      Date.parse(trade.openedAt) >= Date.parse(filters.from)) &&
+    (filters.to === undefined ||
+      Date.parse(trade.openedAt) <= Date.parse(filters.to))
+  );
+}
+
+function maximumNetPnlFractionDigits(trades: Trade[]): number {
+  return trades.reduce((maximum, trade) => {
+    const fraction = trade.netPnl.split(".")[1];
+    return Math.max(maximum, fraction?.length ?? 0);
+  }, 0);
+}
+
+function formatAnalyticsDecimal(
+  value: Decimal,
+  minimumFractionDigits = 0,
+): string {
+  const normalized = value.isZero() ? new Decimal(0) : value;
+  const decimalPlaces = Math.min(
+    18,
+    Math.max(minimumFractionDigits, normalized.decimalPlaces() ?? 0),
+  );
+  return normalized.toFixed(decimalPlaces);
+}
+
+function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
+  const orderedTrades = [...trades].sort((left, right) => {
+    const timestampOrder = left.updatedAt.localeCompare(right.updatedAt);
+    return timestampOrder === 0 ? left.id.localeCompare(right.id) : timestampOrder;
+  });
+  const minimumFractionDigits = maximumNetPnlFractionDigits(orderedTrades);
+  const calendar = new Map<
+    string,
+    { netPnl: Decimal; tradeCount: number }
+  >();
+  let netPnl = new Decimal(0);
+  let peakEquity = new Decimal(0);
+  let maxDrawdown = new Decimal(0);
+  let grossProfit = new Decimal(0);
+  let grossLoss = new Decimal(0);
+  let winningTrades = 0;
+
+  const equityCurve = orderedTrades.map((trade) => {
+    const tradePnl = new Decimal(trade.netPnl);
+    netPnl = netPnl.plus(tradePnl);
+    if (tradePnl.greaterThan(0)) {
+      winningTrades += 1;
+      grossProfit = grossProfit.plus(tradePnl);
+    } else if (tradePnl.lessThan(0)) {
+      grossLoss = grossLoss.plus(tradePnl.abs());
+    }
+    if (netPnl.greaterThan(peakEquity)) {
+      peakEquity = netPnl;
+    }
+    const drawdown = netPnl.minus(peakEquity);
+    if (drawdown.lessThan(maxDrawdown)) {
+      maxDrawdown = drawdown;
+    }
+
+    const calendarAt = `${trade.updatedAt.slice(0, 10)}T00:00:00Z`;
+    const calendarEntry = calendar.get(calendarAt);
+    if (calendarEntry === undefined) {
+      calendar.set(calendarAt, { netPnl: tradePnl, tradeCount: 1 });
+    } else {
+      calendarEntry.netPnl = calendarEntry.netPnl.plus(tradePnl);
+      calendarEntry.tradeCount += 1;
+    }
+
+    return {
+      at: trade.updatedAt,
+      equity: formatAnalyticsDecimal(netPnl, minimumFractionDigits),
+      netPnl: formatAnalyticsDecimal(netPnl, minimumFractionDigits),
+    };
+  });
+
+  const tradeCount = orderedTrades.length;
+  const winRate =
+    tradeCount === 0
+      ? new Decimal(0)
+      : new Decimal(String(winningTrades)).div(String(tradeCount));
+  const profitFactor = grossLoss.isZero()
+    ? new Decimal(0)
+    : grossProfit.div(grossLoss);
+  const expectancy =
+    tradeCount === 0 ? new Decimal(0) : netPnl.div(String(tradeCount));
+
+  return analyticsSnapshotSchema.parse({
+    netPnl: formatAnalyticsDecimal(netPnl, minimumFractionDigits),
+    winRate: formatAnalyticsDecimal(winRate),
+    profitFactor: formatAnalyticsDecimal(profitFactor),
+    expectancy: formatAnalyticsDecimal(expectancy, minimumFractionDigits),
+    maxDrawdown: formatAnalyticsDecimal(maxDrawdown),
+    equityCurve,
+    tradeCalendar: [...calendar.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([at, entry]) => ({
+        at,
+        netPnl: formatAnalyticsDecimal(
+          entry.netPnl,
+          minimumFractionDigits,
+        ),
+        tradeCount: entry.tradeCount,
+      })),
+    generatedAt: MOCK_ANALYTICS_GENERATED_AT,
+  });
 }
 
 export class MockWorkbenchApi implements WorkbenchApi {
@@ -372,8 +490,11 @@ export class MockWorkbenchApi implements WorkbenchApi {
   async getAnalytics(
     filters: AnalyticsFilters,
   ): Promise<AnalyticsSnapshot> {
-    analyticsFiltersSchema.parse(filters);
-    return Promise.resolve(analyticsSnapshotSchema.parse(mockAnalytics));
+    const parsedFilters = analyticsFiltersSchema.parse(filters);
+    const matchingTrades = this.state.trades.filter((trade) =>
+      matchesAnalyticsFilters(trade, parsedFilters),
+    );
+    return Promise.resolve(deriveAnalyticsSnapshot(matchingTrades));
   }
 
   reset(): void {

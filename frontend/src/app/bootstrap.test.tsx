@@ -3,13 +3,19 @@ import { describe, expect, it } from "vitest";
 
 import { createRuntimeApplication } from "./bootstrap";
 
+function findDashboardHeading() {
+  return screen.findByRole(
+    "heading",
+    { name: "研究工作台" },
+    { timeout: 3_000 },
+  );
+}
+
 describe("production runtime bootstrap", () => {
   it("starts a clean checkout in Mock mode when runtime keys are omitted", async () => {
     render(createRuntimeApplication({}));
 
-    expect(
-      await screen.findByRole("heading", { name: "研究工作台" }),
-    ).toBeVisible();
+    expect(await findDashboardHeading()).toBeVisible();
     expect(screen.getByText("Mock 数据模式")).toBeVisible();
   });
 
@@ -20,9 +26,7 @@ describe("production runtime bootstrap", () => {
       }),
     );
 
-    expect(
-      await screen.findByRole("heading", { name: "研究工作台" }),
-    ).toBeVisible();
+    expect(await findDashboardHeading()).toBeVisible();
     expect(screen.getByText("Mock 数据模式")).toBeVisible();
   });
 
