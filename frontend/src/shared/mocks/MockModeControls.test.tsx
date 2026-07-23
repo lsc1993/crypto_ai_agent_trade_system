@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import App from "../../App";
+import App from "../../app/App";
+import { HttpWorkbenchApi } from "../api/http-workbench-api";
 import { MockWorkbenchApi } from "../api/mock-workbench-api";
 import { mockTradeDraft } from "./fixtures";
 
@@ -15,7 +16,7 @@ describe("Mock mode controls", () => {
     const changed = await api.listTrades({ page: 1, pageSize: 20 });
     expect(changed.total).toBe(seed.total + 1);
 
-    render(<App dataMode="mock" mockApi={api} />);
+    render(<App dataMode="mock" api={api} />);
 
     expect(screen.getByText("Mock 数据模式")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "重置 Mock 数据" }));
@@ -25,7 +26,10 @@ describe("Mock mode controls", () => {
   });
 
   it("does not render Mock controls in API mode", () => {
-    render(<App dataMode="api" />);
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+    });
+    render(<App dataMode="api" api={api} />);
 
     expect(screen.queryByText("Mock 数据模式")).not.toBeInTheDocument();
   });
