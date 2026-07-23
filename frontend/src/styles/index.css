@@ -630,6 +630,161 @@
   margin: 0.65rem 0;
 }
 
+.report-generator,
+.report-audit-panel,
+.report-section,
+.report-actions,
+.settings-form {
+  padding: 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.95rem;
+  background: var(--surface);
+}
+
+.report-generator,
+.report-actions {
+  display: grid;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.report-generator h2,
+.report-audit-panel h2,
+.report-section h2,
+.report-actions h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.report-generator p,
+.report-section p,
+.report-actions p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.report-generator__analysis,
+.report-retry-status strong {
+  color: var(--accent) !important;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.report-detail__title {
+  margin: 0 0 0.65rem;
+  color: var(--accent);
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+}
+
+.report-observation-grid,
+.report-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.report-section {
+  border-left-width: 0.3rem;
+}
+
+.report-section--fact {
+  border-left-color: var(--success);
+}
+
+.report-section--inference {
+  border-left-color: var(--accent);
+}
+
+.report-section--risk {
+  border-left-color: var(--danger);
+}
+
+.report-section--limitation {
+  border-left-color: var(--warning);
+}
+
+.report-section ul {
+  display: grid;
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+  gap: 0.5rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.evidence-list__items {
+  display: grid;
+  margin-top: 1rem;
+  gap: 0.75rem;
+}
+
+.evidence-card {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface-raised);
+}
+
+.report-actions__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.secondary-action {
+  padding: 0.7rem 1rem;
+  border: 1px solid #3f7776;
+  border-radius: 0.65rem;
+  color: var(--accent);
+  background: transparent;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.secondary-action:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.report-retry-status {
+  padding: 0.8rem;
+  border-left: 0.2rem solid var(--accent);
+  background: var(--surface-raised);
+}
+
+.settings-form {
+  display: grid;
+  width: min(100%, 42rem);
+  gap: 1rem;
+}
+
+.settings-form label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.settings-form select {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.settings-form .primary-action {
+  width: fit-content;
+}
+
+.settings-form__status {
+  margin: 0;
+  color: var(--success);
+}
+
 @media (max-width: 880px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -685,7 +840,9 @@
 
   .market-card-grid,
   .dashboard-page__columns,
-  .market-page__grid {
+  .market-page__grid,
+  .report-observation-grid,
+  .report-risk-grid {
     grid-template-columns: 1fr;
   }
 

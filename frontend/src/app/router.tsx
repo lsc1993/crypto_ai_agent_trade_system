@@ -3,6 +3,9 @@ import { Link, useRoutes } from "react-router-dom";
 import { PageState } from "../components/common/PageState";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { MarketPage } from "../features/market/MarketPage";
+import { ReportDetailPage } from "../features/reports/ReportDetailPage";
+import { ReportListPage } from "../features/reports/ReportListPage";
+import { SettingsPage } from "../features/settings/SettingsPage";
 
 interface RoutePageProps {
   title: string;
@@ -47,21 +50,11 @@ export function AppRouter() {
     { path: "/market/:symbol", element: <MarketPage /> },
     {
       path: "/reports",
-      element: (
-        <RoutePage
-          title="分析报告"
-          description="浏览可审计的事实、推断、风险与限制。"
-        />
-      ),
+      element: <ReportListPage />,
     },
     {
       path: "/reports/:reportId",
-      element: (
-        <RoutePage
-          title="报告详情"
-          description="查看报告证据、数据截止时间和分析状态。"
-        />
-      ),
+      element: <ReportDetailPage />,
     },
     {
       path: "/trades",
@@ -101,12 +94,7 @@ export function AppRouter() {
     },
     {
       path: "/settings",
-      element: (
-        <RoutePage
-          title="设置"
-          description="管理工作台显示偏好，不涉及账户或交易所权限。"
-        />
-      ),
+      element: <SettingsPage />,
     },
     { path: "*", element: <NotFoundPage /> },
   ]);
