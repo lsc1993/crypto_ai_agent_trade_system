@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
@@ -75,6 +75,31 @@ async def test_http_errors_use_global_error_envelope() -> None:
         "code": "not_found",
         "message": "Not Found",
         "details": {},
+    }
+
+
+@pytest.mark.asyncio
+async def test_structured_http_error_detail_is_normalized() -> None:
+    app = create_app()
+
+    async def raise_structured_error() -> None:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "conflict"},
+        )
+
+    app.add_api_route(
+        "/structured-error",
+        raise_structured_error,
+        methods=["GET"],
+    )
+    response = await request(app, "GET", "/structured-error")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "http_error",
+        "message": "请求无法处理",
+        "details": {"detail": {"reason": "conflict"}},
     }
 
 

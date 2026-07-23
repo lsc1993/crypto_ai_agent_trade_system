@@ -36,9 +36,21 @@ async def _http_exception_handler(
         raise TypeError("HTTP 异常处理器收到了不支持的异常类型")
 
     code = "not_found" if exception.status_code == 404 else "http_error"
+    detail: Any = exception.detail
+    if isinstance(detail, str):
+        message = detail
+        details: dict[str, Any] = {}
+    else:
+        message = "请求无法处理"
+        details = {"detail": jsonable_encoder(detail)}
+
     return _response(
         exception.status_code,
-        ErrorEnvelope(code=code, message=exception.detail),
+        ErrorEnvelope(
+            code=code,
+            message=message,
+            details=details,
+        ),
     )
 
 
