@@ -1,6 +1,8 @@
-import { Link, useParams, useRoutes } from "react-router-dom";
+import { Link, useRoutes } from "react-router-dom";
 
 import { PageState } from "../components/common/PageState";
+import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { MarketPage } from "../features/market/MarketPage";
 
 interface RoutePageProps {
   title: string;
@@ -23,16 +25,6 @@ function RoutePage({ title, description }: RoutePageProps) {
   );
 }
 
-function MarketPage() {
-  const { symbol = "" } = useParams();
-  return (
-    <RoutePage
-      title={`${symbol} 市场详情`}
-      description="查看所选标的的行情、K 线、新闻与数据新鲜度。"
-    />
-  );
-}
-
 function NotFoundPage() {
   return (
     <section className="route-page route-page--centered">
@@ -50,12 +42,7 @@ export function AppRouter() {
   return useRoutes([
     {
       path: "/",
-      element: (
-        <RoutePage
-          title="研究工作台"
-          description="集中查看市场、研究报告、交易日志与复盘统计。"
-        />
-      ),
+      element: <DashboardPage />,
     },
     { path: "/market/:symbol", element: <MarketPage /> },
     {
