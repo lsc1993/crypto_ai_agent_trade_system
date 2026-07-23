@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  httpUrlSchema,
   identifierSchema,
   symbolSchema,
   utcIsoStringSchema,
@@ -11,7 +12,7 @@ export const newsItemSchema = z.object({
   title: z.string().trim().min(1),
   summary: z.string(),
   source: z.string().trim().min(1),
-  sourceUrl: z.url(),
+  sourceUrl: httpUrlSchema,
   publishedAt: utcIsoStringSchema,
   fetchedAt: utcIsoStringSchema,
   symbols: z.array(symbolSchema).min(1),

@@ -197,10 +197,11 @@ export class MockWorkbenchApi implements WorkbenchApi {
   async startReport(input: {
     symbol: Symbol;
   }): Promise<{ analysisId: string }> {
-    reportStartSchema.parse(input);
+    const parsedInput = reportStartSchema.parse(input);
     const analysisId = `analysis-new-${String(
       this.state.nextAnalysisSequence,
     ).padStart(4, "0")}`;
+    this.state.analysisSymbols[analysisId] = parsedInput.symbol;
     this.state.nextAnalysisSequence += 1;
     persistState(this.state);
     return Promise.resolve(analysisResultSchema.parse({ analysisId }));
@@ -209,10 +210,11 @@ export class MockWorkbenchApi implements WorkbenchApi {
   async retryReport(
     reportId: string,
   ): Promise<{ analysisId: string }> {
-    await this.getReport(reportId);
+    const report = await this.getReport(reportId);
     const analysisId = `analysis-retry-${String(
       this.state.nextAnalysisSequence,
     ).padStart(4, "0")}`;
+    this.state.analysisSymbols[analysisId] = report.symbol;
     this.state.nextAnalysisSequence += 1;
     persistState(this.state);
     return analysisResultSchema.parse({ analysisId });
@@ -223,24 +225,25 @@ export class MockWorkbenchApi implements WorkbenchApi {
     onEvent: (event: AnalysisStreamEvent) => void,
   ): () => void {
     const parsedId = identifierSchema.parse(analysisId);
+    const symbol = this.state.analysisSymbols[parsedId] ?? "BTCUSDT";
     const events = [
       analysisStreamEventSchema.parse({
         analysisId: parsedId,
-        symbol: "BTCUSDT",
+        symbol,
         status: "queued",
         occurredAt: "2025-02-01T01:00:00Z",
         message: "Mock analysis queued",
       }),
       analysisStreamEventSchema.parse({
         analysisId: parsedId,
-        symbol: "BTCUSDT",
+        symbol,
         status: "running",
         occurredAt: "2025-02-01T01:00:01Z",
         message: "Mock analysis running",
       }),
       analysisStreamEventSchema.parse({
         analysisId: parsedId,
-        symbol: "BTCUSDT",
+        symbol,
         status: "completed",
         occurredAt: "2025-02-01T01:00:02Z",
         message: "Mock analysis completed",

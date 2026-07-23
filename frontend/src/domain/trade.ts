@@ -38,8 +38,10 @@ const tradeDraftBaseSchema = z.object({
   review: z.string(),
 });
 
-export const tradeDraftSchema = tradeDraftBaseSchema.superRefine(
-  ({ legs }, context) => {
+function validateTradeLegAccounting(
+  legs: z.infer<typeof tradeLegSchema>[],
+  context: z.RefinementCtx,
+): void {
     const identifiers = new Set<string>();
     let remaining = new Decimal(0);
     let closed = false;
@@ -102,18 +104,27 @@ export const tradeDraftSchema = tradeDraftBaseSchema.superRefine(
         closed = true;
       }
     }
+}
+
+export const tradeDraftSchema = tradeDraftBaseSchema.superRefine(
+  ({ legs }, context) => {
+    validateTradeLegAccounting(legs, context);
   },
 );
 
-export const tradeSchema = tradeDraftBaseSchema.extend({
-  id: identifierSchema,
-  status: tradeStatusSchema,
-  netPnl: decimalStringSchema,
-  openedAt: utcIsoStringSchema,
-  closedAt: utcIsoStringSchema.nullable(),
-  createdAt: utcIsoStringSchema,
-  updatedAt: utcIsoStringSchema,
-});
+export const tradeSchema = tradeDraftBaseSchema
+  .extend({
+    id: identifierSchema,
+    status: tradeStatusSchema,
+    netPnl: decimalStringSchema,
+    openedAt: utcIsoStringSchema,
+    closedAt: utcIsoStringSchema.nullable(),
+    createdAt: utcIsoStringSchema,
+    updatedAt: utcIsoStringSchema,
+  })
+  .superRefine(({ legs }, context) => {
+    validateTradeLegAccounting(legs, context);
+  });
 
 export const tradeFiltersSchema = paginationSchema
   .extend({

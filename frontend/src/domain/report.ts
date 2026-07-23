@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  httpUrlSchema,
   identifierSchema,
   paginationSchema,
   symbolSchema,
@@ -19,7 +20,7 @@ export const analysisEvidenceSchema = z.object({
   id: identifierSchema,
   symbol: symbolSchema,
   source: z.string().trim().min(1),
-  sourceUrl: z.url(),
+  sourceUrl: httpUrlSchema,
   observedAt: utcIsoStringSchema,
   summary: z.string(),
 });

@@ -8,7 +8,7 @@ export type Timeframe = "15m" | "1h" | "4h" | "1d";
 const canonicalDecimalPattern = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const unsignedDecimalPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const utcZuluPattern =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/;
 
 function hasSupportedPrecision(value: string): boolean {
   const unsigned = value.startsWith("-") ? value.slice(1) : value;
@@ -24,6 +24,65 @@ function hasSupportedPrecision(value: string): boolean {
 function isNonZero(value: string): boolean {
   const unsigned = value.startsWith("-") ? value.slice(1) : value;
   return unsigned.replace(".", "").split("").some((digit) => digit !== "0");
+}
+
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function isRealUtcCalendarTimestamp(value: string): boolean {
+  const match = utcZuluPattern.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const yearText = match[1];
+  const monthText = match[2];
+  const dayText = match[3];
+  const hourText = match[4];
+  const minuteText = match[5];
+  const secondText = match[6];
+  if (
+    yearText === undefined ||
+    monthText === undefined ||
+    dayText === undefined ||
+    hourText === undefined ||
+    minuteText === undefined ||
+    secondText === undefined
+  ) {
+    return false;
+  }
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (
+    month < 1 ||
+    month > 12 ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59
+  ) {
+    return false;
+  }
+  const daysInMonth = [
+    31,
+    isLeapYear(year) ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  const maximumDay = daysInMonth[month - 1];
+  return maximumDay !== undefined && day >= 1 && day <= maximumDay;
 }
 
 export const decimalStringSchema = z
@@ -51,9 +110,17 @@ export const nonNegativeDecimalStringSchema = z
 export const utcIsoStringSchema = z
   .string()
   .regex(utcZuluPattern, "Expected an RFC3339 UTC timestamp ending in Z")
-  .refine((value) => !Number.isNaN(Date.parse(value)), {
+  .refine(isRealUtcCalendarTimestamp, {
     message: "Expected a valid UTC timestamp",
   });
+
+export const httpUrlSchema = z.url().refine(
+  (value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  },
+  { message: "Expected an HTTP(S) URL" },
+);
 
 export const symbolSchema = z.enum(["BTCUSDT", "ETHUSDT"]);
 export const timeframeSchema = z.enum(["15m", "1h", "4h", "1d"]);

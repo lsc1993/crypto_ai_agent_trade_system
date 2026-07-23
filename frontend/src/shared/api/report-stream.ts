@@ -2,7 +2,6 @@ import {
   analysisStreamEventSchema,
   type AnalysisStreamEvent,
 } from "../../domain/report";
-import { identifierSchema } from "../../domain/primitives";
 
 export interface ReportEventSource {
   onmessage: ((event: MessageEvent<string>) => void) | null;
@@ -13,8 +12,7 @@ export interface ReportEventSource {
 export type ReportEventSourceFactory = (url: string) => ReportEventSource;
 
 export interface ReportStreamOptions {
-  baseUrl: string;
-  analysisId: string;
+  url: string;
   onEvent: (event: AnalysisStreamEvent) => void;
   eventSourceFactory?: ReportEventSourceFactory;
 }
@@ -26,11 +24,10 @@ function defaultEventSourceFactory(url: string): ReportEventSource {
 export function subscribeToReportStream(
   options: ReportStreamOptions,
 ): () => void {
-  const analysisId = identifierSchema.parse(options.analysisId);
-  const url = new URL(
-    `/api/v1/reports/streams/${encodeURIComponent(analysisId)}`,
-    options.baseUrl,
-  );
+  const url = new URL(options.url);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Report stream URL must use HTTP(S)");
+  }
   const createEventSource =
     options.eventSourceFactory ?? defaultEventSourceFactory;
   const eventSource = createEventSource(url.toString());

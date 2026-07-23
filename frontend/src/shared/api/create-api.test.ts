@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { createWorkbenchApi } from "./create-api";
-import { HttpWorkbenchApi } from "./http-workbench-api";
+import {
+  HttpWorkbenchApi,
+  WorkbenchEndpointUnavailableError,
+} from "./http-workbench-api";
+import {
+  createWirePageSchema,
+  HttpTransport,
+} from "./http-transport";
 import { MockWorkbenchApi } from "./mock-workbench-api";
 import { WorkbenchConfigurationError } from "../config/env";
 
@@ -32,21 +40,20 @@ describe("createWorkbenchApi", () => {
       }),
     ).toThrowError(WorkbenchConfigurationError);
 
-    try {
+    expect(() =>
       createWorkbenchApi({
         VITE_API_BASE_URL: "http://localhost:8000",
         VITE_DATA_MODE: undefined,
-      });
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(WorkbenchConfigurationError);
-      if (error instanceof WorkbenchConfigurationError) {
-        expect(error.code).toBe("INVALID_DATA_MODE");
-      }
-    }
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "INVALID_DATA_MODE",
+      }),
+    );
   });
 });
 
-describe("HttpWorkbenchApi", () => {
+describe("HttpTransport", () => {
   it("rejects malformed HTTP response data instead of coercing it", async () => {
     const fetchImpl: typeof fetch = vi.fn(() =>
       Promise.resolve(
@@ -55,12 +62,14 @@ describe("HttpWorkbenchApi", () => {
         }),
       ),
     );
-    const api = new HttpWorkbenchApi({
+    const transport = new HttpTransport({
       baseUrl: "http://localhost:8000",
       fetchImpl,
     });
 
-    await expect(api.getDashboard()).rejects.toThrow(/response/i);
+    await expect(
+      transport.request("/contract-test", z.object({ status: z.literal("ok") })),
+    ).rejects.toThrow(/response/i);
   });
 
   it("maps page_size only at the HTTP wire boundary", async () => {
@@ -74,17 +83,22 @@ describe("HttpWorkbenchApi", () => {
         }),
       ),
     );
-    const api = new HttpWorkbenchApi({
+    const transport = new HttpTransport({
       baseUrl: "http://localhost:8000",
       fetchImpl,
     });
 
-    await expect(api.listReports({ page: 2, pageSize: 25 })).resolves.toEqual({
-      items: [],
-      page: 2,
-      pageSize: 25,
-      total: 0,
-    });
+    await expect(
+      transport.request(
+        "/contract-test",
+        createWirePageSchema(z.object({ id: z.string() })),
+      ),
+    ).resolves.toEqual({
+        items: [],
+        page: 2,
+        pageSize: 25,
+        total: 0,
+      });
   });
 
   it("forwards an AbortSignal to HTTP requests", async () => {
@@ -98,17 +112,38 @@ describe("HttpWorkbenchApi", () => {
         }),
       ),
     );
-    const api = new HttpWorkbenchApi({
+    const transport = new HttpTransport({
       baseUrl: "http://localhost:8000",
       fetchImpl,
     });
     const controller = new AbortController();
 
-    await api.listReports({ page: 1, pageSize: 20 }, controller.signal);
+    await transport.request(
+      "/contract-test",
+      createWirePageSchema(z.object({ id: z.string() })),
+      { signal: controller.signal },
+    );
 
     expect(fetchImpl).toHaveBeenCalledWith(
       expect.any(URL),
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+});
+
+describe("HttpWorkbenchApi", () => {
+  it("signals that business endpoints are unavailable until routes exist", async () => {
+    const fetchImpl: typeof fetch = vi.fn(() =>
+      Promise.reject(new Error("fetch must not be called")),
+    );
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+
+    await expect(api.getDashboard()).rejects.toBeInstanceOf(
+      WorkbenchEndpointUnavailableError,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

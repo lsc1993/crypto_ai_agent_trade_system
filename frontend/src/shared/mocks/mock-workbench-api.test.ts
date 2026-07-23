@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { parseTradeDraft } from "../../domain/trade";
+import { parseTradeDraft, tradeSchema } from "../../domain/trade";
 import { MockWorkbenchApi } from "../api/mock-workbench-api";
-import { mockTradeDraft } from "./fixtures";
+import { mockTradeDraft, mockTrades } from "./fixtures";
 import { resetMockWorkbench } from "./reset";
 
 describe("MockWorkbenchApi", () => {
@@ -64,6 +64,38 @@ describe("MockWorkbenchApi", () => {
     ).toThrow(/reduce/i);
   });
 
+  it("rejects invalid trade-leg accounting on a server-shaped Trade", () => {
+    const trade = mockTrades[0];
+    expect(trade).toBeDefined();
+    if (trade === undefined) {
+      throw new Error("Mock trade fixture is missing");
+    }
+
+    expect(() =>
+      tradeSchema.parse({
+        ...trade,
+        legs: [
+          {
+            id: "leg-open",
+            action: "open",
+            executedAt: "2025-01-01T00:00:00Z",
+            price: "100",
+            quantity: "1",
+            fee: "0",
+          },
+          {
+            id: "leg-close",
+            action: "close",
+            executedAt: "2025-01-01T01:00:00Z",
+            price: "105",
+            quantity: "2",
+            fee: "0",
+          },
+        ],
+      }),
+    ).toThrow(/quantity/i);
+  });
+
   it("ignores invalid localStorage state and reset restores the seed", async () => {
     localStorage.setItem("crypto-workbench:mock-state:v1", "{not-json");
     const api = new MockWorkbenchApi();
@@ -103,5 +135,30 @@ describe("MockWorkbenchApi", () => {
 
     expect(first.analysisId).not.toBe(second.analysisId);
     expect(first.analysisId).toMatch(/^analysis-retry-/);
+  });
+
+  it("retains ETHUSDT through start, retry, and stream lifecycle events", async () => {
+    vi.useFakeTimers();
+    const api = new MockWorkbenchApi();
+    const started = await api.startReport({ symbol: "ETHUSDT" });
+    const retried = await api.retryReport("report-eth-001");
+    const startedEvents: Array<{ symbol: string; status: string }> = [];
+    const retriedEvents: Array<{ symbol: string; status: string }> = [];
+
+    api.subscribeReport(started.analysisId, (event) => {
+      startedEvents.push({ symbol: event.symbol, status: event.status });
+    });
+    api.subscribeReport(retried.analysisId, (event) => {
+      retriedEvents.push({ symbol: event.symbol, status: event.status });
+    });
+    vi.runAllTimers();
+
+    expect(retried.analysisId).not.toBe(started.analysisId);
+    expect(startedEvents).toEqual([
+      { symbol: "ETHUSDT", status: "queued" },
+      { symbol: "ETHUSDT", status: "running" },
+      { symbol: "ETHUSDT", status: "completed" },
+    ]);
+    expect(retriedEvents).toEqual(startedEvents);
   });
 });
