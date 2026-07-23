@@ -3,18 +3,25 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import App from "../../App";
-import { MOCK_STORAGE_KEY } from "./reset";
+import { MockWorkbenchApi } from "../api/mock-workbench-api";
+import { mockTradeDraft } from "./fixtures";
 
 describe("Mock mode controls", () => {
-  it("renders the visible mode label and resets Mock state", async () => {
+  it("renders the visible mode label and resets the active Mock API in memory", async () => {
     const user = userEvent.setup();
-    localStorage.setItem(MOCK_STORAGE_KEY, '{"changed":true}');
+    const api = new MockWorkbenchApi();
+    const seed = await api.listTrades({ page: 1, pageSize: 20 });
+    await api.createTrade(mockTradeDraft);
+    const changed = await api.listTrades({ page: 1, pageSize: 20 });
+    expect(changed.total).toBe(seed.total + 1);
 
-    render(<App dataMode="mock" />);
+    render(<App dataMode="mock" mockApi={api} />);
 
     expect(screen.getByText("Mock 数据模式")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "重置 Mock 数据" }));
-    expect(localStorage.getItem(MOCK_STORAGE_KEY)).toBeNull();
+    await expect(
+      api.listTrades({ page: 1, pageSize: 20 }),
+    ).resolves.toEqual(seed);
   });
 
   it("does not render Mock controls in API mode", () => {
