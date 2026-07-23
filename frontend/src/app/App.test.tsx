@@ -1,0 +1,240 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { DataFreshnessBadge } from "../components/common/DataFreshnessBadge";
+import { PageState } from "../components/common/PageState";
+import { MockWorkbenchApi } from "../shared/api/mock-workbench-api";
+import { mockTradeDraft } from "../shared/mocks/fixtures";
+import App from "./App";
+
+const observedAt = "2025-01-15T12:00:00Z";
+const fetchedAt = "2025-01-15T12:00:05Z";
+
+function renderApp(path = "/") {
+  window.history.replaceState({}, "", path);
+  const api = new MockWorkbenchApi();
+  render(<App api={api} dataMode="mock" />);
+  return api;
+}
+
+describe("application shell routes", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("renders semantic landmarks and a keyboard-accessible skip link", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    expect(
+      await screen.findByRole("heading", { name: "研究工作台" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("navigation", { name: "主导航" }),
+    ).toBeVisible();
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
+
+    await user.tab();
+
+    expect(
+      screen.getByRole("link", { name: "跳到主要内容" }),
+    ).toHaveFocus();
+  });
+
+  it("exposes an accessible control that explicitly collapses the sidebar", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const collapseButton = screen.getByRole("button", {
+      name: "收起主导航",
+    });
+    expect(collapseButton).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(collapseButton);
+
+    expect(
+      screen.getByRole("button", { name: "展开主导航" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById("primary-navigation")).toHaveAttribute(
+      "hidden",
+    );
+  });
+
+  it("reaches every primary destination with focused sidebar links and Enter", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    expect(
+      await screen.findByRole("heading", { name: "研究工作台" }),
+    ).toBeVisible();
+
+    const destinations = [
+      {
+        linkName: "BTCUSDT 市场",
+        path: "/market/BTCUSDT",
+        heading: "BTCUSDT 市场详情",
+      },
+      {
+        linkName: "分析报告",
+        path: "/reports",
+        heading: "分析报告",
+      },
+      {
+        linkName: "交易日志",
+        path: "/trades",
+        heading: "交易日志",
+      },
+      {
+        linkName: "复盘统计",
+        path: "/analytics",
+        heading: "复盘统计",
+      },
+      {
+        linkName: "设置",
+        path: "/settings",
+        heading: "设置",
+      },
+    ];
+
+    for (const destination of destinations) {
+      const link = screen.getByRole("link", {
+        name: destination.linkName,
+      });
+      link.focus();
+      expect(link).toHaveFocus();
+
+      await user.keyboard("{Enter}");
+
+      expect(window.location.pathname).toBe(destination.path);
+      expect(
+        await screen.findByRole("heading", {
+          name: destination.heading,
+        }),
+      ).toBeVisible();
+    }
+  });
+
+  it.each([
+    ["/reports/report-btc-001", "报告详情"],
+    ["/trades/new", "新增交易记录"],
+    ["/trades/trade-001/edit", "编辑交易记录"],
+  ])("maps %s to its declared page", async (path, heading) => {
+    renderApp(path);
+
+    expect(
+      await screen.findByRole("heading", { name: heading }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "页面未找到" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a clear 404 page and returns to the dashboard without a mouse", async () => {
+    const user = userEvent.setup();
+    renderApp("/does-not-exist");
+
+    expect(
+      await screen.findByRole("heading", { name: "页面未找到" }),
+    ).toBeVisible();
+    const dashboardLink = screen.getByRole("link", {
+      name: "返回研究工作台",
+    });
+    expect(dashboardLink).toHaveAttribute("href", "/");
+
+    dashboardLink.focus();
+    await user.keyboard("{Enter}");
+
+    expect(window.location.pathname).toBe("/");
+    expect(
+      await screen.findByRole("heading", { name: "研究工作台" }),
+    ).toBeVisible();
+  });
+
+  it("resets the same active MockWorkbenchApi instance exposed by the shell", async () => {
+    const user = userEvent.setup();
+    const api = new MockWorkbenchApi();
+    const seed = await api.listTrades({ page: 1, pageSize: 20 });
+    await api.createTrade(mockTradeDraft);
+    window.history.replaceState({}, "", "/");
+
+    render(<App api={api} dataMode="mock" />);
+    await user.click(
+      screen.getByRole("button", { name: "重置 Mock 数据" }),
+    );
+
+    await expect(
+      api.listTrades({ page: 1, pageSize: 20 }),
+    ).resolves.toEqual(seed);
+  });
+});
+
+describe("DataFreshnessBadge", () => {
+  it.each([
+    ["fresh", "数据正常"],
+    ["stale", "数据陈旧"],
+    ["missing", "数据缺失"],
+    ["failed", "数据获取失败"],
+  ] as const)("renders the explicit %s state as visible text", (status, label) => {
+    render(
+      <DataFreshnessBadge
+        status={status}
+        source="Deterministic Mock"
+        observedAt={observedAt}
+        fetchedAt={fetchedAt}
+      />,
+    );
+
+    expect(screen.getByText(label)).toBeVisible();
+  });
+
+  it("uses explicit status instead of inferring freshness from timestamps", () => {
+    const { rerender } = render(
+      <DataFreshnessBadge
+        status="fresh"
+        source="Deterministic Mock"
+        observedAt={observedAt}
+        fetchedAt={fetchedAt}
+      />,
+    );
+    expect(screen.getByText("数据正常")).toBeVisible();
+
+    rerender(
+      <DataFreshnessBadge
+        status="stale"
+        source="Deterministic Mock"
+        observedAt={observedAt}
+        fetchedAt={fetchedAt}
+      />,
+    );
+
+    expect(screen.getByText("数据陈旧")).toBeVisible();
+    expect(screen.queryByText("数据正常")).not.toBeInTheDocument();
+  });
+});
+
+describe("PageState", () => {
+  it.each([
+    ["loading", "正在加载数据"],
+    ["empty", "暂无数据"],
+    ["error", "数据加载失败"],
+    ["unavailable", "数据暂不可用"],
+  ] as const)("renders the standardized %s state", (state, label) => {
+    render(<PageState state={state} />);
+
+    expect(screen.getByText(label)).toBeVisible();
+  });
+
+  it("announces an error and preserves its safe user-facing detail", () => {
+    render(
+      <PageState
+        state="error"
+        message="无法读取工作台数据，请稍后重试。"
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "无法读取工作台数据，请稍后重试。",
+    );
+  });
+});
