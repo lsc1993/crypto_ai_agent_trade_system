@@ -55,6 +55,9 @@ export function formatDailyChange(value: DecimalString): string {
 }
 
 export function formatFundingRate(value: DecimalString): string {
-  const percent = new Decimal(value).mul(100).toFixed(4);
+  const roundedPercent = new Decimal(value).mul(100).toDecimalPlaces(4);
+  const percent = roundedPercent.isZero()
+    ? roundedPercent.abs().toFixed(4)
+    : roundedPercent.toFixed(4);
   return `${formatDecimal(percent, { showPositiveSign: true })}%`;
 }

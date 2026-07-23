@@ -74,14 +74,6 @@ export function MarketPage() {
   }
 
   const market = marketQuery.data;
-  if (market.series.length === 0 && market.news.length === 0) {
-    return (
-      <PageState
-        state="empty"
-        message="当前标的暂无市场研究数据。"
-      />
-    );
-  }
   const selectedSeries = market.series.find(
     (series) => series.timeframe === selectedTimeframe,
   );

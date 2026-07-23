@@ -15,7 +15,7 @@ export interface ChartCandle {
   volume: number;
 }
 
-// The required one-way display adapter is intentionally exported beside its chart.
+// 必需的单向显示适配器与图表置于同一模块，限制数值转换仅用于显示。
 // eslint-disable-next-line react-refresh/only-export-components
 export function toChartSeries(series: CandleSeries): ChartCandle[] {
   return series.candles.map((candle) => ({
@@ -65,6 +65,7 @@ export function MarketChart({
         role="tabpanel"
         id="market-timeframe-panel"
         aria-labelledby={`market-timeframe-tab-${timeframe}`}
+        tabIndex={0}
       >
         <h2>K 线图表</h2>
         <PageState
@@ -84,6 +85,7 @@ export function MarketChart({
       role="tabpanel"
       id="market-timeframe-panel"
       aria-labelledby={`market-timeframe-tab-${timeframe}`}
+      tabIndex={0}
     >
       <div className="section-heading">
         <div>

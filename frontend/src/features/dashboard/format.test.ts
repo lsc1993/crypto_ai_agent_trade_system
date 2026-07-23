@@ -10,4 +10,8 @@ describe("market percentage formatting", () => {
     expect(formatDailyChange("0")).toBe("0.00%");
     expect(formatFundingRate("0")).toBe("0.0000%");
   });
+
+  it("normalizes a tiny negative funding rate that rounds to zero", () => {
+    expect(formatFundingRate("-0.0000001")).toBe("0.0000%");
+  });
 });

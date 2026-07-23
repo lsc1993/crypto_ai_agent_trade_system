@@ -81,6 +81,59 @@ class UntrustedNewsMarketApi extends RecordingMarketApi {
   }
 }
 
+class EmptySectionsMarketApi extends RecordingMarketApi {
+  override getMarket(input: {
+    symbol: Symbol;
+    timeframes: Timeframe[];
+  }): Promise<MarketDetail> {
+    this.marketInputs.push({
+      symbol: input.symbol,
+      timeframes: [...input.timeframes],
+    });
+    return Promise.resolve(
+      marketDetailSchema.parse({
+        ...btcMarketDetail(),
+        series: [],
+        news: [],
+      }),
+    );
+  }
+}
+
+class PendingMarketApi extends MockWorkbenchApi {
+  override getMarket(): Promise<MarketDetail> {
+    return new Promise(() => undefined);
+  }
+}
+
+class FailingMarketApi extends MockWorkbenchApi {
+  override getMarket(): Promise<MarketDetail> {
+    return Promise.reject(
+      new Error("private market service detail must not reach the user"),
+    );
+  }
+}
+
+class PendingReportApi extends RecordingMarketApi {
+  override startReport(input: {
+    symbol: Symbol;
+  }): Promise<{ analysisId: string }> {
+    this.startedSymbols.push(input.symbol);
+    return new Promise(() => undefined);
+  }
+}
+
+class FailingReportApi extends RecordingMarketApi {
+  override startReport(input: {
+    symbol: Symbol;
+  }): Promise<{ analysisId: string }> {
+    this.startedSymbols.push(input.symbol);
+    return Promise.reject(
+      new Error("private report service detail must not reach the user"),
+    );
+  }
+}
+
 function renderMarket(api: MockWorkbenchApi = new RecordingMarketApi()) {
   window.history.replaceState({}, "", "/market/BTCUSDT");
   render(
@@ -93,6 +146,53 @@ function renderMarket(api: MockWorkbenchApi = new RecordingMarketApi()) {
 }
 
 describe("MarketPage", () => {
+  it("renders the standard loading state while market data is pending", () => {
+    renderMarket(new PendingMarketApi());
+
+    expect(screen.getByText("正在加载数据")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+  });
+
+  it("renders a safe standard error state when market loading fails", async () => {
+    renderMarket(new FailingMarketApi());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("数据加载失败");
+    expect(alert).toHaveTextContent("无法读取市场研究数据，请稍后重试。");
+    expect(alert).not.toHaveTextContent("private market service detail");
+  });
+
+  it("retains valid summary and research actions when chart and news sections are empty", async () => {
+    renderMarket(new EmptySectionsMarketApi());
+
+    const overview = await screen.findByRole("region", {
+      name: "市场概览",
+    });
+    expect(within(overview).getByText("67,890.12")).toBeVisible();
+    expect(within(overview).getByText("+1.25%")).toBeVisible();
+    expect(
+      within(overview).getByText("3,250,000,000.50"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("region", { name: "衍生品指标" }),
+    ).toHaveTextContent("数据正常");
+    expect(
+      screen.getByRole("button", { name: "生成 AI 研究报告" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("当前周期暂无 K 线数据，请选择其他周期。"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("当前标的暂无可追溯资讯。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("当前标的暂无市场研究数据。"),
+    ).not.toBeInTheDocument();
+  });
+
   it("requests and renders exactly the four fixed research timeframes", async () => {
     const user = userEvent.setup();
     const api = new RecordingMarketApi();
@@ -133,6 +233,38 @@ describe("MarketPage", () => {
     expect(
       within(tabs).getByRole("tab", { name: "1d" }),
     ).toHaveFocus();
+    expect(
+      within(tabs).getByRole("tab", { name: "1d" }),
+    ).toHaveAttribute("tabindex", "0");
+    expect(
+      within(tabs).getByRole("tab", { name: "4h" }),
+    ).toHaveAttribute("tabindex", "-1");
+
+    await user.keyboard("{Home}");
+
+    expect(
+      within(tabs).getByRole("tab", { name: "15m" }),
+    ).toHaveFocus();
+    expect(
+      within(tabs).getByRole("tab", { name: "15m" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{End}");
+
+    expect(
+      within(tabs).getByRole("tab", { name: "1d" }),
+    ).toHaveFocus();
+    expect(
+      within(tabs).getByRole("tab", { name: "1d" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{ArrowLeft}");
+
+    expect(
+      within(tabs).getByRole("tab", { name: "4h" }),
+    ).toHaveFocus();
+    const panel = screen.getByRole("tabpanel", { name: "4h" });
+    expect(panel).toHaveAttribute("tabindex", "0");
   });
 
   it("renders formatted derivative metrics with explicit freshness metadata", async () => {
@@ -158,6 +290,14 @@ describe("MarketPage", () => {
     ).toBeVisible();
     expect(
       within(panel).getByText("2025-01-15T12:00:05Z"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("img", {
+        name: "1h 收盘价走势，共 2 个数据点",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("table", { name: "1h K 线文本数据" }),
     ).toBeVisible();
   });
 
@@ -211,6 +351,9 @@ describe("MarketPage", () => {
     await waitFor(() => {
       expect(api.startedSymbols).toEqual(["BTCUSDT"]);
     });
+    expect(
+      await screen.findByText(/研究任务已创建：analysis-new-/),
+    ).toBeVisible();
     const controls = [
       ...screen.getAllByRole("button"),
       ...screen.queryAllByRole("link"),
@@ -218,5 +361,39 @@ describe("MarketPage", () => {
     for (const control of controls) {
       expect(control).not.toHaveAccessibleName(/下单|开仓|自动交易/);
     }
+  });
+
+  it("keeps the research action pending while startReport is unresolved", async () => {
+    const user = userEvent.setup();
+    const api = new PendingReportApi();
+    renderMarket(api);
+
+    const generateButton = await screen.findByRole("button", {
+      name: "生成 AI 研究报告",
+    });
+    await user.click(generateButton);
+
+    expect(generateButton).toBeDisabled();
+    expect(
+      screen.getByText("正在创建研究任务，请稍候。"),
+    ).toHaveAttribute("role", "status");
+    expect(api.startedSymbols).toEqual(["BTCUSDT"]);
+  });
+
+  it("renders a safe research error when startReport fails", async () => {
+    const user = userEvent.setup();
+    const api = new FailingReportApi();
+    renderMarket(api);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "生成 AI 研究报告",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("研究任务创建失败，请稍后重试。");
+    expect(alert).not.toHaveTextContent("private report service detail");
+    expect(api.startedSymbols).toEqual(["BTCUSDT"]);
   });
 });
