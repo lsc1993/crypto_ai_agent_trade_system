@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_PREFERENCES,
@@ -115,5 +115,30 @@ describe("preferences-store", () => {
       }),
     );
     expect(loadPreferences()).toEqual(DEFAULT_PREFERENCES);
+  });
+
+  it("surfaces localStorage read, purge, and write failures for the UI boundary", () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new DOMException("storage read failed", "SecurityError");
+      });
+    expect(() => loadPreferences()).toThrow();
+    getItem.mockRestore();
+
+    vi.spyOn(Storage.prototype, "getItem").mockReturnValue("{not-json");
+    const removeItem = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new DOMException("storage purge failed", "SecurityError");
+      });
+    expect(() => loadPreferences()).toThrow();
+    removeItem.mockRestore();
+    vi.restoreAllMocks();
+
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("storage write failed", "QuotaExceededError");
+    });
+    expect(() => savePreferences(DEFAULT_PREFERENCES)).toThrow();
   });
 });

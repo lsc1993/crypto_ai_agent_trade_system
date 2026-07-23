@@ -1,14 +1,38 @@
 import { useState, type FormEvent } from "react";
 
 import {
+  DEFAULT_PREFERENCES,
   loadPreferences,
+  parseDisplayTimezone,
+  parseRefreshPreference,
+  parseThemePreference,
   savePreferences,
   type Preferences,
 } from "./preferences-store";
 
+type StorageFeedback = "read" | "write" | null;
+
+function initializePreferences(): {
+  preferences: Preferences;
+  feedback: StorageFeedback;
+} {
+  try {
+    return { preferences: loadPreferences(), feedback: null };
+  } catch {
+    return {
+      preferences: { ...DEFAULT_PREFERENCES },
+      feedback: "read",
+    };
+  }
+}
+
 export function SettingsPage() {
-  const [preferences, setPreferences] =
-    useState<Preferences>(loadPreferences);
+  const [initialState] = useState(initializePreferences);
+  const [preferences, setPreferences] = useState<Preferences>(
+    initialState.preferences,
+  );
+  const [storageFeedback, setStorageFeedback] =
+    useState<StorageFeedback>(initialState.feedback);
   const [saved, setSaved] = useState(false);
 
   function updatePreference<Key extends keyof Preferences>(
@@ -21,8 +45,14 @@ export function SettingsPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPreferences(savePreferences(preferences));
-    setSaved(true);
+    try {
+      setPreferences(savePreferences(preferences));
+      setSaved(true);
+      setStorageFeedback(null);
+    } catch {
+      setSaved(false);
+      setStorageFeedback("write");
+    }
   }
 
   return (
@@ -43,10 +73,10 @@ export function SettingsPage() {
           <select
             value={preferences.theme}
             onChange={(event) => {
-              updatePreference(
-                "theme",
-                event.target.value as Preferences["theme"],
-              );
+              const theme = parseThemePreference(event.target.value);
+              if (theme !== undefined) {
+                updatePreference("theme", theme);
+              }
             }}
           >
             <option value="system">跟随系统</option>
@@ -60,7 +90,10 @@ export function SettingsPage() {
           <select
             value={preferences.displayTimezone}
             onChange={(event) => {
-              updatePreference("displayTimezone", event.target.value);
+              const timezone = parseDisplayTimezone(event.target.value);
+              if (timezone !== undefined) {
+                updatePreference("displayTimezone", timezone);
+              }
             }}
           >
             <option value="UTC">UTC</option>
@@ -73,10 +106,15 @@ export function SettingsPage() {
           <select
             value={preferences.refreshPreference}
             onChange={(event) => {
-              updatePreference(
-                "refreshPreference",
-                event.target.value as Preferences["refreshPreference"],
+              const refreshPreference = parseRefreshPreference(
+                event.target.value,
               );
+              if (refreshPreference !== undefined) {
+                updatePreference(
+                  "refreshPreference",
+                  refreshPreference,
+                );
+              }
             }}
           >
             <option value="manual">仅手动刷新</option>
@@ -90,6 +128,16 @@ export function SettingsPage() {
         {saved ? (
           <p className="settings-form__status" role="status">
             显示偏好已保存在当前浏览器。
+          </p>
+        ) : null}
+        {storageFeedback === "read" ? (
+          <p className="inline-error" role="alert">
+            无法读取浏览器显示偏好，已使用安全默认值。
+          </p>
+        ) : null}
+        {storageFeedback === "write" ? (
+          <p className="inline-error" role="alert">
+            无法保存显示偏好，请检查浏览器存储权限。
           </p>
         ) : null}
       </form>

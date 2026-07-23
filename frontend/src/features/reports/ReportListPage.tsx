@@ -54,7 +54,7 @@ export function ReportListPage() {
       >
         <div className="section-heading">
           <div>
-            <p className="section-kicker">REPORT HISTORY</p>
+            <p className="section-kicker">可审计历史</p>
             <h2 id="reports-history-title">历史报告</h2>
           </div>
         </div>

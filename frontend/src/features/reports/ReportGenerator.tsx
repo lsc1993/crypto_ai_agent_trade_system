@@ -1,5 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { useWorkbenchApi } from "../../app/providers";
 import type { Symbol } from "../../domain/primitives";
@@ -16,6 +21,14 @@ const statusLabels: Record<ReportStatus, string> = {
   failed: "失败",
 };
 
+function isTerminalStatus(status: ReportStatus): boolean {
+  return (
+    status === "completed" ||
+    status === "degraded" ||
+    status === "failed"
+  );
+}
+
 export interface ReportGeneratorProps {
   symbol: Symbol;
 }
@@ -23,28 +36,62 @@ export interface ReportGeneratorProps {
 export function ReportGenerator({ symbol }: ReportGeneratorProps) {
   const api = useWorkbenchApi();
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const activeAnalysisIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
+  const requestEpochRef = useRef(0);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [event, setEvent] = useState<AnalysisStreamEvent | null>(null);
+  const clearSubscription = useCallback(() => {
+    const unsubscribe = unsubscribeRef.current;
+    unsubscribeRef.current = null;
+    activeAnalysisIdRef.current = null;
+    unsubscribe?.();
+  }, []);
   const startMutation = useMutation({
     mutationKey: ["start-report", symbol],
-    mutationFn: () => api.startReport({ symbol }),
-    onSuccess: ({ analysisId: freshAnalysisId }) => {
-      unsubscribeRef.current?.();
+    mutationFn: (requestEpoch: number) => {
+      void requestEpoch;
+      return api.startReport({ symbol });
+    },
+    onSuccess: ({ analysisId: freshAnalysisId }, requestEpoch) => {
+      if (
+        !mountedRef.current ||
+        requestEpochRef.current !== requestEpoch
+      ) {
+        return;
+      }
+      clearSubscription();
       setAnalysisId(freshAnalysisId);
       setEvent(null);
-      unsubscribeRef.current = api.subscribeReport(
+      activeAnalysisIdRef.current = freshAnalysisId;
+      const unsubscribe = api.subscribeReport(
         freshAnalysisId,
-        setEvent,
+        (nextEvent) => {
+          if (activeAnalysisIdRef.current !== freshAnalysisId) {
+            return;
+          }
+          setEvent(nextEvent);
+          if (isTerminalStatus(nextEvent.status)) {
+            clearSubscription();
+          }
+        },
       );
+      if (activeAnalysisIdRef.current === freshAnalysisId) {
+        unsubscribeRef.current = unsubscribe;
+      } else {
+        unsubscribe();
+      }
     },
   });
 
-  useEffect(
-    () => () => {
-      unsubscribeRef.current?.();
-    },
-    [],
-  );
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestEpochRef.current += 1;
+      clearSubscription();
+    };
+  }, [clearSubscription]);
 
   return (
     <section
@@ -62,7 +109,8 @@ export function ReportGenerator({ symbol }: ReportGeneratorProps) {
         type="button"
         disabled={startMutation.isPending}
         onClick={() => {
-          startMutation.mutate();
+          requestEpochRef.current += 1;
+          startMutation.mutate(requestEpochRef.current);
         }}
       >
         生成 AI 研究报告

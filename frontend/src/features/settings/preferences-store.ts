@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const themeSchema = z.enum(["dark", "light", "system"]);
+const refreshPreferenceSchema = z.enum(["manual", "auto"]);
 const timeZoneSchema = z
   .string()
   .trim()
@@ -18,9 +20,9 @@ const timeZoneSchema = z
 
 const preferencesSchema = z
   .object({
-    theme: z.enum(["dark", "light", "system"]),
+    theme: themeSchema,
     displayTimezone: timeZoneSchema,
-    refreshPreference: z.enum(["manual", "auto"]),
+    refreshPreference: refreshPreferenceSchema,
   })
   .strict();
 
@@ -35,12 +37,47 @@ export const DEFAULT_PREFERENCES: Preferences = {
   refreshPreference: "manual",
 };
 
+export class PreferencesStorageError extends Error {
+  constructor(
+    readonly operation: "read" | "purge" | "write",
+  ) {
+    super("Browser preference storage is unavailable");
+    this.name = "PreferencesStorageError";
+  }
+}
+
+export function parseThemePreference(
+  value: unknown,
+): Preferences["theme"] | undefined {
+  const result = themeSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
+export function parseDisplayTimezone(
+  value: unknown,
+): Preferences["displayTimezone"] | undefined {
+  const result = timeZoneSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
+export function parseRefreshPreference(
+  value: unknown,
+): Preferences["refreshPreference"] | undefined {
+  const result = refreshPreferenceSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
 export function loadPreferences(): Preferences {
   if (typeof localStorage === "undefined") {
     return { ...DEFAULT_PREFERENCES };
   }
 
-  const raw = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+  } catch {
+    throw new PreferencesStorageError("read");
+  }
   if (raw === null) {
     return { ...DEFAULT_PREFERENCES };
   }
@@ -55,21 +92,29 @@ export function loadPreferences(): Preferences {
     // 无效的浏览器本地数据会在下方被清理。
   }
 
-  localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+  try {
+    localStorage.removeItem(PREFERENCES_STORAGE_KEY);
+  } catch {
+    throw new PreferencesStorageError("purge");
+  }
   return { ...DEFAULT_PREFERENCES };
 }
 
 export function savePreferences(input: unknown): Preferences {
   const preferences = preferencesSchema.parse(input);
   if (typeof localStorage !== "undefined") {
-    localStorage.setItem(
-      PREFERENCES_STORAGE_KEY,
-      JSON.stringify({
-        theme: preferences.theme,
-        displayTimezone: preferences.displayTimezone,
-        refreshPreference: preferences.refreshPreference,
-      }),
-    );
+    try {
+      localStorage.setItem(
+        PREFERENCES_STORAGE_KEY,
+        JSON.stringify({
+          theme: preferences.theme,
+          displayTimezone: preferences.displayTimezone,
+          refreshPreference: preferences.refreshPreference,
+        }),
+      );
+    } catch {
+      throw new PreferencesStorageError("write");
+    }
   }
   return preferences;
 }

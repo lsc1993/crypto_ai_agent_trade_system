@@ -1,5 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { useWorkbenchApi } from "../../app/providers";
@@ -18,6 +23,14 @@ const statusLabels: Record<ReportStatus, string> = {
   degraded: "已降级",
   failed: "失败",
 };
+
+function isTerminalStatus(status: ReportStatus): boolean {
+  return (
+    status === "completed" ||
+    status === "degraded" ||
+    status === "failed"
+  );
+}
 
 function ObservationSection({
   id,
@@ -52,52 +65,92 @@ function ObservationSection({
 }
 
 export function ReportDetailPage() {
-  const api = useWorkbenchApi();
   const { reportId } = useParams();
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const [retryEvent, setRetryEvent] =
-    useState<AnalysisStreamEvent | null>(null);
-  const reportQuery = useQuery({
-    queryKey: ["report", reportId],
-    enabled: reportId !== undefined,
-    queryFn: () => {
-      if (reportId === undefined) {
-        throw new Error("Report ID is required");
-      }
-      return api.getReport(reportId);
-    },
-  });
-  const retryMutation = useMutation({
-    mutationKey: ["retry-report", reportQuery.data?.id],
-    mutationFn: () => {
-      const report = reportQuery.data;
-      if (report === undefined) {
-        throw new Error("Report is not available");
-      }
-      return api.retryReport(report.id);
-    },
-    onSuccess: ({ analysisId }) => {
-      unsubscribeRef.current?.();
-      setRetryEvent(null);
-      unsubscribeRef.current = api.subscribeReport(
-        analysisId,
-        setRetryEvent,
-      );
-    },
-  });
-
-  useEffect(
-    () => () => {
-      unsubscribeRef.current?.();
-    },
-    [],
-  );
 
   if (reportId === undefined) {
     return (
       <PageState state="unavailable" message="报告 ID 缺失，无法读取详情。" />
     );
   }
+
+  return <ReportDetailContent key={reportId} reportId={reportId} />;
+}
+
+function ReportDetailContent({ reportId }: { reportId: string }) {
+  const api = useWorkbenchApi();
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const activeAnalysisIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
+  const requestEpochRef = useRef(0);
+  const [retryEvent, setRetryEvent] =
+    useState<AnalysisStreamEvent | null>(null);
+  const [retryAnalysisId, setRetryAnalysisId] = useState<string | null>(
+    null,
+  );
+  const clearRetrySubscription = useCallback(() => {
+    const unsubscribe = unsubscribeRef.current;
+    unsubscribeRef.current = null;
+    activeAnalysisIdRef.current = null;
+    unsubscribe?.();
+  }, []);
+  const reportQuery = useQuery({
+    queryKey: ["report", reportId],
+    queryFn: () => api.getReport(reportId),
+  });
+  const retryMutation = useMutation({
+    mutationKey: ["retry-report", reportQuery.data?.id],
+    mutationFn: ({
+      targetReportId,
+    }: {
+      targetReportId: string;
+      requestEpoch: number;
+    }) => api.retryReport(targetReportId),
+    onSuccess: (
+      { analysisId },
+      { targetReportId, requestEpoch },
+    ) => {
+      if (
+        !mountedRef.current ||
+        requestEpochRef.current !== requestEpoch ||
+        reportId !== targetReportId
+      ) {
+        return;
+      }
+      clearRetrySubscription();
+      setRetryAnalysisId(analysisId);
+      setRetryEvent(null);
+      activeAnalysisIdRef.current = analysisId;
+      const unsubscribe = api.subscribeReport(
+        analysisId,
+        (nextEvent) => {
+          if (activeAnalysisIdRef.current !== analysisId) {
+            return;
+          }
+          setRetryEvent(nextEvent);
+          if (isTerminalStatus(nextEvent.status)) {
+            clearRetrySubscription();
+          }
+        },
+      );
+      if (
+        reportId === targetReportId &&
+        activeAnalysisIdRef.current === analysisId
+      ) {
+        unsubscribeRef.current = unsubscribe;
+      } else {
+        unsubscribe();
+      }
+    },
+  });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestEpochRef.current += 1;
+      clearRetrySubscription();
+    };
+  }, [clearRetrySubscription]);
 
   if (reportQuery.isPending) {
     return <PageState state="loading" />;
@@ -113,7 +166,6 @@ export function ReportDetailPage() {
   }
 
   const report = reportQuery.data;
-  const retryAnalysisId = retryMutation.data?.analysisId;
   const journalSearch = new URLSearchParams({
     linkedAnalysisReportId: report.id,
   }).toString();
@@ -207,7 +259,11 @@ export function ReportDetailPage() {
             type="button"
             disabled={retryMutation.isPending}
             onClick={() => {
-              retryMutation.mutate();
+              requestEpochRef.current += 1;
+              retryMutation.mutate({
+                targetReportId: report.id,
+                requestEpoch: requestEpochRef.current,
+              });
             }}
           >
             以新分析任务重试
@@ -221,7 +277,7 @@ export function ReportDetailPage() {
             重试任务创建失败，请稍后再试。
           </p>
         ) : null}
-        {retryAnalysisId !== undefined ? (
+        {retryAnalysisId !== null ? (
           <div className="report-retry-status">
             <p>新的分析 ID</p>
             <strong>{retryAnalysisId}</strong>
