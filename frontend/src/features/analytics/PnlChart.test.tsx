@@ -63,4 +63,13 @@ describe("PnlChart", () => {
     expect(within(table).getByText("2025-01-11T00:00:00Z")).toBeVisible();
     expect(within(table).getAllByText("9.40")).toHaveLength(2);
   });
+
+  it("renders a visible marker when the curve has one data point", () => {
+    const { container } = render(<PnlChart points={equityCurve().slice(0, 1)} />);
+
+    expect(
+      screen.getByRole("img", { name: "权益曲线，共 1 个数据点" }),
+    ).toBeVisible();
+    expect(container.querySelector("circle")).toBeVisible();
+  });
 });

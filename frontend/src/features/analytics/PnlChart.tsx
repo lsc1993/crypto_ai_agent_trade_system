@@ -51,13 +51,17 @@ export function PnlChart({ points }: PnlChartProps) {
             role="img"
             viewBox="0 0 100 100"
           >
-            <polyline
-              fill="none"
-              points={toPolylinePoints(series)}
-              stroke="currentColor"
-              strokeWidth="2"
-              vectorEffect="non-scaling-stroke"
-            />
+            {series.length === 1 ? (
+              <circle aria-hidden="true" cx="50" cy="50" fill="currentColor" r="3" />
+            ) : (
+              <polyline
+                fill="none"
+                points={toPolylinePoints(series)}
+                stroke="currentColor"
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
           </svg>
           <figcaption>
             图形仅作显示适配，不会改变或保存原始十进制统计数据。
