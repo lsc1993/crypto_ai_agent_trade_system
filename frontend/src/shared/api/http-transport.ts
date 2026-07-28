@@ -58,7 +58,8 @@ export class HttpTransport {
 
   constructor(options: HttpTransportOptions) {
     this.baseUrl = httpUrlSchema.parse(options.baseUrl);
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    this.fetchImpl =
+      options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   async request<T>(

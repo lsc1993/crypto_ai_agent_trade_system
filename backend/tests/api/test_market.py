@@ -131,6 +131,35 @@ async def test_market_summary_returns_decimal_strings_and_utc_freshness() -> Non
 
 
 @pytest.mark.asyncio
+async def test_market_detail_uses_the_frozen_frontend_candle_wire_contract() -> None:
+    response = await get(
+        create_app(market_gateway=FakeMarketGateway()),
+        "/api/v1/market/BTCUSDT?timeframes=15m",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["series"] == [
+        {
+            "timeframe": "15m",
+            "candles": [
+                {
+                    "symbol": "BTCUSDT",
+                    "timeframe": "15m",
+                    "openTime": "2026-07-28T11:45:00Z",
+                    "closeTime": "2026-07-28T11:59:59Z",
+                    "open": "68000.10",
+                    "high": "68001.20",
+                    "low": "67999.90",
+                    "close": "68000.30",
+                    "volume": "12.34",
+                }
+            ],
+        }
+    ]
+    assert response.json()["news"] == []
+
+
+@pytest.mark.asyncio
 async def test_market_detail_rejects_unknown_symbol_with_validation_envelope() -> None:
     response = await get(
         create_app(market_gateway=FakeMarketGateway()),

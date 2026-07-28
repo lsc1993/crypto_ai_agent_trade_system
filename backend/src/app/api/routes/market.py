@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict
 
 from app.market.contracts import (
+    Candle,
     CandleSeries,
     ContractSymbol,
+    DecimalValue,
     MarketDetail,
     MarketSummary,
     MarketTimeframe,
@@ -45,11 +49,67 @@ class MarketNewsItem(BaseModel):
     symbols: tuple[ContractSymbol, ...]
 
 
+class MarketCandleResponse(BaseModel):
+    """K 线对外响应，保持前端既有时间与 OHLC 字段契约。"""
+
+    model_config = ConfigDict(
+        alias_generator=lambda value: "".join(
+            [
+                value.split("_")[0],
+                *(part.capitalize() for part in value.split("_")[1:]),
+            ]
+        ),
+        frozen=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+    symbol: ContractSymbol
+    timeframe: MarketTimeframe
+    open_time: UtcDateTime
+    close_time: UtcDateTime
+    open: DecimalValue
+    high: DecimalValue
+    low: DecimalValue
+    close: DecimalValue
+    volume: DecimalValue
+
+    @classmethod
+    def from_candle(cls, candle: Candle) -> MarketCandleResponse:
+        return cls(
+            symbol=candle.symbol,
+            timeframe=candle.timeframe,
+            open_time=candle.open_at,
+            close_time=candle.close_at,
+            open=candle.open_price,
+            high=candle.high_price,
+            low=candle.low_price,
+            close=candle.close_price,
+            volume=candle.volume,
+        )
+
+
+class MarketCandleSeriesResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    timeframe: MarketTimeframe
+    candles: tuple[MarketCandleResponse, ...]
+
+    @classmethod
+    def from_series(cls, series: CandleSeries) -> MarketCandleSeriesResponse:
+        return cls(
+            timeframe=series.timeframe,
+            candles=tuple(
+                MarketCandleResponse.from_candle(candle) for candle in series.candles
+            ),
+        )
+
+
 class MarketDetailResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     summary: MarketSummary
-    series: tuple[CandleSeries, ...]
+    series: tuple[MarketCandleSeriesResponse, ...]
     news: tuple[MarketNewsItem, ...] = ()
 
 
@@ -86,4 +146,9 @@ async def get_market(
         symbol,
         _require_unique(timeframes, "timeframes"),
     )
-    return MarketDetailResponse(summary=detail.summary, series=detail.series)
+    return MarketDetailResponse(
+        summary=detail.summary,
+        series=tuple(
+            MarketCandleSeriesResponse.from_series(series) for series in detail.series
+        ),
+    )
