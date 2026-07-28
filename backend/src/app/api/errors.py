@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.market.contracts import MarketDataUnavailableError
+
 logger = structlog.get_logger(__name__)
 
 
@@ -100,6 +102,21 @@ async def _unhandled_exception_handler(
     )
 
 
+async def _market_data_unavailable_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, MarketDataUnavailableError):
+        raise TypeError("市场数据异常处理器收到了不支持的异常类型")
+    return _response(
+        503,
+        ErrorEnvelope(
+            code=exception.code,
+            message=str(exception),
+        ),
+    )
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         StarletteHTTPException,
@@ -108,6 +125,10 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         RequestValidationError,
         _validation_exception_handler,
+    )
+    app.add_exception_handler(
+        MarketDataUnavailableError,
+        _market_data_unavailable_handler,
     )
     app.add_exception_handler(
         Exception,
