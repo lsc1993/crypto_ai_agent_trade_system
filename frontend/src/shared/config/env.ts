@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const dataModeSchema = z.enum(["mock", "api"]);
+const dataModeSchema = z.enum(["mock", "market-api", "api"]);
 const apiBaseUrlSchema = z.url().refine(
   (value) => {
     const protocol = new URL(value).protocol;
@@ -49,7 +49,7 @@ export function parseWorkbenchConfig(
   if (!mode.success) {
     throw new WorkbenchConfigurationError(
       "INVALID_DATA_MODE",
-      "VITE_DATA_MODE must be either mock or api",
+      "VITE_DATA_MODE must be mock, market-api, or api",
     );
   }
 

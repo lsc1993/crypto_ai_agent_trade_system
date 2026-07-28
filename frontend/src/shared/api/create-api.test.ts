@@ -6,6 +6,7 @@ import {
   HttpWorkbenchApi,
   WorkbenchEndpointUnavailableError,
 } from "./http-workbench-api";
+import { HybridWorkbenchApi } from "./hybrid-workbench-api";
 import {
   createWirePageSchema,
   HttpTransport,
@@ -30,6 +31,15 @@ describe("createWorkbenchApi", () => {
     });
 
     expect(api).toBeInstanceOf(HttpWorkbenchApi);
+  });
+
+  it("selects the hybrid implementation for public market data", () => {
+    const api = createWorkbenchApi({
+      VITE_API_BASE_URL: "http://localhost:8000",
+      VITE_DATA_MODE: "market-api",
+    });
+
+    expect(api).toBeInstanceOf(HybridWorkbenchApi);
   });
 
   it("throws a typed configuration error for every unsupported mode", () => {

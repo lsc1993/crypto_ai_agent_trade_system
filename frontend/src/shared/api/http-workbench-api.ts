@@ -5,7 +5,9 @@ import type {
 import type {
   DashboardSnapshot,
   MarketDetail,
+  MarketSummary,
 } from "../../domain/market";
+import { marketDetailSchema, marketSummarySchema } from "../../domain/market";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type {
   AnalysisReport,
@@ -23,6 +25,7 @@ import {
   type HttpTransportOptions,
 } from "./http-transport";
 import type { WorkbenchApi } from "./workbench-api";
+import { z } from "zod";
 
 export class WorkbenchEndpointUnavailableError extends Error {
   readonly operation: keyof WorkbenchApi;
@@ -38,20 +41,32 @@ export class WorkbenchEndpointUnavailableError extends Error {
 
 export type HttpWorkbenchApiOptions = HttpTransportOptions;
 
+const marketInputSchema = z.object({
+  symbol: z.enum(["BTCUSDT", "ETHUSDT"]),
+  timeframes: z.array(z.enum(["15m", "1h", "4h", "1d"])).min(1),
+});
+const marketSummaryListSchema = z.object({
+  items: z.array(marketSummarySchema),
+});
+
 function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
   return Promise.reject(new WorkbenchEndpointUnavailableError(operation));
 }
 
 export class HttpWorkbenchApi implements WorkbenchApi {
+  private readonly transport: HttpTransport;
+
   constructor(options: HttpWorkbenchApiOptions) {
-    if (options.fetchImpl === undefined) {
-      new HttpTransport({ baseUrl: options.baseUrl });
-    } else {
-      new HttpTransport({
-        baseUrl: options.baseUrl,
-        fetchImpl: options.fetchImpl,
-      });
-    }
+    this.transport = new HttpTransport(options);
+  }
+
+  async listMarketSummaries(): Promise<MarketSummary[]> {
+    return (
+      await this.transport.request(
+        "/api/v1/markets?symbols=BTCUSDT&symbols=ETHUSDT",
+        marketSummaryListSchema,
+      )
+    ).items;
   }
 
   getDashboard(): Promise<DashboardSnapshot> {
@@ -62,8 +77,15 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     symbol: Symbol;
     timeframes: Timeframe[];
   }): Promise<MarketDetail> {
-    void input;
-    return unavailable("getMarket");
+    const parsedInput = marketInputSchema.parse(input);
+    const query = new URLSearchParams();
+    for (const timeframe of parsedInput.timeframes) {
+      query.append("timeframes", timeframe);
+    }
+    return this.transport.request(
+      `/api/v1/market/${parsedInput.symbol}?${query.toString()}`,
+      marketDetailSchema,
+    );
   }
 
   listReports(
