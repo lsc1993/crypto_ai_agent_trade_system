@@ -29,7 +29,11 @@ class AppSettings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
-    cors_allowed_origins: tuple[str, ...] = ("http://localhost:5173",)
+    cors_allowed_origins: tuple[str, ...] = (
+        "http://localhost:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    )
     database_url: SecretStr | None = None
 
     @field_validator("cors_allowed_origins")

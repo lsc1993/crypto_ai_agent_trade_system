@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import App from "../../app/App";
+import {
+  HybridWorkbenchApi,
+  type MarketDataApi,
+} from "../api/hybrid-workbench-api";
 import { HttpWorkbenchApi } from "../api/http-workbench-api";
 import { MockWorkbenchApi } from "../api/mock-workbench-api";
 import { mockTradeDraft } from "./fixtures";
@@ -32,5 +36,19 @@ describe("Mock mode controls", () => {
     render(<App dataMode="api" api={api} />);
 
     expect(screen.queryByText("Mock 数据模式")).not.toBeInTheDocument();
+  });
+
+  it("labels live public market data while keeping research data explicitly Mock", () => {
+    const marketApi: MarketDataApi = {
+      listMarketSummaries: () => Promise.resolve([]),
+      getMarket: () => Promise.reject(new Error("not called by the shell")),
+    };
+    const api = new HybridWorkbenchApi(new MockWorkbenchApi(), marketApi);
+
+    render(<App dataMode="market-api" api={api} />);
+
+    expect(screen.getByText("公开市场数据模式")).toBeVisible();
+    expect(screen.getByText("报告、交易日志与复盘仍为 Mock")).toBeVisible();
+    expect(screen.queryByText("重置 Mock 数据")).not.toBeInTheDocument();
   });
 });

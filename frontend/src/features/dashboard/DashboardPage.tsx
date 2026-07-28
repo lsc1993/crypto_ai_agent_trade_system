@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
+import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { DashboardMarketCards } from "./DashboardMarketCards";
 import { RecentReportCard } from "./RecentReportCard";
 
@@ -17,10 +18,17 @@ export function DashboardPage() {
   }
 
   if (dashboardQuery.isError) {
+    const isPublicMarketUnavailable =
+      dashboardQuery.error instanceof WorkbenchHttpError &&
+      dashboardQuery.error.code.startsWith("market_data_");
     return (
       <PageState
         state="error"
-        message="无法读取研究工作台数据，请稍后重试。"
+        message={
+          isPublicMarketUnavailable
+            ? "公开行情暂不可用，请检查后端服务、网络或数据源状态后重试。"
+            : "无法读取研究工作台数据，请稍后重试。"
+        }
       />
     );
   }
@@ -46,7 +54,7 @@ export function DashboardPage() {
           <p className="route-page__kicker">研究与模拟工作台</p>
           <h1>研究工作台</h1>
           <p>
-            汇总固定 Mock 市场、公开资讯与历史研究结果，仅用于研究和界面验证。
+            汇总可追溯市场摘要、公开资讯与历史研究结果，仅用于研究和界面验证。
           </p>
         </div>
         <p className="snapshot-time">

@@ -15,7 +15,12 @@ export function Topbar({ dataMode, onResetMockData }: TopbarProps) {
       </div>
       <div className="app-topbar__status">
         <span className="research-only-badge">仅研究与模拟</span>
-        {dataMode === "mock" && onResetMockData !== undefined ? (
+        {dataMode === "market-api" ? (
+          <div role="status">
+            <span>公开市场数据模式</span>
+            <span>报告、交易日志与复盘仍为 Mock</span>
+          </div>
+        ) : dataMode === "mock" && onResetMockData !== undefined ? (
           <MockModeControls onReset={onResetMockData} />
         ) : null}
       </div>

@@ -67,6 +67,24 @@ async def test_cors_preflight_allows_configured_origin(
 
 
 @pytest.mark.asyncio
+async def test_default_cors_allows_the_documented_vite_development_origin() -> None:
+    origin = "http://127.0.0.1:4173"
+
+    response = await request(
+        create_app(),
+        "OPTIONS",
+        "/api/v1/markets",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+
+
+@pytest.mark.asyncio
 async def test_http_errors_use_global_error_envelope() -> None:
     response = await request(create_app(), "GET", "/missing")
 

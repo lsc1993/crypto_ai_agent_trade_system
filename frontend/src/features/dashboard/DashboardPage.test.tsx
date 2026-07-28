@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AppProviders } from "../../app/providers";
 import type { DashboardSnapshot } from "../../domain/market";
 import { MockWorkbenchApi } from "../../shared/api/mock-workbench-api";
+import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { DashboardPage } from "./DashboardPage";
 
 class PendingDashboardApi extends MockWorkbenchApi {
@@ -16,6 +17,18 @@ class FailingDashboardApi extends MockWorkbenchApi {
   override getDashboard(): Promise<DashboardSnapshot> {
     return Promise.reject(
       new Error("private upstream detail must not reach the user"),
+    );
+  }
+}
+
+class UnavailablePublicDashboardApi extends MockWorkbenchApi {
+  override getDashboard(): Promise<DashboardSnapshot> {
+    return Promise.reject(
+      new WorkbenchHttpError(
+        503,
+        "market_data_unavailable",
+        "公开行情服务不可用",
+      ),
     );
   }
 }
@@ -46,6 +59,14 @@ describe("DashboardPage", () => {
     expect(alert).toHaveTextContent("数据加载失败");
     expect(alert).toHaveTextContent("无法读取研究工作台数据，请稍后重试。");
     expect(alert).not.toHaveTextContent("private upstream detail");
+  });
+
+  it("renders an explicit public-market error without upstream details", async () => {
+    renderDashboard(new UnavailablePublicDashboardApi());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("公开行情暂不可用");
+    expect(alert).not.toHaveTextContent("公开行情服务不可用");
   });
 
   it("shows the explicit stale state and its source timestamps", async () => {

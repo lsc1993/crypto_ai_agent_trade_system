@@ -39,7 +39,7 @@ describe("production runtime bootstrap", () => {
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "数据模式配置无效，请将 VITE_DATA_MODE 设置为 mock 或 api。",
+      "数据模式配置无效，请将 VITE_DATA_MODE 设置为 mock、market-api 或 api。",
     );
   });
 

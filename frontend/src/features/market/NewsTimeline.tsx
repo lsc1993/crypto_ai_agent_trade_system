@@ -3,9 +3,10 @@ import type { NewsItem } from "../../domain/news";
 
 export interface NewsTimelineProps {
   news: NewsItem[];
+  emptyMessage?: string | undefined;
 }
 
-export function NewsTimeline({ news }: NewsTimelineProps) {
+export function NewsTimeline({ news, emptyMessage }: NewsTimelineProps) {
   return (
     <section
       className="research-panel"
@@ -18,7 +19,10 @@ export function NewsTimeline({ news }: NewsTimelineProps) {
         </div>
       </div>
       {news.length === 0 ? (
-        <PageState state="empty" message="当前标的暂无可追溯资讯。" />
+        <PageState
+          state="empty"
+          message={emptyMessage ?? "当前标的暂无可追溯资讯。"}
+        />
       ) : (
         <ol className="news-timeline">
           {news.map((item) => (

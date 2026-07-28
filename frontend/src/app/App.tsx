@@ -17,7 +17,7 @@ type ReadyAppProps =
     }
   | {
       api: WorkbenchApi;
-      dataMode: Extract<DataMode, "api">;
+      dataMode: Exclude<DataMode, "mock">;
       configurationError?: never;
     };
 
@@ -33,7 +33,7 @@ function configurationErrorMessage(
   error: WorkbenchConfigurationError,
 ): string {
   return error.code === "INVALID_DATA_MODE"
-    ? "数据模式配置无效，请将 VITE_DATA_MODE 设置为 mock 或 api。"
+    ? "数据模式配置无效，请将 VITE_DATA_MODE 设置为 mock、market-api 或 api。"
     : "API 地址配置无效，请检查 VITE_API_BASE_URL。";
 }
 

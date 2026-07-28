@@ -10,6 +10,7 @@ import {
 } from "../../domain/market";
 import type { Symbol, Timeframe } from "../../domain/primitives";
 import { MockWorkbenchApi } from "../../shared/api/mock-workbench-api";
+import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { mockMarketDetails } from "../../shared/mocks/fixtures";
 import { MarketPage } from "./MarketPage";
 
@@ -96,6 +97,46 @@ class EmptySectionsMarketApi extends RecordingMarketApi {
         series: [],
         news: [],
       }),
+    );
+  }
+}
+
+class PublicNoNewsMarketApi extends RecordingMarketApi {
+  override getMarket(input: {
+    symbol: Symbol;
+    timeframes: Timeframe[];
+  }): Promise<MarketDetail> {
+    this.marketInputs.push({
+      symbol: input.symbol,
+      timeframes: [...input.timeframes],
+    });
+    const detail = btcMarketDetail();
+    return Promise.resolve(
+      marketDetailSchema.parse({
+        ...detail,
+        news: [],
+        summary: {
+          ...detail.summary,
+          freshness: {
+            status: "fresh",
+            source: "binance_usdm_public_rest",
+            observedAt: "2026-07-28T12:00:00Z",
+            fetchedAt: "2026-07-28T12:00:01Z",
+          },
+        },
+      }),
+    );
+  }
+}
+
+class UnavailablePublicMarketApi extends MockWorkbenchApi {
+  override getMarket(): Promise<MarketDetail> {
+    return Promise.reject(
+      new WorkbenchHttpError(
+        503,
+        "market_data_unavailable",
+        "公开行情服务不可用",
+      ),
     );
   }
 }
@@ -191,6 +232,25 @@ describe("MarketPage", () => {
     expect(
       screen.queryByText("当前标的暂无市场研究数据。"),
     ).not.toBeInTheDocument();
+  });
+
+  it("labels the public provider and explains that no news source is enabled", async () => {
+    renderMarket(new PublicNoNewsMarketApi());
+
+    expect(
+      await screen.findByText("来源：binance_usdm_public_rest"),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Binance 公开行情模式尚未配置新闻源。"),
+    ).toBeVisible();
+  });
+
+  it("renders an explicit public-data error instead of a generic Mock fallback", async () => {
+    renderMarket(new UnavailablePublicMarketApi());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("公开行情暂不可用");
+    expect(alert).not.toHaveTextContent("公开行情服务不可用");
   });
 
   it("requests and renders exactly the four fixed research timeframes", async () => {

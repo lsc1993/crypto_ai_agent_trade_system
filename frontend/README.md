@@ -1,6 +1,30 @@
 # AI 加密货币研究工作台（前端）
 
-这是一个仅用于研究、回测界面验证和人工复盘的本地 Mock 工作台。它不保存交易所凭证，不连接真实账户，也没有下单、撤单、资金划转或提现能力。
+这是一个仅用于研究、回测界面验证和人工复盘的本地工作台。它不保存交易所凭证，不连接真实账户，也没有下单、撤单、资金划转或提现能力。
+
+## 公开行情模式（推荐）
+
+默认仍为 `mock`。若需要查看 BTCUSDT 与 ETHUSDT 的 Binance USDⓈ-M **公开**行情，可在两个独立 PowerShell 窗口中启动：
+
+```powershell
+Set-Location backend
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+Set-Location frontend
+$env:VITE_API_BASE_URL = "http://127.0.0.1:8000"
+$env:VITE_DATA_MODE = "market-api"
+npm run dev -- --host 127.0.0.1 --port 4173
+```
+
+然后在 Chrome 打开 `http://127.0.0.1:4173`。此模式只发出固定白名单内的公开 `GET` 请求，使用 10–60 秒短缓存；市场摘要和 K 线来自公开数据，报告、交易日志与复盘仍为 Mock。它不会读取账户、持仓或余额，不会提交订单，也不需要或使用 API Key、Secret、Passphrase 或私钥。
+
+关闭前端后，临时环境变量会随该 PowerShell 会话结束而消失；请不要把它们或任何凭证写入 `.env`。可在后端目录运行下列只读检查，确认公开源连通：
+
+```powershell
+uv run python scripts/check_public_market.py
+```
 
 ## 本地验证
 

@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
 import type { Symbol, Timeframe } from "../../domain/primitives";
+import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import {
   formatDailyChange,
   formatMarketPrice,
@@ -65,10 +66,17 @@ export function MarketPage() {
   }
 
   if (marketQuery.isError) {
+    const isPublicMarketUnavailable =
+      marketQuery.error instanceof WorkbenchHttpError &&
+      marketQuery.error.code.startsWith("market_data_");
     return (
       <PageState
         state="error"
-        message="无法读取市场研究数据，请稍后重试。"
+        message={
+          isPublicMarketUnavailable
+            ? "公开行情暂不可用，请检查后端服务、网络或数据源状态后重试。"
+            : "无法读取市场研究数据，请稍后重试。"
+        }
       />
     );
   }
@@ -82,10 +90,10 @@ export function MarketPage() {
     <section className="research-page market-page">
       <header className="research-page__heading">
         <div>
-          <p className="route-page__kicker">公开市场研究 · 模拟环境</p>
+          <p className="route-page__kicker">公开市场研究 · 无账户模式</p>
           <h1>{symbol} 市场详情</h1>
           <p>
-            查看固定 Mock 行情、K 线与公开资讯。页面不连接账户，也不提供交易执行能力。
+            查看可追溯行情、K 线与来源信息。报告、日志与复盘仅用于研究，不连接账户，也不提供交易执行能力。
           </p>
         </div>
         <nav className="symbol-switcher" aria-label="研究标的切换">
@@ -167,7 +175,14 @@ export function MarketPage() {
         />
         <DerivativePanel summary={market.summary} />
       </div>
-      <NewsTimeline news={market.news} />
+      <NewsTimeline
+        news={market.news}
+        emptyMessage={
+          market.summary.freshness.source === "binance_usdm_public_rest"
+            ? "Binance 公开行情模式尚未配置新闻源。"
+            : undefined
+        }
+      />
     </section>
   );
 }

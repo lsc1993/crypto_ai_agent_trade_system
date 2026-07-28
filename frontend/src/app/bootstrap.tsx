@@ -45,7 +45,7 @@ export function createRuntimeApplication(
       }
       return <App api={api} dataMode="mock" />;
     }
-    return <App api={api} dataMode="api" />;
+    return <App api={api} dataMode={config.dataMode} />;
   } catch (error: unknown) {
     if (error instanceof WorkbenchConfigurationError) {
       return <App configurationError={error} />;
