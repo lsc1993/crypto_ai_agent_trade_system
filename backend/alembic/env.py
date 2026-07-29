@@ -5,11 +5,12 @@ import re
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
+from app.infrastructure.persistence.models import market
 from app.shared.config import AppSettings
 
 config = context.config
@@ -19,7 +20,7 @@ if config.config_file_name is not None:
     if config_path.read_text(encoding="utf-8").find("[loggers]") >= 0:
         fileConfig(config.config_file_name)
 
-target_metadata = None
+target_metadata = market.Base.metadata
 _SCHEMA_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 

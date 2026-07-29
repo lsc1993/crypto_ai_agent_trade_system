@@ -43,6 +43,27 @@ def test_alembic_upgrade_creates_its_version_table_in_an_isolated_schema() -> No
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
+def test_market_migration_creates_numeric_candle_columns_and_unique_key() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"market_test_{uuid4().hex[:16]}"
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        database = import_module("app.shared.database")
+        database.upgrade_database(test_database_url, schema=schema)
+        columns = asyncio.run(_table_column_types(test_database_url, schema, "market_candles"))
+        constraints = asyncio.run(
+            _table_constraint_columns(test_database_url, schema, "market_candles")
+        )
+
+        assert columns["close_price"] == "numeric"
+        assert columns["open_at"] == "timestamp with time zone"
+        assert ("UNIQUE", ("symbol", "timeframe", "open_at")) in constraints
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
 async def _create_schema(database_url: SecretStr, schema: str) -> None:
     database = import_module("app.shared.database")
     engine = database.create_async_engine_from_secret(database_url)
@@ -65,6 +86,64 @@ async def _version_table_schemas(database_url: SecretStr) -> list[str]:
                 ),
             )
             return list(result.scalars())
+    finally:
+        await engine.dispose()
+
+
+async def _table_column_types(
+    database_url: SecretStr,
+    schema: str,
+    table: str,
+) -> dict[str, str]:
+    database = import_module("app.shared.database")
+    engine = database.create_async_engine_from_secret(database_url)
+    try:
+        async with engine.connect() as connection:
+            result = await connection.execute(
+                text(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table",
+                ),
+                {"schema": schema, "table": table},
+            )
+            return dict(result.all())
+    finally:
+        await engine.dispose()
+
+
+async def _table_constraint_columns(
+    database_url: SecretStr,
+    schema: str,
+    table: str,
+) -> set[tuple[str, tuple[str, ...]]]:
+    database = import_module("app.shared.database")
+    engine = database.create_async_engine_from_secret(database_url)
+    try:
+        async with engine.connect() as connection:
+            result = await connection.execute(
+                text(
+                    "SELECT constraint_type, constraint_name "
+                    "FROM information_schema.table_constraints "
+                    "WHERE table_schema = :schema AND table_name = :table",
+                ),
+                {"schema": schema, "table": table},
+            )
+            constraints: set[tuple[str, tuple[str, ...]]] = set()
+            for constraint_type, constraint_name in result.tuples():
+                column_result = await connection.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.key_column_usage "
+                        "WHERE table_schema = :schema AND table_name = :table "
+                        "AND constraint_name = :constraint_name ORDER BY ordinal_position",
+                    ),
+                    {
+                        "schema": schema,
+                        "table": table,
+                        "constraint_name": constraint_name,
+                    },
+                )
+                constraints.add((constraint_type, tuple(column_result.scalars())))
+            return constraints
     finally:
         await engine.dispose()
 
