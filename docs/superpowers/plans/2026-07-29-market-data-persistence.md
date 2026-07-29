@@ -30,7 +30,7 @@ backend/
 ├── alembic/
 │   ├── env.py
 │   ├── script.py.mako
-│   └── versions/0001_create_market_persistence.py
+│   └── versions/{0001_initialize_schema.py,0002_create_market_persistence.py}
 ├── pyproject.toml
 ├── uv.lock
 ├── scripts/capture_market_snapshot.py
@@ -53,7 +53,7 @@ backend/
 ### Task 1: Add database toolchain, secret-safe configuration, and Alembic bootstrap
 
 **Files:**
-- Create: `backend/.env.example`, `backend/alembic.ini`, `backend/alembic/env.py`, `backend/alembic/script.py.mako`, `backend/src/app/shared/database.py`, `backend/tests/persistence/test_migrations.py`
+- Create: `backend/.env.example`, `backend/alembic.ini`, `backend/alembic/env.py`, `backend/alembic/script.py.mako`, `backend/alembic/versions/0001_initialize_schema.py`, `backend/src/app/shared/database.py`, `backend/tests/persistence/test_migrations.py`
 - Create: `backend/tests/conftest.py`
 - Modify: `backend/pyproject.toml`, `backend/uv.lock`, `backend/src/app/shared/config.py`, `backend/tests/api/test_health.py`
 
@@ -144,7 +144,7 @@ git commit -m "feat: add async database bootstrap"
 ### Task 2: Define bounded persistence contracts and create the market schema migration
 
 **Files:**
-- Create: `backend/src/app/market/repository.py`, `backend/src/app/infrastructure/persistence/base.py`, `backend/src/app/infrastructure/persistence/models/__init__.py`, `backend/src/app/infrastructure/persistence/models/market.py`, `backend/alembic/versions/0001_create_market_persistence.py`, `backend/tests/market/test_persistence_contracts.py`
+- Create: `backend/src/app/market/repository.py`, `backend/src/app/infrastructure/persistence/base.py`, `backend/src/app/infrastructure/persistence/models/__init__.py`, `backend/src/app/infrastructure/persistence/models/market.py`, `backend/alembic/versions/0002_create_market_persistence.py`, `backend/tests/market/test_persistence_contracts.py`
 - Create: `backend/src/app/infrastructure/__init__.py`
 - Modify: `backend/tests/persistence/test_migrations.py`
 
@@ -211,7 +211,7 @@ class MarketRepository(Protocol):
     ) -> tuple[UUID, ...]: ...
 ```
 
-`MarketCaptureBatch` contains one symbol, a non-empty tuple of already-closed `Candle` values, five `DerivativeObservation` values, and one `MarketSnapshotDraft`. It rejects mismatched symbols, naive/non-UTC times, float metrics, unsupported metric types, inconsistent snapshot hash, or a `data_as_of` later than `captured_at`.
+`MarketCaptureBatch` contains one symbol, a non-empty tuple of already-closed `Candle` values, five `DerivativeObservation` values, and one `MarketSnapshotDraft`. It rejects mismatched symbols, naive/non-UTC times, float metrics, unsupported metric types, inconsistent snapshot hash, or a `data_as_of` later than `captured_at`. Revision `0001_initialize_schema` exists only to establish a non-empty Alembic chain; `0002_create_market_persistence` is the first revision that creates application tables.
 
 The revision creates the following PostgreSQL tables and constraints:
 
@@ -238,7 +238,7 @@ Expected: invalid DTOs fail locally and the isolated migrated schema exactly exp
 - [ ] **Step 5: Commit contracts and schema**
 
 ```powershell
-git add -- backend/alembic/versions/0001_create_market_persistence.py backend/src/app/market/repository.py backend/src/app/infrastructure/__init__.py backend/src/app/infrastructure/persistence/base.py backend/src/app/infrastructure/persistence/models backend/tests/market/test_persistence_contracts.py backend/tests/persistence/test_migrations.py
+git add -- backend/alembic/versions/0002_create_market_persistence.py backend/src/app/market/repository.py backend/src/app/infrastructure/__init__.py backend/src/app/infrastructure/persistence/base.py backend/src/app/infrastructure/persistence/models backend/tests/market/test_persistence_contracts.py backend/tests/persistence/test_migrations.py
 git commit -m "feat: add market persistence schema"
 ```
 

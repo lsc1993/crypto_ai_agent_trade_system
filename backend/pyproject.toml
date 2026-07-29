@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "AI 加密合约研究工作台后端基础服务"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic",
+    "asyncpg",
     "fastapi",
     "httpx",
     "pydantic-settings",
+    "sqlalchemy",
     "structlog",
     "uvicorn[standard]",
 ]

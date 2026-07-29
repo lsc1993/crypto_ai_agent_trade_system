@@ -35,6 +35,7 @@ class AppSettings(BaseSettings):
         "http://127.0.0.1:4173",
     )
     database_url: SecretStr | None = None
+    test_database_url: SecretStr | None = None
 
     @field_validator("cors_allowed_origins")
     @classmethod

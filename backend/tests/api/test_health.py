@@ -121,11 +121,18 @@ async def test_structured_http_error_detail_is_normalized() -> None:
     }
 
 
-def test_settings_are_immutable_and_database_url_is_redacted() -> None:
-    secret = "postgresql://user:password@localhost/db"
-    settings = AppSettings(database_url=SecretStr(secret))
+def test_settings_are_immutable_and_database_urls_are_redacted() -> None:
+    database_url = "postgresql+asyncpg://user:password@localhost/research"
+    test_database_url = "postgresql+asyncpg://test:password@localhost/research_test"
+    settings = AppSettings(
+        database_url=SecretStr(database_url),
+        test_database_url=SecretStr(test_database_url),
+    )
 
-    assert secret not in repr(settings)
+    assert database_url not in repr(settings)
+    assert test_database_url not in repr(settings)
+    assert settings.test_database_url is not None
+    assert settings.test_database_url.get_secret_value() == test_database_url
     with pytest.raises(ValidationError):
         setattr(settings, "log_level", "DEBUG")
 
