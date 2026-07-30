@@ -55,8 +55,8 @@ frontend/src/
 
 **Interfaces:**
 - Consumes: `ContractSymbol`、`MarketTimeframe`、`UtcDateTime`、`JsonValue`。
-- Produces: `AnalysisReportStatus`、`AnalysisEvidenceDraft`、`AnalysisReportDraft`、`PersistedAnalysisEvidence`、`PersistedAnalysisReport`、`ReportPage`；`repository.py` 产生 `AnalysisReportRepository`。
-- `AnalysisReportRepository.persist(report: AnalysisReportDraft, evidences: tuple[AnalysisEvidenceDraft, ...]) -> PersistedAnalysisReport` is asynchronous; it has no update/delete method.
+- Produces: `AnalysisReportStatus`、`AnalysisEvidenceDraft`、`AnalysisReportDraft`、`AnalysisReportCreation`、`PersistedAnalysisEvidence`、`PersistedAnalysisReport`、`ReportPage`；`repository.py` 产生 `AnalysisReportRepository`。
+- `AnalysisReportRepository.persist(creation: AnalysisReportCreation) -> PersistedAnalysisReport` is asynchronous; it has no update/delete method.
 
 - [ ] **Step 1: 写入领域失败测试**
 
@@ -93,7 +93,7 @@ def test_evidence_draft_requires_a_matching_normalized_payload_hash() -> None:
         )
 ```
 
-Add focused cases for non-UTC timestamps, an empty evidence tuple on a `completed` draft, non-empty facts/inferences on a `degraded` draft, invalid symbol, arrays longer than 12 entries, and a valid immutable draft with canonical SHA-256.
+Add focused cases for non-UTC timestamps, an empty evidence tuple in a `completed` creation, evidence IDs that do not match the report ID, non-empty facts/inferences on a `degraded` draft, invalid symbol, arrays longer than 12 entries, and a valid immutable creation with canonical SHA-256.
 
 - [ ] **Step 2: 验证测试按预期失败**
 
@@ -134,9 +134,14 @@ class AnalysisReportDraft(_ReportModel):
     limitations: tuple[str, ...]
     generated_at: UtcDateTime
     data_cutoff_at: UtcDateTime | None
+
+
+class AnalysisReportCreation(_ReportModel):
+    report: AnalysisReportDraft
+    evidences: tuple[AnalysisEvidenceDraft, ...]
 ```
 
-Use `ConfigDict(frozen=True, extra="forbid")`, the existing canonical JSON/SHA-256 rule pattern from `market.repository`, size-bound JSON to 64 KiB, and one normalized phrase guard shared by title, summary, facts, inferences, risks and limitations. The prohibited normalized phrases are `买入`、`卖出`、`开仓`、`平仓`、`仓位`、`杠杆`、`止损`、`保证收益`、`自动交易`. Completed reports require at least one evidence and may contain bounded facts/inferences; degraded reports require no facts/inferences and at least one risk plus one limitation.
+Use `ConfigDict(frozen=True, extra="forbid")`, the existing canonical JSON/SHA-256 rule pattern from `market.repository`, size-bound JSON to 64 KiB, and one normalized phrase guard shared by title, summary, facts, inferences, risks and limitations. The prohibited normalized phrases are `买入`、`卖出`、`开仓`、`平仓`、`仓位`、`杠杆`、`止损`、`保证收益`、`自动交易`. `AnalysisReportCreation` validates that every evidence belongs to `report.id`; completed reports require at least one evidence and may contain bounded facts/inferences; degraded reports require no facts/inferences and at least one risk plus one limitation.
 
 - [ ] **Step 4: 验证领域契约**
 
@@ -161,7 +166,7 @@ git commit -m "feat: define immutable research report contracts"
 - Create: `backend/tests/persistence/test_report_repository.py`
 
 **Interfaces:**
-- Consumes: Task 1 的 `AnalysisReportDraft`、`AnalysisEvidenceDraft`、`PersistedAnalysisReport`、`ReportPage`、`AnalysisReportRepository`。
+- Consumes: Task 1 的 `AnalysisReportCreation`、`PersistedAnalysisReport`、`ReportPage`、`AnalysisReportRepository`。
 - Produces: `SqlAlchemyAnalysisReportRepository(session_factory)` with `persist`、`get_by_id`、`get_by_analysis_id`、`list` methods.
 - `list(page: int, page_size: int, symbol: ContractSymbol | None, status: AnalysisReportStatus | None) -> ReportPage` orders by `created_at DESC, id DESC`.
 
@@ -173,7 +178,7 @@ async def test_repository_persists_a_report_and_frozen_evidence(
     migrated_database: MigratedDatabase,
 ) -> None:
     repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
-    report = await repository.persist(valid_completed_draft(), valid_evidence_drafts())
+    report = await repository.persist(valid_completed_creation())
 
     loaded = await repository.get_by_id(report.id)
 
@@ -308,16 +313,23 @@ class DeterministicResearchReportService:
             candles = await self._load_latest_closed_candles(symbol)
         except MarketDataUnavailableError as error:
             return await self._repository.persist(
-                _degraded_draft(symbol, generated_at, str(error)), (),
+                AnalysisReportCreation(
+                    report=_degraded_draft(symbol, generated_at, str(error)),
+                    evidences=(),
+                ),
             )
         if generated_at - snapshot.captured_at > timedelta(minutes=2):
             return await self._repository.persist(
-                _degraded_draft(symbol, generated_at, "持久化市场数据已过期"),
-                _evidence_from(snapshot, candles),
+                AnalysisReportCreation(
+                    report=_degraded_draft(symbol, generated_at, "持久化市场数据已过期"),
+                    evidences=_evidence_from(snapshot, candles),
+                ),
             )
         return await self._repository.persist(
-            _completed_draft(symbol, snapshot, candles, generated_at),
-            _evidence_from(snapshot, candles),
+            AnalysisReportCreation(
+                report=_completed_draft(symbol, snapshot, candles, generated_at),
+                evidences=_evidence_from(snapshot, candles),
+            ),
         )
 ```
 
