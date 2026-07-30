@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import NoReturn
+from uuid import UUID
 
 import httpx
 from fastapi import FastAPI
@@ -12,6 +13,9 @@ from app.api.errors import install_exception_handlers
 from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
+from app.infrastructure.persistence.report_repository import (
+    SqlAlchemyAnalysisReportRepository,
+)
 from app.infrastructure.persistence.research_reader import SqlAlchemyPersistedMarketReader
 from app.market.binance_usdm import (
     BINANCE_USDM_BASE_URL,
@@ -28,6 +32,13 @@ from app.market.research import (
     PersistedMarketReader,
 )
 from app.market.service import MarketQueryService
+from app.reports.contracts import (
+    AnalysisReportCreation,
+    AnalysisReportStatus,
+    ReportStorageUnavailableError,
+)
+from app.reports.repository import AnalysisReportRepository
+from app.reports.service import DeterministicResearchReportService
 from app.shared.config import AppSettings
 from app.shared.database import create_database_engine, create_session_factory
 from app.shared.logging import configure_logging
@@ -51,9 +62,38 @@ class _UnavailablePersistedMarketReader(PersistedMarketReader):
         _raise_market_research_unavailable()
 
 
+class _UnavailableAnalysisReportRepository(AnalysisReportRepository):
+    async def persist(
+        self,
+        creation: AnalysisReportCreation,
+    ) -> NoReturn:
+        del creation
+        _raise_analysis_report_storage_unavailable()
+
+    async def get_by_id(self, report_id: UUID) -> NoReturn:
+        del report_id
+        _raise_analysis_report_storage_unavailable()
+
+    async def get_by_analysis_id(self, analysis_id: UUID) -> NoReturn:
+        del analysis_id
+        _raise_analysis_report_storage_unavailable()
+
+    async def list(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        symbol: ContractSymbol | None,
+        status: AnalysisReportStatus | None,
+    ) -> NoReturn:
+        del page, page_size, symbol, status
+        _raise_analysis_report_storage_unavailable()
+
+
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
+    analysis_report_repository: AnalysisReportRepository | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -70,15 +110,26 @@ def create_app(
         )
 
     research_engine: AsyncEngine | None = None
+    session_factory = None
+    if market_research_reader is None or analysis_report_repository is None:
+        if settings.database_url is not None:
+            research_engine = create_database_engine(settings.database_url)
+            session_factory = create_session_factory(research_engine)
+
     if market_research_reader is None:
-        database_url = settings.database_url
-        if database_url is None:
+        if session_factory is None:
             market_research_reader = _UnavailablePersistedMarketReader()
         else:
-            research_engine = create_database_engine(database_url)
             market_research_reader = SqlAlchemyPersistedMarketReader(
-                create_session_factory(research_engine),
+                session_factory,
             )
+
+    if analysis_report_repository is None:
+        analysis_report_repository = (
+            _UnavailableAnalysisReportRepository()
+            if session_factory is None
+            else SqlAlchemyAnalysisReportRepository(session_factory)
+        )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
@@ -98,12 +149,18 @@ def create_app(
         market_research_reader,
         clock=lambda: datetime.now(UTC),
     )
+    app.state.analysis_report_repository = analysis_report_repository
+    app.state.analysis_report_service = DeterministicResearchReportService(
+        market_research_reader,
+        analysis_report_repository,
+        clock=lambda: datetime.now(UTC),
+    )
     install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allowed_origins),
         allow_credentials=False,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["Accept", "Content-Type"],
     )
     app.include_router(health_router)
@@ -119,3 +176,7 @@ def _raise_market_research_unavailable() -> NoReturn:
         "market_research_unavailable",
         "持久化市场研究数据不可用",
     )
+
+
+def _raise_analysis_report_storage_unavailable() -> NoReturn:
+    raise ReportStorageUnavailableError("研究报告存储不可用")
