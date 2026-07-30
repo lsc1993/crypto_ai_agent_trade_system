@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.market.capture import MarketCaptureService
 from app.market.contracts import (
     Candle,
     CandleSeries,
@@ -123,6 +124,33 @@ async def test_capture_excludes_current_candles_before_persistence() -> None:
         for candle in batch.candles
     )
     assert [len(batch.candles) for batch in repository.persisted_batches] == [4, 4]
+
+
+@pytest.mark.asyncio
+async def test_capture_normalizes_snapshot_numbers_and_times() -> None:
+    repository = RecordingRepository()
+    service = MarketCaptureService(FakeMarketGateway(), repository)
+
+    await service.capture(captured_at=CAPTURED_AT)
+
+    payload = repository.persisted_batches[0].snapshot.payload
+    summary = payload["summary"]
+    latest_closed_candles = payload["latestClosedCandles"]
+    assert isinstance(summary, dict)
+    assert isinstance(latest_closed_candles, list)
+    normalized_candles = [
+        candle for candle in latest_closed_candles if isinstance(candle, dict)
+    ]
+    assert len(normalized_candles) == 4
+    assert summary["price"] == "100000.00"
+    assert summary["fundingRate"] == "-0.0001"
+    assert summary["freshness"] == {
+        "status": "fresh",
+        "source": "binance_usdm_public_rest",
+        "observedAt": "2026-07-30T11:58:00Z",
+        "fetchedAt": "2026-07-30T12:00:00Z",
+    }
+    assert all(candle["closeAt"] == "2026-07-30T11:59:00Z" for candle in normalized_candles)
 
 
 def _market_detail(

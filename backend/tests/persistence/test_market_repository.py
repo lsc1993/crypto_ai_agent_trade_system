@@ -4,7 +4,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from importlib import import_module
 from importlib.util import find_spec
-from typing import Protocol
+from typing import Protocol, cast
+from uuid import UUID
 
 import pytest
 from pydantic import JsonValue
@@ -76,6 +77,25 @@ async def test_repository_rolls_back_all_symbols_when_one_batch_is_invalid(
     assert await _row_count(migrated_database, MarketSnapshotRecord) == 0
 
 
+@pytest.mark.asyncio
+async def test_snapshot_payload_contains_only_normalized_strings_and_utc_times(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository_module = import_module("app.infrastructure.persistence.repository")
+    repository = repository_module.SqlAlchemyMarketRepository(
+        migrated_database.session_factory,
+    )
+    batch = _market_capture_batch(ContractSymbol.BTCUSDT)
+
+    snapshot_id = (await repository.persist_batches((batch,)))[0]
+    payload = await _load_snapshot_payload(migrated_database, snapshot_id)
+
+    assert "apiKey" not in payload
+    assert "secret" not in payload
+    assert payload["price"] == "100000.00"
+    assert payload["observedAt"] == "2026-07-30T00:00:00Z"
+
+
 async def _row_count(
     migrated_database: MigratedDatabase,
     record_type: type[
@@ -85,6 +105,17 @@ async def _row_count(
     async with migrated_database.session_factory() as session:
         result = await session.execute(select(func.count()).select_from(record_type))
         return result.scalar_one()
+
+
+async def _load_snapshot_payload(
+    migrated_database: MigratedDatabase,
+    snapshot_id: UUID,
+) -> dict[str, JsonValue]:
+    async with migrated_database.session_factory() as session:
+        result = await session.execute(
+            select(MarketSnapshotRecord.payload).where(MarketSnapshotRecord.id == snapshot_id),
+        )
+        return cast(dict[str, JsonValue], result.scalar_one())
 
 
 def _market_capture_batch(symbol: ContractSymbol) -> MarketCaptureBatch:
