@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.api.routes.market import router as market_router
+from app.api.routes.research_market import router as research_market_router
 
 API_NAME = "AI 加密合约研究工作台"
 
@@ -21,3 +22,4 @@ async def get_version_document() -> VersionDocument:
 
 
 router.include_router(market_router)
+router.include_router(research_market_router)

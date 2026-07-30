@@ -1,26 +1,60 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import NoReturn
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api.errors import install_exception_handlers
 from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
+from app.infrastructure.persistence.research_reader import SqlAlchemyPersistedMarketReader
 from app.market.binance_usdm import (
     BINANCE_USDM_BASE_URL,
     BinanceUsdmPublicMarketGateway,
 )
+from app.market.contracts import (
+    ContractSymbol,
+    MarketDataUnavailableError,
+    MarketTimeframe,
+)
 from app.market.gateway import PublicMarketGateway
+from app.market.research import (
+    MarketResearchQueryService,
+    PersistedMarketReader,
+)
 from app.market.service import MarketQueryService
 from app.shared.config import AppSettings
+from app.shared.database import create_database_engine, create_session_factory
 from app.shared.logging import configure_logging
 
 
-def create_app(market_gateway: PublicMarketGateway | None = None) -> FastAPI:
+class _UnavailablePersistedMarketReader(PersistedMarketReader):
+    async def load_latest_snapshot(
+        self,
+        symbol: ContractSymbol,
+    ) -> NoReturn:
+        del symbol
+        _raise_market_research_unavailable()
+
+    async def load_recent_candles(
+        self,
+        symbol: ContractSymbol,
+        timeframe: MarketTimeframe,
+        limit: int,
+    ) -> NoReturn:
+        del symbol, timeframe, limit
+        _raise_market_research_unavailable()
+
+
+def create_app(
+    market_gateway: PublicMarketGateway | None = None,
+    market_research_reader: PersistedMarketReader | None = None,
+) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
 
@@ -35,11 +69,24 @@ def create_app(market_gateway: PublicMarketGateway | None = None) -> FastAPI:
             clock=lambda: datetime.now(UTC),
         )
 
+    research_engine: AsyncEngine | None = None
+    if market_research_reader is None:
+        database_url = settings.database_url
+        if database_url is None:
+            market_research_reader = _UnavailablePersistedMarketReader()
+        else:
+            research_engine = create_database_engine(database_url)
+            market_research_reader = SqlAlchemyPersistedMarketReader(
+                create_session_factory(research_engine),
+            )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         yield
         if market_client is not None:
             await market_client.aclose()
+        if research_engine is not None:
+            await research_engine.dispose()
 
     app = FastAPI(
         title=API_NAME,
@@ -47,6 +94,10 @@ def create_app(market_gateway: PublicMarketGateway | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.market_service = MarketQueryService(market_gateway)
+    app.state.market_research_service = MarketResearchQueryService(
+        market_research_reader,
+        clock=lambda: datetime.now(UTC),
+    )
     install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,
@@ -61,3 +112,10 @@ def create_app(market_gateway: PublicMarketGateway | None = None) -> FastAPI:
 
 
 app = create_app()
+
+
+def _raise_market_research_unavailable() -> NoReturn:
+    raise MarketDataUnavailableError(
+        "market_research_unavailable",
+        "持久化市场研究数据不可用",
+    )
