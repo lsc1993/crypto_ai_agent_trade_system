@@ -105,4 +105,18 @@ export class HttpTransport {
     }
     return parsed.data;
   }
+
+  absoluteUrl(path: string): string {
+    const baseUrl = new URL(this.baseUrl);
+    const url = new URL(path, baseUrl);
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.origin !== baseUrl.origin
+    ) {
+      throw new WorkbenchResponseError(
+        "Report stream URL must stay on the configured HTTP(S) origin",
+      );
+    }
+    return url.toString();
+  }
 }

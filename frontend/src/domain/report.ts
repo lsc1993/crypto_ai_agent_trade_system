@@ -33,7 +33,7 @@ export const analysisReportSummarySchema = z.object({
   title: z.string().trim().min(1),
   summary: z.string(),
   createdAt: utcIsoStringSchema,
-  dataCutoffAt: utcIsoStringSchema,
+  dataCutoffAt: utcIsoStringSchema.nullable(),
 });
 
 export const analysisReportSchema = analysisReportSummarySchema.extend({

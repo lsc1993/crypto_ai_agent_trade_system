@@ -1,3 +1,18 @@
+import {
+  analysisReportSchema,
+  analysisReportSummarySchema,
+  reportFiltersSchema,
+  type AnalysisReport,
+  type AnalysisReportSummary,
+  type AnalysisStreamEvent,
+  type ReportFilters,
+} from "../../domain/report";
+import {
+  identifierSchema,
+  type Page,
+  type Symbol,
+  type Timeframe,
+} from "../../domain/primitives";
 import type {
   AnalyticsFilters,
   AnalyticsSnapshot,
@@ -8,22 +23,20 @@ import type {
   MarketSummary,
 } from "../../domain/market";
 import { marketDetailSchema, marketSummarySchema } from "../../domain/market";
-import type { Page, Symbol, Timeframe } from "../../domain/primitives";
-import type {
-  AnalysisReport,
-  AnalysisReportSummary,
-  AnalysisStreamEvent,
-  ReportFilters,
-} from "../../domain/report";
 import type {
   Trade,
   TradeDraft,
   TradeFilters,
 } from "../../domain/trade";
 import {
+  createWirePageSchema,
   HttpTransport,
   type HttpTransportOptions,
 } from "./http-transport";
+import {
+  subscribeToReportStream,
+  type ReportEventSourceFactory,
+} from "./report-stream";
 import type { WorkbenchApi } from "./workbench-api";
 import type { MarketDataSource } from "../config/env";
 import { z } from "zod";
@@ -42,6 +55,7 @@ export class WorkbenchEndpointUnavailableError extends Error {
 
 export interface HttpWorkbenchApiOptions extends HttpTransportOptions {
   marketDataSource?: MarketDataSource;
+  eventSourceFactory?: ReportEventSourceFactory;
 }
 
 const marketInputSchema = z.object({
@@ -51,6 +65,14 @@ const marketInputSchema = z.object({
 const marketSummaryListSchema = z.object({
   items: z.array(marketSummarySchema),
 });
+const reportStartSchema = z.object({ symbol: z.enum(["BTCUSDT", "ETHUSDT"]) });
+const analysisRunResultSchema = z.object({
+  analysisId: identifierSchema,
+  reportId: identifierSchema,
+});
+const analysisReportPageSchema = createWirePageSchema(
+  analysisReportSummarySchema,
+);
 
 function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
   return Promise.reject(new WorkbenchEndpointUnavailableError(operation));
@@ -59,12 +81,18 @@ function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
 export class HttpWorkbenchApi implements WorkbenchApi {
   private readonly transport: HttpTransport;
   private readonly marketApiPrefix: string;
+  private readonly eventSourceFactory: ReportEventSourceFactory | undefined;
 
   constructor(options: HttpWorkbenchApiOptions) {
-    const { marketDataSource = "live", ...transportOptions } = options;
+    const {
+      marketDataSource = "live",
+      eventSourceFactory,
+      ...transportOptions
+    } = options;
     this.transport = new HttpTransport(transportOptions);
     this.marketApiPrefix =
       marketDataSource === "research" ? "/api/v1/research" : "/api/v1";
+    this.eventSourceFactory = eventSourceFactory;
   }
 
   async listMarketSummaries(): Promise<MarketSummary[]> {
@@ -95,37 +123,77 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     );
   }
 
-  listReports(
+  async listReports(
     filters: ReportFilters,
   ): Promise<Page<AnalysisReportSummary>> {
-    void filters;
-    return unavailable("listReports");
+    const parsedFilters = reportFiltersSchema.parse(filters);
+    const query = new URLSearchParams({
+      page: String(parsedFilters.page),
+      page_size: String(parsedFilters.pageSize),
+    });
+    if (parsedFilters.symbol !== undefined) {
+      query.set("symbol", parsedFilters.symbol);
+    }
+    if (parsedFilters.status !== undefined) {
+      query.set("status", parsedFilters.status);
+    }
+    return this.transport.request(
+      `/api/v1/analysis-runs?${query.toString()}`,
+      analysisReportPageSchema,
+    );
   }
 
   getReport(reportId: string): Promise<AnalysisReport> {
-    void reportId;
-    return unavailable("getReport");
+    const parsedReportId = identifierSchema.parse(reportId);
+    return this.transport.request(
+      `/api/v1/analysis-runs/${encodeURIComponent(parsedReportId)}`,
+      analysisReportSchema,
+    );
   }
 
-  startReport(input: {
+  async startReport(input: {
     symbol: Symbol;
   }): Promise<{ analysisId: string }> {
-    void input;
-    return unavailable("startReport");
+    const parsedInput = reportStartSchema.parse(input);
+    const result = await this.transport.request(
+      "/api/v1/analysis-runs",
+      analysisRunResultSchema,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsedInput),
+      },
+    );
+    return { analysisId: result.analysisId };
   }
 
-  retryReport(reportId: string): Promise<{ analysisId: string }> {
-    void reportId;
-    return unavailable("retryReport");
+  async retryReport(reportId: string): Promise<{ analysisId: string }> {
+    const parsedReportId = identifierSchema.parse(reportId);
+    const result = await this.transport.request(
+      `/api/v1/analysis-runs/${encodeURIComponent(parsedReportId)}/retry`,
+      analysisRunResultSchema,
+      { method: "POST" },
+    );
+    return { analysisId: result.analysisId };
   }
 
   subscribeReport(
     analysisId: string,
     onEvent: (event: AnalysisStreamEvent) => void,
   ): () => void {
-    void analysisId;
-    void onEvent;
-    throw new WorkbenchEndpointUnavailableError("subscribeReport");
+    const parsedAnalysisId = identifierSchema.parse(analysisId);
+    const options = {
+      url: this.transport.absoluteUrl(
+        `/api/v1/analysis-runs/${encodeURIComponent(parsedAnalysisId)}/events`,
+      ),
+      onEvent,
+    };
+    return this.eventSourceFactory === undefined
+      ? subscribeToReportStream(options)
+      : subscribeToReportStream({
+          ...options,
+          eventSourceFactory: this.eventSourceFactory,
+        });
   }
 
   listTrades(filters: TradeFilters): Promise<Page<Trade>> {

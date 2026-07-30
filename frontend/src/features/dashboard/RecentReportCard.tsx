@@ -40,9 +40,13 @@ export function RecentReportCard({ report }: RecentReportCardProps) {
         <div>
           <dt>数据截止时间</dt>
           <dd>
-            <time dateTime={report.dataCutoffAt}>
-              {report.dataCutoffAt}
-            </time>
+            {report.dataCutoffAt === null ? (
+              "无可用数据"
+            ) : (
+              <time dateTime={report.dataCutoffAt}>
+                {report.dataCutoffAt}
+              </time>
+            )}
           </dd>
         </div>
       </dl>

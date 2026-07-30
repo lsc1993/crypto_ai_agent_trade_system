@@ -257,6 +257,18 @@ class FailedReportDetailApi extends ControlledReportDetailApi {
   }
 }
 
+class DegradedNoCutoffApi extends ControlledReportDetailApi {
+  override getReport(): Promise<AnalysisReport> {
+    return Promise.resolve(
+      analysisReportSchema.parse({
+        ...seedReport(),
+        status: "degraded",
+        dataCutoffAt: null,
+      }),
+    );
+  }
+}
+
 class RoutedReportDetailApi extends ControlledReportDetailApi {
   override getReport(reportId: string): Promise<AnalysisReport> {
     return Promise.resolve(
@@ -609,6 +621,13 @@ describe("ReportDetailPage", () => {
       "rel",
       "noopener noreferrer",
     );
+  });
+
+  it("renders an unavailable data cutoff without creating an invalid time element", async () => {
+    renderReportDetail(new DegradedNoCutoffApi());
+
+    expect(await screen.findByText("无可用数据")).toBeVisible();
+    expect(screen.queryByText("null")).not.toBeInTheDocument();
   });
 
   it("retries the original report with a fresh analysis lifecycle", async () => {
