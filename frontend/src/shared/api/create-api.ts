@@ -12,7 +12,10 @@ export function createWorkbenchApi(
   if (config.dataMode === "mock") {
     return new MockWorkbenchApi();
   }
-  const httpApi = new HttpWorkbenchApi({ baseUrl: config.apiBaseUrl });
+  const httpApi = new HttpWorkbenchApi({
+    baseUrl: config.apiBaseUrl,
+    marketDataSource: config.marketDataSource,
+  });
   if (config.dataMode === "market-api") {
     return new HybridWorkbenchApi(new MockWorkbenchApi(), httpApi);
   }

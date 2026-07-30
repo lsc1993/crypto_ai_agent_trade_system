@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createWorkbenchApi } from "./create-api";
@@ -15,6 +15,10 @@ import { MockWorkbenchApi } from "./mock-workbench-api";
 import { WorkbenchConfigurationError } from "../config/env";
 
 describe("createWorkbenchApi", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("selects the deterministic Mock implementation", () => {
     const api = createWorkbenchApi({
       VITE_API_BASE_URL: "http://localhost:8000",
@@ -40,6 +44,25 @@ describe("createWorkbenchApi", () => {
     });
 
     expect(api).toBeInstanceOf(HybridWorkbenchApi);
+  });
+
+  it("forwards the persisted research source to the hybrid market client", async () => {
+    const fetchImpl: typeof fetch = vi.fn(() =>
+      Promise.resolve(Response.json({ items: [] })),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const api = createWorkbenchApi({
+      VITE_API_BASE_URL: "http://localhost:8000",
+      VITE_DATA_MODE: "market-api",
+      VITE_MARKET_DATA_SOURCE: "research",
+    });
+
+    await expect(api.getDashboard()).resolves.toMatchObject({ markets: [] });
+
+    const requestUrl = new URL(
+      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
+    );
+    expect(requestUrl.pathname).toBe("/api/v1/research/markets");
   });
 
   it("throws a typed configuration error for every unsupported mode", () => {

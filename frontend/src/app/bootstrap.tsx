@@ -11,9 +11,11 @@ import App from "./App";
 
 const defaultDataMode = "mock";
 const defaultApiBaseUrl = "http://localhost:8000";
+const defaultMarketDataSource = "live";
 const entrypointEnvironmentSchema = z.object({
   VITE_DATA_MODE: z.unknown().optional(),
   VITE_API_BASE_URL: z.unknown().optional(),
+  VITE_MARKET_DATA_SOURCE: z.unknown().optional(),
 });
 
 function applyEntrypointDefaults(environment: unknown): unknown {
@@ -28,6 +30,10 @@ function applyEntrypointDefaults(environment: unknown): unknown {
       parsed.VITE_API_BASE_URL === undefined
         ? defaultApiBaseUrl
         : parsed.VITE_API_BASE_URL,
+    VITE_MARKET_DATA_SOURCE:
+      parsed.VITE_MARKET_DATA_SOURCE === undefined
+        ? defaultMarketDataSource
+        : parsed.VITE_MARKET_DATA_SOURCE,
   };
 }
 

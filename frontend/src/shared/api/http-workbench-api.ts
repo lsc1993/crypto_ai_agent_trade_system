@@ -25,6 +25,7 @@ import {
   type HttpTransportOptions,
 } from "./http-transport";
 import type { WorkbenchApi } from "./workbench-api";
+import type { MarketDataSource } from "../config/env";
 import { z } from "zod";
 
 export class WorkbenchEndpointUnavailableError extends Error {
@@ -39,7 +40,9 @@ export class WorkbenchEndpointUnavailableError extends Error {
   }
 }
 
-export type HttpWorkbenchApiOptions = HttpTransportOptions;
+export interface HttpWorkbenchApiOptions extends HttpTransportOptions {
+  marketDataSource?: MarketDataSource;
+}
 
 const marketInputSchema = z.object({
   symbol: z.enum(["BTCUSDT", "ETHUSDT"]),
@@ -55,15 +58,19 @@ function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
 
 export class HttpWorkbenchApi implements WorkbenchApi {
   private readonly transport: HttpTransport;
+  private readonly marketApiPrefix: string;
 
   constructor(options: HttpWorkbenchApiOptions) {
-    this.transport = new HttpTransport(options);
+    const { marketDataSource = "live", ...transportOptions } = options;
+    this.transport = new HttpTransport(transportOptions);
+    this.marketApiPrefix =
+      marketDataSource === "research" ? "/api/v1/research" : "/api/v1";
   }
 
   async listMarketSummaries(): Promise<MarketSummary[]> {
     return (
       await this.transport.request(
-        "/api/v1/markets?symbols=BTCUSDT&symbols=ETHUSDT",
+        `${this.marketApiPrefix}/markets?symbols=BTCUSDT&symbols=ETHUSDT`,
         marketSummaryListSchema,
       )
     ).items;
@@ -83,7 +90,7 @@ export class HttpWorkbenchApi implements WorkbenchApi {
       query.append("timeframes", timeframe);
     }
     return this.transport.request(
-      `/api/v1/market/${parsedInput.symbol}?${query.toString()}`,
+      `${this.marketApiPrefix}/market/${parsedInput.symbol}?${query.toString()}`,
       marketDetailSchema,
     );
   }

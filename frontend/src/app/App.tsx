@@ -32,9 +32,13 @@ export type AppProps = ReadyAppProps | ConfigurationErrorAppProps;
 function configurationErrorMessage(
   error: WorkbenchConfigurationError,
 ): string {
-  return error.code === "INVALID_DATA_MODE"
-    ? "数据模式配置无效，请将 VITE_DATA_MODE 设置为 mock、market-api 或 api。"
-    : "API 地址配置无效，请检查 VITE_API_BASE_URL。";
+  if (error.code === "INVALID_DATA_MODE") {
+    return "数据模式配置无效，请将 VITE_DATA_MODE 设置为 mock、market-api 或 api。";
+  }
+  if (error.code === "INVALID_MARKET_DATA_SOURCE") {
+    return "市场数据来源配置无效，请将 VITE_MARKET_DATA_SOURCE 设置为 live 或 research。";
+  }
+  return "API 地址配置无效，请检查 VITE_API_BASE_URL。";
 }
 
 export default function App(props: AppProps) {

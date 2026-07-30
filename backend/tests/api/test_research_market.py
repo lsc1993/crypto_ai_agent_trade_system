@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import NoReturn
 
 import httpx
 import pytest
@@ -71,6 +72,23 @@ class UnavailablePersistedMarketReader:
         )
 
 
+class ForbiddenLiveMarketGateway:
+    async def get_summaries(
+        self,
+        symbols: tuple[ContractSymbol, ...],
+    ) -> tuple[MarketSummary, ...]:
+        del symbols
+        raise AssertionError("研究接口不得回退到实时市场网关")
+
+    async def get_market(
+        self,
+        symbol: ContractSymbol,
+        timeframes: tuple[MarketTimeframe, ...],
+    ) -> NoReturn:
+        del symbol, timeframes
+        raise AssertionError("研究接口不得回退到实时市场网关")
+
+
 async def get(app: FastAPI, path: str) -> httpx.Response:
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -133,6 +151,19 @@ async def test_research_route_returns_stable_503_when_reader_is_unavailable() ->
         "message": "持久化市场研究数据不可用",
         "details": {},
     }
+
+
+@pytest.mark.asyncio
+async def test_research_route_never_falls_back_to_the_live_market_gateway() -> None:
+    app = create_app(
+        market_gateway=ForbiddenLiveMarketGateway(),
+        market_research_reader=UnavailablePersistedMarketReader(),
+    )
+
+    response = await get(app, "/api/v1/research/markets?symbols=BTCUSDT")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "market_research_unavailable"
 
 
 @pytest.mark.asyncio

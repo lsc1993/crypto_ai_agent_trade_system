@@ -55,4 +55,18 @@ describe("production runtime bootstrap", () => {
       "API 地址配置无效，请检查 VITE_API_BASE_URL。",
     );
   });
+
+  it("renders a safe visible configuration error for an invalid market data source", () => {
+    render(
+      createRuntimeApplication({
+        VITE_API_BASE_URL: "http://localhost:8000",
+        VITE_DATA_MODE: "market-api",
+        VITE_MARKET_DATA_SOURCE: "fallback",
+      }),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "市场数据来源配置无效，请将 VITE_MARKET_DATA_SOURCE 设置为 live 或 research。",
+    );
+  });
 });

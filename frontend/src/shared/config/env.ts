@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const dataModeSchema = z.enum(["mock", "market-api", "api"]);
+const marketDataSourceSchema = z.enum(["live", "research"]);
 const apiBaseUrlSchema = z.url().refine(
   (value) => {
     const protocol = new URL(value).protocol;
@@ -10,24 +11,31 @@ const apiBaseUrlSchema = z.url().refine(
 );
 
 export type DataMode = z.infer<typeof dataModeSchema>;
+export type MarketDataSource = z.infer<typeof marketDataSourceSchema>;
 
 export interface WorkbenchEnvironment {
   VITE_API_BASE_URL?: string | undefined;
   VITE_DATA_MODE?: string | undefined;
+  VITE_MARKET_DATA_SOURCE?: string | undefined;
 }
 
 export interface WorkbenchConfig {
   apiBaseUrl: string;
   dataMode: DataMode;
+  marketDataSource: MarketDataSource;
 }
 
 export class WorkbenchConfigurationError extends Error {
   readonly code:
     | "INVALID_DATA_MODE"
-    | "INVALID_API_BASE_URL";
+    | "INVALID_API_BASE_URL"
+    | "INVALID_MARKET_DATA_SOURCE";
 
   constructor(
-    code: "INVALID_DATA_MODE" | "INVALID_API_BASE_URL",
+    code:
+      | "INVALID_DATA_MODE"
+      | "INVALID_API_BASE_URL"
+      | "INVALID_MARKET_DATA_SOURCE",
     message: string,
   ) {
     super(message);
@@ -43,6 +51,7 @@ export function parseWorkbenchConfig(
     .object({
       VITE_API_BASE_URL: z.unknown().optional(),
       VITE_DATA_MODE: z.unknown().optional(),
+      VITE_MARKET_DATA_SOURCE: z.unknown().optional(),
     })
     .parse(value);
   const mode = dataModeSchema.safeParse(environment.VITE_DATA_MODE);
@@ -63,8 +72,19 @@ export function parseWorkbenchConfig(
     );
   }
 
+  const marketDataSource = marketDataSourceSchema.safeParse(
+    environment.VITE_MARKET_DATA_SOURCE ?? "live",
+  );
+  if (!marketDataSource.success) {
+    throw new WorkbenchConfigurationError(
+      "INVALID_MARKET_DATA_SOURCE",
+      "VITE_MARKET_DATA_SOURCE must be live or research",
+    );
+  }
+
   return {
     apiBaseUrl: baseUrl.data,
     dataMode: mode.data,
+    marketDataSource: marketDataSource.data,
   };
 }

@@ -82,4 +82,30 @@ describe("HttpWorkbenchApi market reads", () => {
     expect(requestUrl.pathname).toBe("/api/v1/market/BTCUSDT");
     expect(requestUrl.searchParams.getAll("timeframes")).toEqual(["15m"]);
   });
+
+  it("uses the persisted research API only when explicitly configured", async () => {
+    const fetchImpl: typeof fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ items: [liveDetail.summary] }))
+      .mockResolvedValueOnce(Response.json(liveDetail));
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      marketDataSource: "research",
+      fetchImpl,
+    });
+
+    await expect(api.listMarketSummaries()).resolves.toEqual([liveDetail.summary]);
+    await expect(
+      api.getMarket({ symbol: "BTCUSDT", timeframes: ["15m"] }),
+    ).resolves.toEqual(liveDetail);
+
+    const summaryUrl = new URL(
+      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
+    );
+    const detailUrl = new URL(
+      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as URL,
+    );
+    expect(summaryUrl.pathname).toBe("/api/v1/research/markets");
+    expect(detailUrl.pathname).toBe("/api/v1/research/market/BTCUSDT");
+  });
 });
