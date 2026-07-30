@@ -10,7 +10,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-from app.infrastructure.persistence.models import market
+from app.infrastructure.persistence.models import market, reports  # noqa: F401
 from app.shared.config import AppSettings
 
 config = context.config

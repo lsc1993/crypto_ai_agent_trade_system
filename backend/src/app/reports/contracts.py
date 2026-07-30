@@ -39,6 +39,10 @@ class AnalysisReportStatus(StrEnum):
     DEGRADED = "degraded"
 
 
+class ReportStorageUnavailableError(RuntimeError):
+    """报告无法持久化或读取时的安全错误。"""
+
+
 def report_payload_sha256(payload: dict[str, JsonValue]) -> str:
     """计算证据载荷的稳定 SHA-256。"""
     return snapshot_payload_sha256(payload)
