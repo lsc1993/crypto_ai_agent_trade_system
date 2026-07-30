@@ -23,6 +23,11 @@ def create_async_engine_from_secret(database_url: SecretStr) -> AsyncEngine:
     )
 
 
+def create_database_engine(database_url: SecretStr) -> AsyncEngine:
+    """创建数据库引擎，同时保持连接串只在共享配置层展开。"""
+    return create_async_engine_from_secret(database_url)
+
+
 def create_session_factory(
     engine: AsyncEngine,
 ) -> async_sessionmaker[AsyncSession]:
