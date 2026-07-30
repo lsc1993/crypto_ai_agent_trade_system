@@ -68,8 +68,9 @@ def _validate_display_text(value: str) -> str:
         raise ValueError("报告文本不能为空")
     if len(normalized) > _MAX_TEXT_LENGTH:
         raise ValueError("报告文本不能超过 1000 个字符")
+    guard_text = _normalize_text(normalized).replace("未平仓量", "")
     prohibited = next(
-        (phrase for phrase in _PROHIBITED_PHRASES if phrase in _normalize_text(normalized)),
+        (phrase for phrase in _PROHIBITED_PHRASES if phrase in guard_text),
         None,
     )
     if prohibited is not None:
