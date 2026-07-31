@@ -30,7 +30,6 @@ class TradeLegAction(StrEnum):
 class TradeStatus(StrEnum):
     OPEN = "open"
     CLOSED = "closed"
-    ARCHIVED = "archived"
 
 
 class TradeAuditAction(StrEnum):
@@ -41,6 +40,10 @@ class TradeAuditAction(StrEnum):
 
 class TradeValidationError(ValueError):
     """手工交易事实不满足领域约束。"""
+
+
+class TradeStorageUnavailableError(RuntimeError):
+    """交易日志无法安全持久化或读取。"""
 
 
 class _TradeModel(BaseModel):
@@ -162,3 +165,52 @@ class TradeDraft(_TradeModel):
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("交易腿 ID 必须唯一")
         return self
+
+
+class PersistedTrade(TradeDraft):
+    id: UUID
+    status: TradeStatus
+    gross_realized_pnl: Decimal
+    total_fees: Decimal
+    total_funding_cashflow: Decimal
+    net_pnl: Decimal
+    opened_at: datetime
+    closed_at: datetime | None
+    archived_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("opened_at", "closed_at", "archived_at", "created_at", "updated_at")
+    @classmethod
+    def validate_persisted_utc_time(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _require_utc(value)
+
+
+class TradeFilters(_TradeModel):
+    page: Annotated[int, Field(ge=1)]
+    page_size: Annotated[int, Field(ge=1, le=100)]
+    symbol: ContractSymbol | None = None
+    direction: TradeDirection | None = None
+    horizon: TradeHorizon | None = None
+    status: TradeStatus | None = None
+    label: Annotated[str, Field(min_length=1, max_length=100)] | None = None
+    from_at: datetime | None = None
+    to_at: datetime | None = None
+
+    @field_validator("from_at", "to_at")
+    @classmethod
+    def validate_filter_utc_time(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _require_utc(value)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> TradeFilters:
+        if self.from_at is not None and self.to_at is not None and self.from_at > self.to_at:
+            raise ValueError("交易筛选开始时间不能晚于结束时间")
+        return self
+
+
+class TradePage(_TradeModel):
+    items: tuple[PersistedTrade, ...]
+    page: Annotated[int, Field(ge=1)]
+    page_size: Annotated[int, Field(ge=1, le=100)]
+    total: Annotated[int, Field(ge=0)]
