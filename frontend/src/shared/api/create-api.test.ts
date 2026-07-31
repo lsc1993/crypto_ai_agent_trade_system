@@ -47,9 +47,22 @@ describe("createWorkbenchApi", () => {
   });
 
   it("forwards the persisted research source to the hybrid market client", async () => {
-    const fetchImpl: typeof fetch = vi.fn(() =>
-      Promise.resolve(Response.json({ items: [] })),
-    );
+    const fetchImpl: typeof fetch = vi.fn((input: RequestInfo | URL) => {
+      const requestUrl =
+        input instanceof URL
+          ? input
+          : new URL(typeof input === "string" ? input : input.url);
+      const { pathname } = requestUrl;
+      if (pathname === "/api/v1/research/markets") {
+        return Promise.resolve(Response.json({ items: [] }));
+      }
+      if (pathname === "/api/v1/analysis-runs") {
+        return Promise.resolve(
+          Response.json({ items: [], page: 1, page_size: 20, total: 0 }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected local API path: ${pathname}`));
+    });
     vi.stubGlobal("fetch", fetchImpl);
     const api = createWorkbenchApi({
       VITE_API_BASE_URL: "http://localhost:8000",
@@ -59,10 +72,15 @@ describe("createWorkbenchApi", () => {
 
     await expect(api.getDashboard()).resolves.toMatchObject({ markets: [] });
 
-    const requestUrl = new URL(
-      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
+    const requestUrls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([input]) => new URL(input as URL),
     );
-    expect(requestUrl.pathname).toBe("/api/v1/research/markets");
+    expect(requestUrls.map((requestUrl) => requestUrl.pathname)).toEqual([
+      "/api/v1/research/markets",
+      "/api/v1/analysis-runs",
+    ]);
+    expect(requestUrls[1]?.searchParams.get("page")).toBe("1");
+    expect(requestUrls[1]?.searchParams.get("page_size")).toBe("20");
   });
 
   it("throws a typed configuration error for every unsupported mode", () => {

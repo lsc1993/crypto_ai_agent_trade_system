@@ -21,26 +21,37 @@ import type {
   TradeFilters,
 } from "../../domain/trade";
 import { MockWorkbenchApi } from "./mock-workbench-api";
-import type { WorkbenchApi } from "./workbench-api";
+import type { ReportRunCreated, WorkbenchApi } from "./workbench-api";
 
-export interface MarketDataApi {
+export interface MarketAndReportApi {
   listMarketSummaries(): Promise<MarketSummary[]>;
   getMarket(input: {
     symbol: Symbol;
     timeframes: Timeframe[];
   }): Promise<MarketDetail>;
+  listReports(
+    filters: ReportFilters,
+  ): Promise<Page<AnalysisReportSummary>>;
+  getReport(reportId: string): Promise<AnalysisReport>;
+  startReport(input: { symbol: Symbol }): Promise<ReportRunCreated>;
+  retryReport(reportId: string): Promise<ReportRunCreated>;
+  subscribeReport(
+    analysisId: string,
+    onEvent: (event: AnalysisStreamEvent) => void,
+  ): () => void;
 }
 
 export class HybridWorkbenchApi implements WorkbenchApi {
   constructor(
     private readonly mockApi: MockWorkbenchApi,
-    private readonly marketApi: MarketDataApi,
+    private readonly remoteApi: MarketAndReportApi,
   ) {}
 
   async getDashboard(): Promise<DashboardSnapshot> {
-    const [mockDashboard, markets] = await Promise.all([
+    const [mockDashboard, markets, reports] = await Promise.all([
       this.mockApi.getDashboard(),
-      this.marketApi.listMarketSummaries(),
+      this.remoteApi.listMarketSummaries(),
+      this.remoteApi.listReports({ page: 1, pageSize: 20 }),
     ]);
     const generatedAt = markets.reduce(
       (latest, market) =>
@@ -53,6 +64,7 @@ export class HybridWorkbenchApi implements WorkbenchApi {
       ...mockDashboard,
       generatedAt,
       markets,
+      recentReports: reports.items,
     });
   }
 
@@ -60,32 +72,32 @@ export class HybridWorkbenchApi implements WorkbenchApi {
     symbol: Symbol;
     timeframes: Timeframe[];
   }): Promise<MarketDetail> {
-    return this.marketApi.getMarket(input);
+    return this.remoteApi.getMarket(input);
   }
 
   listReports(
     filters: ReportFilters,
   ): Promise<Page<AnalysisReportSummary>> {
-    return this.mockApi.listReports(filters);
+    return this.remoteApi.listReports(filters);
   }
 
   getReport(reportId: string): Promise<AnalysisReport> {
-    return this.mockApi.getReport(reportId);
+    return this.remoteApi.getReport(reportId);
   }
 
-  startReport(input: { symbol: Symbol }): Promise<{ analysisId: string }> {
-    return this.mockApi.startReport(input);
+  startReport(input: { symbol: Symbol }): Promise<ReportRunCreated> {
+    return this.remoteApi.startReport(input);
   }
 
-  retryReport(reportId: string): Promise<{ analysisId: string }> {
-    return this.mockApi.retryReport(reportId);
+  retryReport(reportId: string): Promise<ReportRunCreated> {
+    return this.remoteApi.retryReport(reportId);
   }
 
   subscribeReport(
     analysisId: string,
     onEvent: (event: AnalysisStreamEvent) => void,
   ): () => void {
-    return this.mockApi.subscribeReport(analysisId, onEvent);
+    return this.remoteApi.subscribeReport(analysisId, onEvent);
   }
 
   listTrades(filters: TradeFilters): Promise<Page<Trade>> {

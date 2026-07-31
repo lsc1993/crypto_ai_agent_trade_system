@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import App from "../../app/App";
 import {
   HybridWorkbenchApi,
-  type MarketDataApi,
+  type MarketAndReportApi,
 } from "../api/hybrid-workbench-api";
 import { HttpWorkbenchApi } from "../api/http-workbench-api";
 import { MockWorkbenchApi } from "../api/mock-workbench-api";
@@ -38,17 +38,25 @@ describe("Mock mode controls", () => {
     expect(screen.queryByText("Mock 数据模式")).not.toBeInTheDocument();
   });
 
-  it("labels live public market data while keeping research data explicitly Mock", () => {
-    const marketApi: MarketDataApi = {
+  it("labels local market and report data while keeping journal features explicitly Mock", () => {
+    const marketApi: MarketAndReportApi = {
       listMarketSummaries: () => Promise.resolve([]),
       getMarket: () => Promise.reject(new Error("not called by the shell")),
+      listReports: () =>
+        Promise.resolve({ items: [], page: 1, pageSize: 20, total: 0 }),
+      getReport: () => Promise.reject(new Error("not called by the shell")),
+      startReport: () => Promise.reject(new Error("not called by the shell")),
+      retryReport: () => Promise.reject(new Error("not called by the shell")),
+      subscribeReport: () => () => undefined,
     };
     const api = new HybridWorkbenchApi(new MockWorkbenchApi(), marketApi);
 
     render(<App dataMode="market-api" api={api} />);
 
     expect(screen.getByText("公开市场数据模式")).toBeVisible();
-    expect(screen.getByText("报告、交易日志与复盘仍为 Mock")).toBeVisible();
+    expect(
+      screen.getByText("市场与报告使用本地 API；交易日志、统计与资讯仍为 Mock"),
+    ).toBeVisible();
     expect(screen.queryByText("重置 Mock 数据")).not.toBeInTheDocument();
   });
 });
