@@ -63,7 +63,7 @@ export function ReportGenerator({ symbol }: ReportGeneratorProps) {
         return;
       }
       if (reportId !== undefined) {
-        navigate(`/reports/${encodeURIComponent(reportId)}`);
+        void navigate(`/reports/${encodeURIComponent(reportId)}`);
         return;
       }
       clearSubscription();

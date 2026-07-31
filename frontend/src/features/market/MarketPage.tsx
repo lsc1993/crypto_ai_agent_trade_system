@@ -53,7 +53,7 @@ export function MarketPage() {
     },
     onSuccess: ({ reportId }) => {
       if (reportId !== undefined) {
-        navigate(`/reports/${encodeURIComponent(reportId)}`);
+        void navigate(`/reports/${encodeURIComponent(reportId)}`);
       }
     },
   });
