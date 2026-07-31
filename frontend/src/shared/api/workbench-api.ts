@@ -19,6 +19,11 @@ import type {
   TradeFilters,
 } from "../../domain/trade";
 
+export interface ReportRunCreated {
+  analysisId: string;
+  reportId?: string;
+}
+
 export interface WorkbenchApi {
   getDashboard(): Promise<DashboardSnapshot>;
   getMarket(input: {
@@ -29,8 +34,8 @@ export interface WorkbenchApi {
     filters: ReportFilters,
   ): Promise<Page<AnalysisReportSummary>>;
   getReport(reportId: string): Promise<AnalysisReport>;
-  startReport(input: { symbol: Symbol }): Promise<{ analysisId: string }>;
-  retryReport(reportId: string): Promise<{ analysisId: string }>;
+  startReport(input: { symbol: Symbol }): Promise<ReportRunCreated>;
+  retryReport(reportId: string): Promise<ReportRunCreated>;
   subscribeReport(
     analysisId: string,
     onEvent: (event: AnalysisStreamEvent) => void,

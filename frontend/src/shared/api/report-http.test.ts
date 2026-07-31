@@ -111,9 +111,11 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
 
     await expect(api.startReport({ symbol: "BTCUSDT" })).resolves.toEqual({
       analysisId: "analysis-created-001",
+      reportId: "report-created-001",
     });
     await expect(api.retryReport("report/id?fragment")).resolves.toEqual({
       analysisId: "analysis-created-001",
+      reportId: "report-created-001",
     });
 
     const start = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0];

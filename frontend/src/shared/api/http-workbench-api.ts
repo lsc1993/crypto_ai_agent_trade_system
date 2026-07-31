@@ -37,7 +37,7 @@ import {
   subscribeToReportStream,
   type ReportEventSourceFactory,
 } from "./report-stream";
-import type { WorkbenchApi } from "./workbench-api";
+import type { ReportRunCreated, WorkbenchApi } from "./workbench-api";
 import type { MarketDataSource } from "../config/env";
 import { z } from "zod";
 
@@ -153,7 +153,7 @@ export class HttpWorkbenchApi implements WorkbenchApi {
 
   async startReport(input: {
     symbol: Symbol;
-  }): Promise<{ analysisId: string }> {
+  }): Promise<ReportRunCreated> {
     const parsedInput = reportStartSchema.parse(input);
     const result = await this.transport.request(
       "/api/v1/analysis-runs",
@@ -164,17 +164,17 @@ export class HttpWorkbenchApi implements WorkbenchApi {
         body: JSON.stringify(parsedInput),
       },
     );
-    return { analysisId: result.analysisId };
+    return result;
   }
 
-  async retryReport(reportId: string): Promise<{ analysisId: string }> {
+  async retryReport(reportId: string): Promise<ReportRunCreated> {
     const parsedReportId = identifierSchema.parse(reportId);
     const result = await this.transport.request(
       `/api/v1/analysis-runs/${encodeURIComponent(parsedReportId)}/retry`,
       analysisRunResultSchema,
       { method: "POST" },
     );
-    return { analysisId: result.analysisId };
+    return result;
   }
 
   subscribeReport(
