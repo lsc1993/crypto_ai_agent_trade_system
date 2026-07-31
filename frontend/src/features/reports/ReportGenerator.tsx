@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useWorkbenchApi } from "../../app/providers";
 import type { Symbol } from "../../domain/primitives";
@@ -35,6 +36,7 @@ export interface ReportGeneratorProps {
 
 export function ReportGenerator({ symbol }: ReportGeneratorProps) {
   const api = useWorkbenchApi();
+  const navigate = useNavigate();
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const activeAnalysisIdRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
@@ -53,11 +55,15 @@ export function ReportGenerator({ symbol }: ReportGeneratorProps) {
       void requestEpoch;
       return api.startReport({ symbol });
     },
-    onSuccess: ({ analysisId: freshAnalysisId }, requestEpoch) => {
+    onSuccess: ({ analysisId: freshAnalysisId, reportId }, requestEpoch) => {
       if (
         !mountedRef.current ||
         requestEpochRef.current !== requestEpoch
       ) {
+        return;
+      }
+      if (reportId !== undefined) {
+        navigate(`/reports/${encodeURIComponent(reportId)}`);
         return;
       }
       clearSubscription();

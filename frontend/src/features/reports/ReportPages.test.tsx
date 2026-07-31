@@ -232,6 +232,18 @@ class DeferredReportGeneratorApi extends ControlledReportGeneratorApi {
   }
 }
 
+class RealReportGeneratorApi extends ControlledReportGeneratorApi {
+  override startReport(input: {
+    symbol: Symbol;
+  }): Promise<{ analysisId: string; reportId: string }> {
+    this.startedSymbols.push(input.symbol);
+    return Promise.resolve({
+      analysisId: "analysis-real-001",
+      reportId: "report/segment?fragment",
+    });
+  }
+}
+
 class PendingReportDetailApi extends ControlledReportDetailApi {
   override getReport(): Promise<AnalysisReport> {
     return new Promise(() => undefined);
@@ -317,6 +329,11 @@ function LocationProbe() {
       })}
     </output>
   );
+}
+
+function PathnameProbe() {
+  const location = useLocation();
+  return <output aria-label="当前页面路径">{location.pathname}</output>;
 }
 
 function renderReportDetail(
@@ -418,6 +435,33 @@ describe("ReportListPage", () => {
 });
 
 describe("ReportGenerator", () => {
+  it("opens the encoded immutable detail without subscribing after real report creation", async () => {
+    const user = userEvent.setup();
+    const api = new RealReportGeneratorApi();
+    window.history.replaceState({}, "", "/reports");
+    render(
+      <AppProviders api={api}>
+        <Routes>
+          <Route
+            path="/reports"
+            element={<ReportGenerator symbol="BTCUSDT" />}
+          />
+          <Route path="/reports/:reportId" element={<PathnameProbe />} />
+        </Routes>
+      </AppProviders>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "生成 AI 研究报告" }),
+    );
+
+    expect(await screen.findByLabelText("当前页面路径")).toHaveTextContent(
+      "/reports/report%2Fsegment%3Ffragment",
+    );
+    expect(api.startedSymbols).toEqual(["BTCUSDT"]);
+    expect(api.subscribedAnalysisIds).toEqual([]);
+  });
+
   it("uses a fresh analysis ID and replaces the previous lifecycle subscription", async () => {
     const user = userEvent.setup();
     const api = new ControlledReportGeneratorApi();

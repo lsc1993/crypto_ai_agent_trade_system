@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
@@ -25,6 +25,7 @@ function parseSupportedSymbol(value: string | undefined): Symbol | undefined {
 
 export function MarketPage() {
   const api = useWorkbenchApi();
+  const navigate = useNavigate();
   const params = useParams();
   const symbol = parseSupportedSymbol(params.symbol);
   const [selectedTimeframe, setSelectedTimeframe] =
@@ -49,6 +50,11 @@ export function MarketPage() {
         throw new Error("Unsupported report symbol");
       }
       return api.startReport({ symbol });
+    },
+    onSuccess: ({ reportId }) => {
+      if (reportId !== undefined) {
+        navigate(`/reports/${encodeURIComponent(reportId)}`);
+      }
     },
   });
 

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 
 import { AppProviders } from "../../app/providers";
 import {
@@ -175,12 +175,30 @@ class FailingReportApi extends RecordingMarketApi {
   }
 }
 
+class RealReportMarketApi extends RecordingMarketApi {
+  override startReport(input: {
+    symbol: Symbol;
+  }): Promise<{ analysisId: string; reportId: string }> {
+    this.startedSymbols.push(input.symbol);
+    return Promise.resolve({
+      analysisId: "analysis-real-001",
+      reportId: "report/segment?fragment",
+    });
+  }
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="当前页面路径">{location.pathname}</output>;
+}
+
 function renderMarket(api: MockWorkbenchApi = new RecordingMarketApi()) {
   window.history.replaceState({}, "", "/market/BTCUSDT");
   render(
     <AppProviders api={api}>
       <Routes>
         <Route path="/market/:symbol" element={<MarketPage />} />
+        <Route path="/reports/:reportId" element={<LocationProbe />} />
       </Routes>
     </AppProviders>,
   );
@@ -421,6 +439,23 @@ describe("MarketPage", () => {
     for (const control of controls) {
       expect(control).not.toHaveAccessibleName(/下单|开仓|自动交易/);
     }
+  });
+
+  it("opens the encoded immutable report detail after a real report is created", async () => {
+    const user = userEvent.setup();
+    const api = new RealReportMarketApi();
+    renderMarket(api);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "生成 AI 研究报告",
+      }),
+    );
+
+    expect(await screen.findByLabelText("当前页面路径")).toHaveTextContent(
+      "/reports/report%2Fsegment%3Ffragment",
+    );
+    expect(api.startedSymbols).toEqual(["BTCUSDT"]);
   });
 
   it("keeps the research action pending while startReport is unresolved", async () => {
