@@ -52,6 +52,7 @@ async def test_create_list_and_read_a_persisted_completed_report() -> None:
     assert created.status_code == 201
     assert UUID(created.json()["analysisId"])
     assert listed.status_code == 200
+    assert listed.json()["page_size"] == 20
     assert listed.json()["total"] == 1
     assert listed.json()["items"][0]["status"] == "completed"
     assert detail.status_code == 200

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.market.contracts import ContractSymbol, UtcDateTime
 from app.reports.contracts import (
@@ -77,7 +77,7 @@ class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
 class AnalysisReportPageResponse(_ApiModel):
     items: tuple[AnalysisReportSummaryResponse, ...]
     page: int
-    page_size: int
+    page_size: int = Field(serialization_alias="page_size")
     total: int
 
 
