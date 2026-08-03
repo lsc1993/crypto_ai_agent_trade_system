@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { backtestRequestSchema } from "../../domain/backtest";
 import type { MarketDetail, MarketSummary } from "../../domain/market";
 import { tradeDraftSchema } from "../../domain/trade";
 import { HttpWorkbenchApi } from "./http-workbench-api";
@@ -200,6 +201,59 @@ describe("HttpWorkbenchApi trade journal reads and writes", () => {
   });
 });
 
+describe("HttpWorkbenchApi deterministic backtests", () => {
+  it("posts a validated request and maps persisted list and detail results", async () => {
+    const fetchImpl: typeof fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(backtestWire))
+      .mockResolvedValueOnce(
+        Response.json({ items: [backtestWire], page: 2, page_size: 5, total: 1 }),
+      )
+      .mockResolvedValueOnce(Response.json(backtestWire));
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+    const request = backtestRequestSchema.parse({
+      symbol: "BTCUSDT",
+      timeframe: "1h",
+      startAt: "2026-07-01T00:00:00Z",
+      endAt: "2026-07-02T00:00:00Z",
+      initialCash: "10000",
+    });
+
+    await expect(api.startBacktest(request)).resolves.toMatchObject({
+      status: "completed",
+      summary: { finalEquity: "10123.45" },
+    });
+    await expect(api.listBacktests({ page: 2, pageSize: 5 })).resolves.toMatchObject({
+      page: 2,
+      pageSize: 5,
+      total: 1,
+    });
+    await expect(api.getBacktest(backtestWire.id)).resolves.toMatchObject({
+      id: backtestWire.id,
+      events: [{ kind: "completed" }],
+    });
+
+    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls;
+    expect(new URL(calls[0]?.[0] as URL).pathname).toBe("/api/v1/backtests");
+    const createRequest = calls[0]?.[1] as RequestInit;
+    expect(createRequest.method).toBe("POST");
+    if (typeof createRequest.body !== "string") {
+      throw new Error("Expected the backtest request body to be JSON text");
+    }
+    expect(JSON.parse(createRequest.body)).toEqual(request);
+    const listUrl = new URL(calls[1]?.[0] as URL);
+    expect(listUrl.pathname).toBe("/api/v1/backtests");
+    expect(listUrl.searchParams.get("page")).toBe("2");
+    expect(listUrl.searchParams.get("page_size")).toBe("5");
+    expect(new URL(calls[2]?.[0] as URL).pathname).toBe(
+      `/api/v1/backtests/${backtestWire.id}`,
+    );
+  });
+});
+
 const tradeWire = {
   id: "00000000-0000-4000-8000-000000000333",
   symbol: "BTCUSDT",
@@ -242,6 +296,63 @@ const tradeWire = {
   closedAt: "2026-07-31T13:00:00Z",
   createdAt: "2026-07-31T14:00:00Z",
   updatedAt: "2026-07-31T14:00:00Z",
+} as const;
+
+const backtestWire = {
+  id: "00000000-0000-4000-8000-000000000801",
+  status: "completed",
+  symbol: "BTCUSDT",
+  timeframe: "1h",
+  startAt: "2026-07-01T00:00:00Z",
+  endAt: "2026-07-02T00:00:00Z",
+  initialCash: "10000",
+  strategyId: "sma_crossover",
+  strategyVersion: "v1",
+  riskConfig: {
+    maxExposureFraction: "0.95",
+    stopLossFraction: "0.05",
+    dailyLossFraction: "0.03",
+    maxDrawdownFraction: "0.15",
+    cooldownCandles: 3,
+    quantityIncrement: "0.000001",
+  },
+  executionConfig: {
+    feeRate: "0.001",
+    slippageRate: "0.0005",
+    fillRatio: "1",
+  },
+  createdAt: "2026-07-02T00:00:00Z",
+  finishedAt: "2026-07-02T00:01:00Z",
+  summary: {
+    initialCash: "10000",
+    finalEquity: "10123.45",
+    netPnl: "123.45",
+    realizedPnl: "100",
+    unrealizedPnl: "23.45",
+    returnFraction: "0.012345",
+    maxDrawdownFraction: "0.03",
+    winRate: "0.5",
+    profitFactor: "1.2",
+    closedTradeCount: 2,
+    fillCount: 4,
+    rejectionCount: 0,
+    openPositionQuantity: "0",
+    candleCount: 24,
+    snapshotHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  },
+  failureCode: null,
+  failureMessage: null,
+  closedTrades: [],
+  events: [
+    {
+      sequence: 0,
+      kind: "completed",
+      occurredAt: "2026-07-02T00:00:00Z",
+      candleSequence: 51,
+      idempotencyKey: null,
+      payload: { final_equity: "10123.45" },
+    },
+  ],
 } as const;
 
 const analyticsWire = {

@@ -8,6 +8,12 @@ import {
   type MarketDetail,
   type MarketSummary,
 } from "../../domain/market";
+import type {
+  BacktestFilters,
+  BacktestRequest,
+  BacktestRunDetail,
+  BacktestRunSummary,
+} from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type {
   AnalysisReport,
@@ -43,6 +49,11 @@ export interface RemoteWorkbenchApi {
   createTrade(draft: TradeDraft): Promise<Trade>;
   updateTrade(tradeId: string, draft: TradeDraft): Promise<Trade>;
   getAnalytics(filters: AnalyticsFilters): Promise<AnalyticsSnapshot>;
+  startBacktest(input: BacktestRequest): Promise<BacktestRunDetail>;
+  listBacktests(
+    filters: BacktestFilters,
+  ): Promise<Page<BacktestRunSummary>>;
+  getBacktest(backtestId: string): Promise<BacktestRunDetail>;
 }
 
 export class HybridWorkbenchApi implements WorkbenchApi {
@@ -118,5 +129,19 @@ export class HybridWorkbenchApi implements WorkbenchApi {
 
   getAnalytics(filters: AnalyticsFilters): Promise<AnalyticsSnapshot> {
     return this.remoteApi.getAnalytics(filters);
+  }
+
+  startBacktest(input: BacktestRequest): Promise<BacktestRunDetail> {
+    return this.remoteApi.startBacktest(input);
+  }
+
+  listBacktests(
+    filters: BacktestFilters,
+  ): Promise<Page<BacktestRunSummary>> {
+    return this.remoteApi.listBacktests(filters);
+  }
+
+  getBacktest(backtestId: string): Promise<BacktestRunDetail> {
+    return this.remoteApi.getBacktest(backtestId);
   }
 }

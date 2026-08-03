@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type {
+  BacktestFilters,
+  BacktestRequest,
+  BacktestRunDetail,
+  BacktestRunSummary,
+} from "../../domain/backtest";
 import type { MarketDetail, MarketSummary } from "../../domain/market";
 import type { Page, Symbol } from "../../domain/primitives";
 import type {
@@ -84,6 +90,9 @@ function remoteApi(
     createTrade: () => unexpected<Trade>("createTrade")(),
     updateTrade: () => unexpected<Trade>("updateTrade")(),
     getAnalytics: () => unexpected<AnalyticsSnapshot>("getAnalytics")(),
+    startBacktest: () => unexpected<BacktestRunDetail>("startBacktest")(),
+    listBacktests: () => unexpected<Page<BacktestRunSummary>>("listBacktests")(),
+    getBacktest: () => unexpected<BacktestRunDetail>("getBacktest")(),
     ...overrides,
   };
 }
@@ -248,5 +257,30 @@ describe("HybridWorkbenchApi", () => {
     await expect(
       api.listTrades({ page: 1, pageSize: 20 }),
     ).rejects.toBe(unavailable);
+  });
+
+  it("requires a local backend for Mock backtests and propagates remote failures", async () => {
+    const request: BacktestRequest = {
+      symbol: "BTCUSDT",
+      timeframe: "1h",
+      startAt: "2026-07-01T00:00:00Z",
+      endAt: "2026-07-02T00:00:00Z",
+      initialCash: "10000",
+    };
+    const filters: BacktestFilters = { page: 1, pageSize: 20 };
+    const unavailable = new WorkbenchHttpError(
+      503,
+      "backtest_storage_unavailable",
+      "回测存储不可用",
+    );
+    const api = new HybridWorkbenchApi(
+      new MockWorkbenchApi(),
+      remoteApi({ listBacktests: async () => Promise.reject(unavailable) }),
+    );
+
+    await expect(new MockWorkbenchApi().startBacktest(request)).rejects.toThrow(
+      "策略回测需要连接本地后端",
+    );
+    await expect(api.listBacktests(filters)).rejects.toBe(unavailable);
   });
 });

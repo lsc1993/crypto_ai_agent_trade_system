@@ -52,6 +52,9 @@ describe("Mock mode controls", () => {
       createTrade: () => Promise.reject(new Error("not called by the shell")),
       updateTrade: () => Promise.reject(new Error("not called by the shell")),
       getAnalytics: () => Promise.reject(new Error("not called by the shell")),
+      startBacktest: () => Promise.reject(new Error("not called by the shell")),
+      listBacktests: () => Promise.reject(new Error("not called by the shell")),
+      getBacktest: () => Promise.reject(new Error("not called by the shell")),
     };
     const api = new HybridWorkbenchApi(new MockWorkbenchApi(), marketApi);
 

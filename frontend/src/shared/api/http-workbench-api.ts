@@ -8,7 +8,18 @@ import {
   type ReportFilters,
 } from "../../domain/report";
 import {
+  backtestFiltersSchema,
+  backtestRequestSchema,
+  backtestRunDetailSchema,
+  backtestRunSummarySchema,
+  type BacktestFilters,
+  type BacktestRequest,
+  type BacktestRunDetail,
+  type BacktestRunSummary,
+} from "../../domain/backtest";
+import {
   identifierSchema,
+  uuidSchema,
   type Page,
   type Symbol,
   type Timeframe,
@@ -125,6 +136,7 @@ const tradeWireSchema = z
     }),
   );
 const tradePageSchema = createWirePageSchema(tradeWireSchema);
+const backtestPageSchema = createWirePageSchema(backtestRunSummarySchema);
 
 function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
   return Promise.reject(new WorkbenchEndpointUnavailableError(operation));
@@ -314,6 +326,37 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     }
     const suffix = query.size === 0 ? "" : `?${query.toString()}`;
     return this.transport.request(`/api/v1/analytics${suffix}`, analyticsSnapshotSchema);
+  }
+
+  startBacktest(input: BacktestRequest): Promise<BacktestRunDetail> {
+    const payload = backtestRequestSchema.parse(input);
+    return this.transport.request("/api/v1/backtests", backtestRunDetailSchema, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  listBacktests(
+    filters: BacktestFilters,
+  ): Promise<Page<BacktestRunSummary>> {
+    const parsedFilters = backtestFiltersSchema.parse(filters);
+    const query = new URLSearchParams({
+      page: String(parsedFilters.page),
+      page_size: String(parsedFilters.pageSize),
+    });
+    return this.transport.request(
+      `/api/v1/backtests?${query.toString()}`,
+      backtestPageSchema,
+    );
+  }
+
+  getBacktest(backtestId: string): Promise<BacktestRunDetail> {
+    const parsedBacktestId = uuidSchema.parse(backtestId);
+    return this.transport.request(
+      `/api/v1/backtests/${encodeURIComponent(parsedBacktestId)}`,
+      backtestRunDetailSchema,
+    );
   }
 
   private saveTrade(

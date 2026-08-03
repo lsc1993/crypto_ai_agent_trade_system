@@ -6,6 +6,12 @@ import type {
   DashboardSnapshot,
   MarketDetail,
 } from "../../domain/market";
+import type {
+  BacktestFilters,
+  BacktestRequest,
+  BacktestRunDetail,
+  BacktestRunSummary,
+} from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type {
   AnalysisReport,
@@ -44,4 +50,9 @@ export interface WorkbenchApi {
   createTrade(draft: TradeDraft): Promise<Trade>;
   updateTrade(tradeId: string, draft: TradeDraft): Promise<Trade>;
   getAnalytics(filters: AnalyticsFilters): Promise<AnalyticsSnapshot>;
+  startBacktest(input: BacktestRequest): Promise<BacktestRunDetail>;
+  listBacktests(
+    filters: BacktestFilters,
+  ): Promise<Page<BacktestRunSummary>>;
+  getBacktest(backtestId: string): Promise<BacktestRunDetail>;
 }

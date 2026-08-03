@@ -13,6 +13,12 @@ import {
   type DashboardSnapshot,
   type MarketDetail,
 } from "../../domain/market";
+import type {
+  BacktestFilters,
+  BacktestRequest,
+  BacktestRunDetail,
+  BacktestRunSummary,
+} from "../../domain/backtest";
 import {
   identifierSchema,
   pageSchema,
@@ -59,6 +65,7 @@ const marketInputSchema = z.object({
 });
 const reportStartSchema = z.object({ symbol: symbolSchema });
 const analysisResultSchema = z.object({ analysisId: identifierSchema });
+const BACKTEST_REQUIRES_BACKEND_MESSAGE = "策略回测需要连接本地后端";
 
 export class MockWorkbenchNotFoundError extends Error {
   constructor(resource: "report" | "trade", identifier: string) {
@@ -502,6 +509,23 @@ export class MockWorkbenchApi implements WorkbenchApi {
       matchesAnalyticsFilters(trade, parsedFilters),
     );
     return Promise.resolve(deriveAnalyticsSnapshot(matchingTrades));
+  }
+
+  startBacktest(_input: BacktestRequest): Promise<BacktestRunDetail> {
+    void _input;
+    return Promise.reject(new Error(BACKTEST_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  listBacktests(
+    _filters: BacktestFilters,
+  ): Promise<Page<BacktestRunSummary>> {
+    void _filters;
+    return Promise.reject(new Error(BACKTEST_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  getBacktest(_backtestId: string): Promise<BacktestRunDetail> {
+    void _backtestId;
+    return Promise.reject(new Error(BACKTEST_REQUIRES_BACKEND_MESSAGE));
   }
 
   reset(): void {
