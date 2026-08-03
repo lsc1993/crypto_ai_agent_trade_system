@@ -285,9 +285,10 @@ def _closed_candles_from_payload(
                 "公开 K 线响应包含无效记录",
             )
         open_at = _timestamp_value(values[0])
-        close_at = _timestamp_value(values[6])
-        if close_at > fetched_at:
+        inclusive_close_at = _timestamp_value(values[6])
+        if inclusive_close_at > fetched_at:
             continue
+        close_at = inclusive_close_at + timedelta(milliseconds=1)
         candles.append(
             Candle(
                 symbol=symbol,

@@ -69,6 +69,28 @@ async def test_load_closed_candles_uses_range_and_excludes_open_candle() -> None
 
 
 @pytest.mark.asyncio
+async def test_load_closed_candles_normalizes_binance_inclusive_close_time() -> None:
+    async with httpx.AsyncClient(
+        base_url=BINANCE_USDM_BASE_URL,
+        transport=httpx.MockTransport(_handler([])),
+    ) as client:
+        gateway = BinanceUsdmPublicMarketGateway(
+            client=client,
+            clock=lambda: NOW,
+            sleep=no_sleep,
+        )
+
+        candles = await gateway.load_closed_candles(
+            ContractSymbol.BTCUSDT,
+            MarketTimeframe.H1,
+            start_at=START,
+            end_at=END,
+        )
+
+    assert candles[-1].close_at == NOW
+
+
+@pytest.mark.asyncio
 async def test_load_closed_candles_rejects_a_non_h1_timeframe() -> None:
     async with httpx.AsyncClient(
         base_url=BINANCE_USDM_BASE_URL,
