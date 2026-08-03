@@ -125,6 +125,7 @@ export const httpUrlSchema = z.url().refine(
 export const symbolSchema = z.enum(["BTCUSDT", "ETHUSDT"]);
 export const timeframeSchema = z.enum(["15m", "1h", "4h", "1d"]);
 export const identifierSchema = z.string().trim().min(1).max(128);
+export const uuidSchema = z.uuid();
 
 export const dataFreshnessStatusSchema = z.enum([
   "fresh",

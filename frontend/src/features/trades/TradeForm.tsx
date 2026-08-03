@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { z } from "zod";
 
 import { symbolSchema } from "../../domain/primitives";
@@ -80,8 +80,6 @@ export function TradeForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const nextLegSequence = useRef(1);
-  const nextCashflowSequence = useRef(1);
   const preview = useMemo(() => nominalValuePreview(draft), [draft]);
 
   function updateLeg(index: number, leg: TradeLeg) {
@@ -98,8 +96,7 @@ export function TradeForm({
       const previous = current.legs.at(-1);
       let id = "";
       do {
-        id = `leg-added-${nextLegSequence.current}`;
-        nextLegSequence.current += 1;
+        id = crypto.randomUUID();
       } while (current.legs.some((leg) => leg.id === id));
       const leg: TradeLeg = {
         id,
@@ -128,8 +125,7 @@ export function TradeForm({
     setDraft((current) => {
       let id = "";
       do {
-        id = `cashflow-added-${nextCashflowSequence.current}`;
-        nextCashflowSequence.current += 1;
+        id = crypto.randomUUID();
       } while (
         current.legs.some((leg) => leg.id === id) ||
         current.fundingCashflows.some((cashflow) => cashflow.id === id)

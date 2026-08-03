@@ -179,7 +179,7 @@ export const mockTradeDraft = tradeDraftSchema.parse({
   leverage: "2",
   legs: [
     {
-      id: "leg-draft-open-001",
+      id: "00000000-0000-4000-8000-000000000101",
       action: "open",
       executedAt: "2025-01-16T01:00:00Z",
       price: "68000",
@@ -202,7 +202,7 @@ export const mockTrades = [
     leverage: "2",
     legs: [
       {
-        id: "leg-trade-001-open",
+        id: "00000000-0000-4000-8000-000000000201",
         action: "open",
         executedAt: "2025-01-10T01:00:00Z",
         price: "65000",
@@ -210,7 +210,7 @@ export const mockTrades = [
         fee: "0.25",
       },
       {
-        id: "leg-trade-001-close",
+        id: "00000000-0000-4000-8000-000000000202",
         action: "close",
         executedAt: "2025-01-11T01:00:00Z",
         price: "66000",
@@ -220,7 +220,7 @@ export const mockTrades = [
     ],
     fundingCashflows: [
       {
-        id: "cashflow-trade-001-funding",
+        id: "00000000-0000-4000-8000-000000000203",
         occurredAt: "2025-01-10T12:00:00Z",
         amount: "-0.10",
         reason: "fixed Mock funding payment",

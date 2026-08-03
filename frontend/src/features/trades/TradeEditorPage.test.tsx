@@ -162,7 +162,7 @@ function fillNewDraft() {
   const user = userEvent.setup();
   const firstLeg = screen.getByRole("group", { name: "交易腿 1" });
   fireEvent.change(within(firstLeg).getByLabelText("交易腿 ID"), {
-    target: { value: "leg-new-001" },
+    target: { value: "00000000-0000-4000-8000-000000000131" },
   });
   fireEvent.change(within(firstLeg).getByLabelText("执行时间（UTC）"), {
     target: { value: "2025-02-01T00:00:00Z" },
@@ -189,6 +189,16 @@ function fillNewDraft() {
 }
 
 describe("TradeEditorPage new journal", () => {
+  it("starts a new journal with an API-compatible UUID leg ID", async () => {
+    renderNewEditor();
+
+    const firstLeg = await screen.findByRole("group", { name: "交易腿 1" });
+    const legId = within(firstLeg).getByLabelText("交易腿 ID");
+    expect((legId as HTMLInputElement).value).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it("strictly maps only linkedAnalysisReportId to linkedReportId", async () => {
     const api = new RecordingTradeEditorApi();
     renderNewEditor(
@@ -220,7 +230,7 @@ describe("TradeEditorPage new journal", () => {
         ...mockTradeDraft,
         legs: [
           {
-            id: "leg-new-001",
+            id: "00000000-0000-4000-8000-000000000131",
             action: "open",
             executedAt: "2025-02-01T00:00:00Z",
             price: "68000",

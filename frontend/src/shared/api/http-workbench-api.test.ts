@@ -134,7 +134,7 @@ describe("HttpWorkbenchApi trade journal reads and writes", () => {
       leverage: "2",
       legs: [
         {
-          id: "00000000-0000-0000-0000-000000000101",
+          id: "00000000-0000-4000-8000-000000000101",
           action: "open",
           executedAt: "2026-07-31T12:00:00Z",
           price: "100",
@@ -142,7 +142,7 @@ describe("HttpWorkbenchApi trade journal reads and writes", () => {
           fee: "0.1",
         },
         {
-          id: "00000000-0000-0000-0000-000000000102",
+          id: "00000000-0000-4000-8000-000000000102",
           action: "close",
           executedAt: "2026-07-31T13:00:00Z",
           price: "120",
@@ -152,7 +152,7 @@ describe("HttpWorkbenchApi trade journal reads and writes", () => {
       ],
       fundingCashflows: [
         {
-          id: "00000000-0000-0000-0000-000000000103",
+          id: "00000000-0000-4000-8000-000000000103",
           occurredAt: "2026-07-31T12:30:00Z",
           amount: "-0.25",
           reason: "funding payment",
@@ -201,7 +201,7 @@ describe("HttpWorkbenchApi trade journal reads and writes", () => {
 });
 
 const tradeWire = {
-  id: "00000000-0000-0000-0000-000000000333",
+  id: "00000000-0000-4000-8000-000000000333",
   symbol: "BTCUSDT",
   direction: "long",
   horizon: "short_term",
@@ -210,7 +210,7 @@ const tradeWire = {
   leverage: "2",
   legs: [
     {
-      id: "00000000-0000-0000-0000-000000000101",
+      id: "00000000-0000-4000-8000-000000000101",
       action: "open",
       executedAt: "2026-07-31T12:00:00Z",
       price: "100",
@@ -218,7 +218,7 @@ const tradeWire = {
       fee: "0.1",
     },
     {
-      id: "00000000-0000-0000-0000-000000000102",
+      id: "00000000-0000-4000-8000-000000000102",
       action: "close",
       executedAt: "2026-07-31T13:00:00Z",
       price: "120",
@@ -228,7 +228,7 @@ const tradeWire = {
   ],
   cashflows: [
     {
-      id: "00000000-0000-0000-0000-000000000103",
+      id: "00000000-0000-4000-8000-000000000103",
       occurredAt: "2026-07-31T12:30:00Z",
       amount: "-0.25",
       reason: "funding payment",

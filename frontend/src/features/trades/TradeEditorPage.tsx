@@ -45,7 +45,7 @@ function newTradeDraft(linkedReportId: string | null): TradeDraft {
     leverage: "1",
     legs: [
       {
-        id: "leg-new-1",
+        id: crypto.randomUUID(),
         action: "open",
         executedAt: "2025-01-01T00:00:00Z",
         price: "1",

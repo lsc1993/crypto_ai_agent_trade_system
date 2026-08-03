@@ -14,6 +14,9 @@ import { mockTradeDraft } from "../../shared/mocks/fixtures";
 import { TradeForm } from "./TradeForm";
 import { parseTradeFormDraft } from "./trade-form-schema";
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function validDraft(): TradeDraft {
   return tradeDraftSchema.parse(mockTradeDraft);
 }
@@ -56,6 +59,33 @@ describe("parseTradeFormDraft", () => {
     ).toThrow(/unique/i);
   });
 
+  it("rejects a non-UUID trade leg ID before a local API request", () => {
+    const draft = validDraft();
+    expect(() =>
+      parseTradeFormDraft({
+        ...draft,
+        legs: [{ ...draft.legs[0], id: "leg-not-a-uuid" }],
+      }),
+    ).toThrow(/uuid/i);
+  });
+
+  it("rejects a non-UUID cashflow ID before a local API request", () => {
+    const draft = validDraft();
+    expect(() =>
+      parseTradeFormDraft({
+        ...draft,
+        fundingCashflows: [
+          {
+            id: "cashflow-not-a-uuid",
+            occurredAt: "2025-01-16T01:00:00Z",
+            amount: "-0.10",
+            reason: "funding payment",
+          },
+        ],
+      }),
+    ).toThrow(/uuid/i);
+  });
+
   it("rejects non-UTC cashflows and accepts signed cashflow amounts", () => {
     const draft = validDraft();
     expect(() =>
@@ -63,7 +93,7 @@ describe("parseTradeFormDraft", () => {
         ...draft,
         fundingCashflows: [
           {
-            id: "cashflow-invalid-time",
+            id: "00000000-0000-4000-8000-000000000111",
             occurredAt: "2025-01-16T09:00:00+08:00",
             amount: "0.10",
             reason: "funding received",
@@ -76,7 +106,7 @@ describe("parseTradeFormDraft", () => {
         ...draft,
         fundingCashflows: [
           {
-            id: "cashflow-positive",
+            id: "00000000-0000-4000-8000-000000000112",
             occurredAt: "2025-01-16T01:00:00Z",
             amount: "0.10",
             reason: "funding received",
@@ -114,7 +144,7 @@ describe("parseTradeFormDraft", () => {
         ...draft,
         legs: [
           {
-            id: "leg-open",
+            id: "00000000-0000-4000-8000-000000000121",
             action: "open",
             executedAt: "2025-01-16T00:00:00Z",
             price: "100",
@@ -122,7 +152,7 @@ describe("parseTradeFormDraft", () => {
             fee: "0",
           },
           {
-            id: "leg-reduction",
+            id: "00000000-0000-4000-8000-000000000122",
             executedAt: "2025-01-16T01:00:00Z",
             price: "101",
             fee: "0",
@@ -171,6 +201,7 @@ describe("TradeForm", () => {
       "交易腿 ID",
     );
     expect(firstId).not.toHaveValue(secondId.getAttribute("value"));
+    expect((secondId as HTMLInputElement).value).toMatch(uuidPattern);
 
     await user.click(
       within(groups[1] ?? document.body).getByRole("button", {
@@ -257,6 +288,8 @@ describe("TradeForm", () => {
         ],
       }),
     );
+    const submitted = onSubmit.mock.calls[0]?.[0];
+    expect(submitted?.fundingCashflows[0]?.id).toMatch(uuidPattern);
   });
 
   it("uses Chinese accessible journal copy without execution controls", () => {

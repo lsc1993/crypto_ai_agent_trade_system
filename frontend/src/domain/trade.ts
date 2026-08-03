@@ -9,6 +9,7 @@ import {
   positiveDecimalStringSchema,
   symbolSchema,
   utcIsoStringSchema,
+  uuidSchema,
 } from "./primitives";
 
 export const tradeDirectionSchema = z.enum(["long", "short"]);
@@ -17,7 +18,7 @@ export const tradeLegActionSchema = z.enum(["open", "reduce", "close"]);
 export const tradeStatusSchema = z.enum(["open", "closed"]);
 
 export const tradeLegSchema = z.object({
-  id: identifierSchema,
+  id: uuidSchema,
   action: tradeLegActionSchema,
   executedAt: utcIsoStringSchema,
   price: positiveDecimalStringSchema,
@@ -26,7 +27,7 @@ export const tradeLegSchema = z.object({
 });
 
 export const tradeCashflowSchema = z.object({
-  id: identifierSchema,
+  id: uuidSchema,
   occurredAt: utcIsoStringSchema,
   amount: decimalStringSchema,
   reason: z.string().trim().min(1).max(500),
