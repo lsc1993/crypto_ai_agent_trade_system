@@ -56,6 +56,36 @@ describe("parseTradeFormDraft", () => {
     ).toThrow(/unique/i);
   });
 
+  it("rejects non-UTC cashflows and accepts signed cashflow amounts", () => {
+    const draft = validDraft();
+    expect(() =>
+      parseTradeFormDraft({
+        ...draft,
+        fundingCashflows: [
+          {
+            id: "cashflow-invalid-time",
+            occurredAt: "2025-01-16T09:00:00+08:00",
+            amount: "0.10",
+            reason: "funding received",
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(
+      parseTradeFormDraft({
+        ...draft,
+        fundingCashflows: [
+          {
+            id: "cashflow-positive",
+            occurredAt: "2025-01-16T01:00:00Z",
+            amount: "0.10",
+            reason: "funding received",
+          },
+        ],
+      }).fundingCashflows[0]?.amount,
+    ).toBe("0.10");
+  });
+
   it.each([
     [
       "reduction above opened quantity",
@@ -191,6 +221,44 @@ describe("TradeForm", () => {
     );
   });
 
+  it("submits a signed UTC cashflow row with its explanation", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn<(draft: TradeDraft) => void>();
+    render(
+      <TradeForm
+        initialDraft={validDraft()}
+        submitLabel="保存交易日志"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "添加资金现金流" }));
+    const group = screen.getByRole("group", { name: "资金现金流 1" });
+    await user.clear(within(group).getByLabelText("发生时间（UTC）"));
+    await user.type(
+      within(group).getByLabelText("发生时间（UTC）"),
+      "2026-07-31T01:00:00Z",
+    );
+    await user.clear(within(group).getByLabelText("资金现金流"));
+    await user.type(within(group).getByLabelText("资金现金流"), "-0.25");
+    await user.clear(within(group).getByLabelText("说明"));
+    await user.type(within(group).getByLabelText("说明"), "funding payment");
+    await user.click(screen.getByRole("button", { name: "保存交易日志" }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fundingCashflows: [
+          expect.objectContaining({
+            occurredAt: "2026-07-31T01:00:00Z",
+            amount: "-0.25",
+            reason: "funding payment",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("uses Chinese accessible journal copy without execution controls", () => {
     render(
       <TradeForm
@@ -203,7 +271,9 @@ describe("TradeForm", () => {
     expect(screen.getByLabelText("标的")).toBeVisible();
     expect(screen.getByLabelText("方向")).toBeVisible();
     expect(screen.getByLabelText("持有周期")).toBeVisible();
-    expect(screen.getByLabelText("资金费")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "添加资金现金流" }),
+    ).toBeVisible();
     expect(screen.getByLabelText("研究理由")).toBeVisible();
     expect(screen.getByLabelText("复盘记录")).toBeVisible();
     expect(

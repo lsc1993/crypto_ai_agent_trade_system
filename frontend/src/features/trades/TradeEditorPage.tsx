@@ -53,7 +53,7 @@ function newTradeDraft(linkedReportId: string | null): TradeDraft {
         fee: "0",
       },
     ],
-    fundingFee: "0",
+    fundingCashflows: [],
     thesis: "",
     review: "",
   });

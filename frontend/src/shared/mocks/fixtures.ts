@@ -187,7 +187,7 @@ export const mockTradeDraft = tradeDraftSchema.parse({
       fee: "0.25",
     },
   ],
-  fundingFee: "0",
+  fundingCashflows: [],
   thesis: "固定 Mock 交易草稿。",
   review: "",
 });
@@ -218,7 +218,14 @@ export const mockTrades = [
         fee: "0.25",
       },
     ],
-    fundingFee: "0.10",
+    fundingCashflows: [
+      {
+        id: "cashflow-trade-001-funding",
+        occurredAt: "2025-01-10T12:00:00Z",
+        amount: "-0.10",
+        reason: "fixed Mock funding payment",
+      },
+    ],
     thesis: "固定 Mock 入场依据。",
     review: "固定 Mock 复盘结论。",
     id: "trade-001",

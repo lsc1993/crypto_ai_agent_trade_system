@@ -176,12 +176,12 @@ describe("MockWorkbenchApi", () => {
     expect(allTrades).toMatchObject({
       netPnl: "9.40",
       winRate: "1",
-      profitFactor: "0",
+      profitFactor: null,
       expectancy: "9.40",
       maxDrawdown: "0",
       equityCurve: [
         {
-          at: "2025-01-11T01:05:00Z",
+          at: "2025-01-11T01:00:00Z",
           equity: "9.40",
           netPnl: "9.40",
         },
@@ -197,7 +197,7 @@ describe("MockWorkbenchApi", () => {
     expect(unmatchedSymbol).toMatchObject({
       netPnl: "0",
       winRate: "0",
-      profitFactor: "0",
+      profitFactor: null,
       expectancy: "0",
       maxDrawdown: "0",
       equityCurve: [],

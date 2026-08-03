@@ -26,7 +26,7 @@ export function KpiCards({ snapshot }: KpiCardsProps) {
         {metrics.map((metric) => (
           <div key={metric.label}>
             <dt>{metric.label}</dt>
-            <dd>{formatDecimal(metric.value)}</dd>
+            <dd>{metric.value === null ? "不适用" : formatDecimal(metric.value)}</dd>
           </div>
         ))}
         <div>

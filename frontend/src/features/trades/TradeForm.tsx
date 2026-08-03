@@ -8,8 +8,10 @@ import {
   tradeDraftSchema,
   tradeHorizonSchema,
   type TradeDraft,
+  type TradeCashflow,
   type TradeLeg,
 } from "../../domain/trade";
+import { CashflowEditor } from "./CashflowEditor";
 import { parseTradeFormDraft } from "./trade-form-schema";
 import { TradeLegEditor } from "./TradeLegEditor";
 
@@ -79,6 +81,7 @@ export function TradeForm({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const nextLegSequence = useRef(1);
+  const nextCashflowSequence = useRef(1);
   const preview = useMemo(() => nominalValuePreview(draft), [draft]);
 
   function updateLeg(index: number, leg: TradeLeg) {
@@ -108,6 +111,40 @@ export function TradeForm({
         fee: "0",
       };
       return { ...current, legs: [...current.legs, leg] };
+    });
+  }
+
+  function updateCashflow(index: number, cashflow: TradeCashflow) {
+    setDraft((current) => ({
+      ...current,
+      fundingCashflows: current.fundingCashflows.map(
+        (candidate, candidateIndex) =>
+          candidateIndex === index ? cashflow : candidate,
+      ),
+    }));
+  }
+
+  function addCashflow() {
+    setDraft((current) => {
+      let id = "";
+      do {
+        id = `cashflow-added-${nextCashflowSequence.current}`;
+        nextCashflowSequence.current += 1;
+      } while (
+        current.legs.some((leg) => leg.id === id) ||
+        current.fundingCashflows.some((cashflow) => cashflow.id === id)
+      );
+      const cashflow: TradeCashflow = {
+        id,
+        occurredAt:
+          current.legs.at(-1)?.executedAt ?? "2025-01-01T00:00:00Z",
+        amount: "0",
+        reason: "funding cashflow",
+      };
+      return {
+        ...current,
+        fundingCashflows: [...current.fundingCashflows, cashflow],
+      };
     });
   }
 
@@ -236,19 +273,6 @@ export function TradeForm({
           />
         </label>
         <label>
-          <span>资金费</span>
-          <input
-            inputMode="decimal"
-            value={draft.fundingFee}
-            onChange={(event) => {
-              setDraft((current) => ({
-                ...current,
-                fundingFee: event.target.value,
-              }));
-            }}
-          />
-        </label>
-        <label>
           <span>研究理由</span>
           <textarea
             value={draft.thesis}
@@ -298,6 +322,32 @@ export function TradeForm({
         ))}
         <button className="secondary-action" type="button" onClick={addLeg}>
           添加交易腿
+        </button>
+      </section>
+
+      <section aria-labelledby="cashflows-title">
+        <h2 id="cashflows-title">资金现金流</h2>
+        <p>收取为正，支付为负；后端会在保存时重新计算权威盈亏。</p>
+        {draft.fundingCashflows.map((cashflow, index) => (
+          <CashflowEditor
+            key={cashflow.id}
+            cashflow={cashflow}
+            index={index}
+            onChange={(updated) => {
+              updateCashflow(index, updated);
+            }}
+            onRemove={() => {
+              setDraft((current) => ({
+                ...current,
+                fundingCashflows: current.fundingCashflows.filter(
+                  (_, candidateIndex) => candidateIndex !== index,
+                ),
+              }));
+            }}
+          />
+        ))}
+        <button className="secondary-action" type="button" onClick={addCashflow}>
+          添加资金现金流
         </button>
       </section>
 

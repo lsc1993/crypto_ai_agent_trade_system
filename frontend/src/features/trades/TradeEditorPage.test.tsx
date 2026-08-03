@@ -179,9 +179,6 @@ function fillNewDraft() {
   fireEvent.change(screen.getByLabelText("杠杆"), {
     target: { value: "2" },
   });
-  fireEvent.change(screen.getByLabelText("资金费"), {
-    target: { value: "0" },
-  });
   fireEvent.change(screen.getByLabelText("标签"), {
     target: { value: "计划内" },
   });

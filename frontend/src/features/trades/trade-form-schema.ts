@@ -16,6 +16,15 @@ const tradeLegEnvelopeSchema = z
   })
   .strict();
 
+const tradeCashflowEnvelopeSchema = z
+  .object({
+    id: z.unknown(),
+    occurredAt: z.unknown(),
+    amount: z.unknown(),
+    reason: z.unknown(),
+  })
+  .strict();
+
 const tradeDraftEnvelopeSchema = z
   .object({
     symbol: z.unknown(),
@@ -25,7 +34,7 @@ const tradeDraftEnvelopeSchema = z
     linkedReportId: z.unknown(),
     leverage: z.unknown(),
     legs: z.array(tradeLegEnvelopeSchema),
-    fundingFee: z.unknown(),
+    fundingCashflows: z.array(tradeCashflowEnvelopeSchema),
     thesis: z.unknown(),
     review: z.unknown(),
   })

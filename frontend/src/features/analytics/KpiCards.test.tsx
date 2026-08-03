@@ -33,4 +33,21 @@ describe("KpiCards", () => {
     expect(screen.getByText("2025-01-15T12:05:00Z")).toBeVisible();
     expect(screen.queryByText("18.80")).not.toBeInTheDocument();
   });
+
+  it("renders an unavailable profit factor as 不适用", () => {
+    const snapshot = analyticsSnapshotSchema.parse({
+      netPnl: "0",
+      winRate: "0",
+      profitFactor: null,
+      expectancy: "0",
+      maxDrawdown: "0",
+      equityCurve: [],
+      tradeCalendar: [],
+      generatedAt: "2025-01-15T12:05:00Z",
+    });
+
+    render(<KpiCards snapshot={snapshot} />);
+
+    expect(screen.getByText("不适用")).toBeVisible();
+  });
 });

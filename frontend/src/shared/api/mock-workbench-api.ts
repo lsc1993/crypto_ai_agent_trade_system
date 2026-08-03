@@ -160,10 +160,14 @@ function formatAnalyticsDecimal(
 }
 
 function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
-  const orderedTrades = [...trades].sort((left, right) => {
-    const timestampOrder = left.updatedAt.localeCompare(right.updatedAt);
+  const orderedTrades = trades
+    .filter((trade) => trade.status === "closed" && trade.closedAt !== null)
+    .sort((left, right) => {
+    const timestampOrder = (left.closedAt ?? "").localeCompare(
+      right.closedAt ?? "",
+    );
     return timestampOrder === 0 ? left.id.localeCompare(right.id) : timestampOrder;
-  });
+    });
   const minimumFractionDigits = maximumNetPnlFractionDigits(orderedTrades);
   const calendar = new Map<
     string,
@@ -193,7 +197,11 @@ function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
       maxDrawdown = drawdown;
     }
 
-    const calendarAt = `${trade.updatedAt.slice(0, 10)}T00:00:00Z`;
+    const closedAt = trade.closedAt;
+    if (closedAt === null) {
+      throw new Error("Closed Mock trade must include closedAt");
+    }
+    const calendarAt = `${closedAt.slice(0, 10)}T00:00:00Z`;
     const calendarEntry = calendar.get(calendarAt);
     if (calendarEntry === undefined) {
       calendar.set(calendarAt, { netPnl: tradePnl, tradeCount: 1 });
@@ -203,7 +211,7 @@ function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
     }
 
     return {
-      at: trade.updatedAt,
+      at: closedAt,
       equity: formatAnalyticsDecimal(netPnl, minimumFractionDigits),
       netPnl: formatAnalyticsDecimal(netPnl, minimumFractionDigits),
     };
@@ -214,16 +222,15 @@ function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
     tradeCount === 0
       ? new Decimal(0)
       : new Decimal(String(winningTrades)).div(String(tradeCount));
-  const profitFactor = grossLoss.isZero()
-    ? new Decimal(0)
-    : grossProfit.div(grossLoss);
+  const profitFactor = grossLoss.isZero() ? null : grossProfit.div(grossLoss);
   const expectancy =
     tradeCount === 0 ? new Decimal(0) : netPnl.div(String(tradeCount));
 
   return analyticsSnapshotSchema.parse({
     netPnl: formatAnalyticsDecimal(netPnl, minimumFractionDigits),
     winRate: formatAnalyticsDecimal(winRate),
-    profitFactor: formatAnalyticsDecimal(profitFactor),
+    profitFactor:
+      profitFactor === null ? null : formatAnalyticsDecimal(profitFactor),
     expectancy: formatAnalyticsDecimal(expectancy, minimumFractionDigits),
     maxDrawdown: formatAnalyticsDecimal(maxDrawdown),
     equityCurve,
