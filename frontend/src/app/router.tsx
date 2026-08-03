@@ -1,6 +1,8 @@
 import { Link, useRoutes } from "react-router-dom";
 
 import { AnalyticsPage } from "../features/analytics/AnalyticsPage";
+import { BacktestDetailPage } from "../features/backtests/BacktestDetailPage";
+import { BacktestListPage } from "../features/backtests/BacktestListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { MarketPage } from "../features/market/MarketPage";
 import { ReportDetailPage } from "../features/reports/ReportDetailPage";
@@ -36,6 +38,11 @@ export function AppRouter() {
     {
       path: "/reports/:reportId",
       element: <ReportDetailPage />,
+    },
+    { path: "/backtests", element: <BacktestListPage /> },
+    {
+      path: "/backtests/:backtestId",
+      element: <BacktestDetailPage />,
     },
     { path: "/trades", element: <TradeListPage /> },
     { path: "/trades/new", element: <TradeEditorPage /> },

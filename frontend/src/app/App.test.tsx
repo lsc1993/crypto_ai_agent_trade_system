@@ -67,6 +67,16 @@ describe("application shell routes", () => {
     );
   });
 
+  it("exposes the strategy backtest navigation destination", async () => {
+    renderApp();
+
+    expect(await findDashboardHeading()).toBeVisible();
+    expect(screen.getByRole("link", { name: "策略回测" })).toHaveAttribute(
+      "href",
+      "/backtests",
+    );
+  });
+
   it("reaches every primary destination with focused sidebar links and Enter", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -121,6 +131,7 @@ describe("application shell routes", () => {
 
   it.each([
     ["/reports/report-btc-001", "报告详情"],
+    ["/backtests", "策略回测"],
     ["/trades/new", "新增交易日志"],
     ["/trades/trade-001/edit", "编辑交易日志"],
   ])("maps %s to its declared page", async (path, heading) => {

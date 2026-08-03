@@ -4,6 +4,7 @@ const navigationItems = [
   { to: "/", label: "研究工作台", end: true },
   { to: "/market/BTCUSDT", label: "BTCUSDT 市场", end: false },
   { to: "/reports", label: "分析报告", end: false },
+  { to: "/backtests", label: "策略回测", end: false },
   { to: "/trades", label: "交易日志", end: false },
   { to: "/analytics", label: "复盘统计", end: false },
   { to: "/settings", label: "设置", end: false },
