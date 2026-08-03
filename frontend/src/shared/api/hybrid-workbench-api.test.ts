@@ -6,10 +6,12 @@ import type {
   AnalysisReport,
   AnalysisReportSummary,
 } from "../../domain/report";
+import type { AnalyticsSnapshot } from "../../domain/analytics";
+import type { Trade } from "../../domain/trade";
 import { WorkbenchHttpError } from "./http-transport";
 import {
   HybridWorkbenchApi,
-  type MarketAndReportApi,
+  type RemoteWorkbenchApi,
 } from "./hybrid-workbench-api";
 import { MockWorkbenchApi } from "./mock-workbench-api";
 import type { ReportRunCreated } from "./workbench-api";
@@ -66,8 +68,8 @@ function unexpected<T>(operation: string): () => Promise<T> {
 }
 
 function remoteApi(
-  overrides: Partial<MarketAndReportApi>,
-): MarketAndReportApi {
+  overrides: Partial<RemoteWorkbenchApi>,
+): RemoteWorkbenchApi {
   return {
     listMarketSummaries: unexpected<MarketSummary[]>("listMarketSummaries"),
     getMarket: unexpected<MarketDetail>("getMarket"),
@@ -78,6 +80,10 @@ function remoteApi(
     subscribeReport: () => {
       throw new Error("Unexpected remote subscribeReport call");
     },
+    listTrades: () => unexpected<Page<Trade>>("listTrades")(),
+    createTrade: () => unexpected<Trade>("createTrade")(),
+    updateTrade: () => unexpected<Trade>("updateTrade")(),
+    getAnalytics: () => unexpected<AnalyticsSnapshot>("getAnalytics")(),
     ...overrides,
   };
 }
@@ -196,5 +202,51 @@ describe("HybridWorkbenchApi", () => {
 
     expect(api.subscribeReport(realReport.analysisId, onEvent)).toBe(unsubscribe);
     expect(subscribeReport).toHaveBeenCalledWith(realReport.analysisId, onEvent);
+  });
+
+  it("delegates journal and analytics calls to the remote API without Mock fallback", async () => {
+    const mockApi = new MockWorkbenchApi();
+    const tradePage = await mockApi.listTrades({ page: 1, pageSize: 20 });
+    const trade = tradePage.items[0];
+    if (trade === undefined) {
+      throw new Error("Mock trade fixture is missing");
+    }
+    const snapshot = await mockApi.getAnalytics({});
+    const listTrades = vi.fn(() => Promise.resolve(tradePage));
+    const createTrade = vi.fn(() => Promise.resolve(trade));
+    const updateTrade = vi.fn(() => Promise.resolve(trade));
+    const getAnalytics = vi.fn(() => Promise.resolve(snapshot));
+    const api = new HybridWorkbenchApi(
+      mockApi,
+      remoteApi({ listTrades, createTrade, updateTrade, getAnalytics }),
+    );
+
+    await expect(api.listTrades({ page: 1, pageSize: 20 })).resolves.toEqual(
+      tradePage,
+    );
+    await expect(api.createTrade(trade)).resolves.toEqual(trade);
+    await expect(api.updateTrade(trade.id, trade)).resolves.toEqual(trade);
+    await expect(api.getAnalytics({})).resolves.toEqual(snapshot);
+
+    expect(listTrades).toHaveBeenCalledWith({ page: 1, pageSize: 20 });
+    expect(createTrade).toHaveBeenCalledWith(trade);
+    expect(updateTrade).toHaveBeenCalledWith(trade.id, trade);
+    expect(getAnalytics).toHaveBeenCalledWith({});
+  });
+
+  it("propagates remote journal failures instead of returning Mock content", async () => {
+    const unavailable = new WorkbenchHttpError(
+      503,
+      "trade_storage_unavailable",
+      "交易日志存储不可用",
+    );
+    const api = new HybridWorkbenchApi(
+      new MockWorkbenchApi(),
+      remoteApi({ listTrades: async () => Promise.reject(unavailable) }),
+    );
+
+    await expect(
+      api.listTrades({ page: 1, pageSize: 20 }),
+    ).rejects.toBe(unavailable);
   });
 });

@@ -17,6 +17,10 @@ import type {
   AnalyticsFilters,
   AnalyticsSnapshot,
 } from "../../domain/analytics";
+import {
+  analyticsFiltersSchema,
+  analyticsSnapshotSchema,
+} from "../../domain/analytics";
 import type {
   DashboardSnapshot,
   MarketDetail,
@@ -27,6 +31,11 @@ import type {
   Trade,
   TradeDraft,
   TradeFilters,
+} from "../../domain/trade";
+import {
+  tradeDraftSchema,
+  tradeFiltersSchema,
+  tradeSchema,
 } from "../../domain/trade";
 import {
   createWirePageSchema,
@@ -73,6 +82,49 @@ const analysisRunResultSchema = z.object({
 const analysisReportPageSchema = createWirePageSchema(
   analysisReportSummarySchema,
 );
+const tradeWireSchema = z
+  .object({
+    id: identifierSchema,
+    symbol: z.enum(["BTCUSDT", "ETHUSDT"]),
+    direction: z.enum(["long", "short"]),
+    horizon: z.enum(["short_term", "medium_term"]),
+    labels: z.array(z.string()),
+    linkedReportId: identifierSchema.nullable(),
+    leverage: z.string(),
+    legs: z.array(
+      z.object({
+        id: identifierSchema,
+        action: z.enum(["open", "reduce", "close"]),
+        executedAt: z.string(),
+        price: z.string(),
+        quantity: z.string(),
+        fee: z.string(),
+      }),
+    ),
+    cashflows: z.array(
+      z.object({
+        id: identifierSchema,
+        occurredAt: z.string(),
+        amount: z.string(),
+        reason: z.string(),
+      }),
+    ),
+    thesis: z.string(),
+    review: z.string(),
+    status: z.enum(["open", "closed"]),
+    netPnl: z.string(),
+    openedAt: z.string(),
+    closedAt: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .transform((wire): Trade =>
+    tradeSchema.parse({
+      ...wire,
+      fundingCashflows: wire.cashflows,
+    }),
+  );
+const tradePageSchema = createWirePageSchema(tradeWireSchema);
 
 function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
   return Promise.reject(new WorkbenchEndpointUnavailableError(operation));
@@ -197,23 +249,87 @@ export class HttpWorkbenchApi implements WorkbenchApi {
   }
 
   listTrades(filters: TradeFilters): Promise<Page<Trade>> {
-    void filters;
-    return unavailable("listTrades");
+    const parsedFilters = tradeFiltersSchema.parse(filters);
+    const query = new URLSearchParams({
+      page: String(parsedFilters.page),
+      page_size: String(parsedFilters.pageSize),
+    });
+    if (parsedFilters.symbol !== undefined) {
+      query.set("symbol", parsedFilters.symbol);
+    }
+    if (parsedFilters.direction !== undefined) {
+      query.set("direction", parsedFilters.direction);
+    }
+    if (parsedFilters.horizon !== undefined) {
+      query.set("horizon", parsedFilters.horizon);
+    }
+    if (parsedFilters.status !== undefined) {
+      query.set("status", parsedFilters.status);
+    }
+    if (parsedFilters.label !== undefined) {
+      query.set("label", parsedFilters.label);
+    }
+    if (parsedFilters.from !== undefined) {
+      query.set("from", parsedFilters.from);
+    }
+    if (parsedFilters.to !== undefined) {
+      query.set("to", parsedFilters.to);
+    }
+    return this.transport.request(`/api/v1/trades?${query.toString()}`, tradePageSchema);
   }
 
   createTrade(draft: TradeDraft): Promise<Trade> {
-    void draft;
-    return unavailable("createTrade");
+    return this.saveTrade("/api/v1/trades", "POST", draft);
   }
 
   updateTrade(tradeId: string, draft: TradeDraft): Promise<Trade> {
-    void tradeId;
-    void draft;
-    return unavailable("updateTrade");
+    const parsedTradeId = identifierSchema.parse(tradeId);
+    return this.saveTrade(
+      `/api/v1/trades/${encodeURIComponent(parsedTradeId)}`,
+      "PUT",
+      draft,
+    );
   }
 
   getAnalytics(filters: AnalyticsFilters): Promise<AnalyticsSnapshot> {
-    void filters;
-    return unavailable("getAnalytics");
+    const parsedFilters = analyticsFiltersSchema.parse(filters);
+    const query = new URLSearchParams();
+    if (parsedFilters.symbol !== undefined) {
+      query.set("symbol", parsedFilters.symbol);
+    }
+    if (parsedFilters.direction !== undefined) {
+      query.set("direction", parsedFilters.direction);
+    }
+    if (parsedFilters.horizon !== undefined) {
+      query.set("horizon", parsedFilters.horizon);
+    }
+    if (parsedFilters.label !== undefined) {
+      query.set("label", parsedFilters.label);
+    }
+    if (parsedFilters.from !== undefined) {
+      query.set("from", parsedFilters.from);
+    }
+    if (parsedFilters.to !== undefined) {
+      query.set("to", parsedFilters.to);
+    }
+    const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+    return this.transport.request(`/api/v1/analytics${suffix}`, analyticsSnapshotSchema);
+  }
+
+  private saveTrade(
+    path: string,
+    method: "POST" | "PUT",
+    draft: TradeDraft,
+  ): Promise<Trade> {
+    const parsedDraft = tradeDraftSchema.parse(draft);
+    const { fundingCashflows, ...requestDraft } = parsedDraft;
+    return this.transport.request(path, tradeWireSchema, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...requestDraft,
+        cashflows: fundingCashflows,
+      }),
+    });
   }
 }

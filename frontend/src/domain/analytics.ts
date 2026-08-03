@@ -37,7 +37,7 @@ export const tradeCalendarPointSchema = z.object({
 export const analyticsSnapshotSchema = z.object({
   netPnl: decimalStringSchema,
   winRate: decimalStringSchema,
-  profitFactor: decimalStringSchema,
+  profitFactor: decimalStringSchema.nullable(),
   expectancy: decimalStringSchema,
   maxDrawdown: decimalStringSchema,
   equityCurve: z.array(equityPointSchema),

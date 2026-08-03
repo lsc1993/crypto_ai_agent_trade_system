@@ -25,6 +25,13 @@ export const tradeLegSchema = z.object({
   fee: nonNegativeDecimalStringSchema,
 });
 
+export const tradeCashflowSchema = z.object({
+  id: identifierSchema,
+  occurredAt: utcIsoStringSchema,
+  amount: decimalStringSchema,
+  reason: z.string().trim().min(1).max(500),
+});
+
 const tradeDraftBaseSchema = z.object({
   symbol: symbolSchema,
   direction: tradeDirectionSchema,
@@ -33,7 +40,7 @@ const tradeDraftBaseSchema = z.object({
   linkedReportId: identifierSchema.nullable(),
   leverage: positiveDecimalStringSchema,
   legs: z.array(tradeLegSchema).min(1),
-  fundingFee: nonNegativeDecimalStringSchema,
+  fundingCashflows: z.array(tradeCashflowSchema),
   thesis: z.string(),
   review: z.string(),
 });
@@ -106,9 +113,28 @@ function validateTradeLegAccounting(
     }
 }
 
+function validateTradeActivityIdentifiers(
+  legs: z.infer<typeof tradeLegSchema>[],
+  fundingCashflows: z.infer<typeof tradeCashflowSchema>[],
+  context: z.RefinementCtx,
+): void {
+  const identifiers = new Set(legs.map((leg) => leg.id));
+  for (const [index, cashflow] of fundingCashflows.entries()) {
+    if (identifiers.has(cashflow.id)) {
+      context.addIssue({
+        code: "custom",
+        path: ["fundingCashflows", index, "id"],
+        message: "Trade activity IDs must be unique",
+      });
+    }
+    identifiers.add(cashflow.id);
+  }
+}
+
 export const tradeDraftSchema = tradeDraftBaseSchema.superRefine(
-  ({ legs }, context) => {
+  ({ legs, fundingCashflows }, context) => {
     validateTradeLegAccounting(legs, context);
+    validateTradeActivityIdentifiers(legs, fundingCashflows, context);
   },
 );
 
@@ -122,8 +148,9 @@ export const tradeSchema = tradeDraftBaseSchema
     createdAt: utcIsoStringSchema,
     updatedAt: utcIsoStringSchema,
   })
-  .superRefine(({ legs }, context) => {
+  .superRefine(({ legs, fundingCashflows }, context) => {
     validateTradeLegAccounting(legs, context);
+    validateTradeActivityIdentifiers(legs, fundingCashflows, context);
   });
 
 export const tradeFiltersSchema = paginationSchema
@@ -147,6 +174,7 @@ export type TradeHorizon = z.infer<typeof tradeHorizonSchema>;
 export type TradeLegAction = z.infer<typeof tradeLegActionSchema>;
 export type TradeStatus = z.infer<typeof tradeStatusSchema>;
 export type TradeLeg = z.infer<typeof tradeLegSchema>;
+export type TradeCashflow = z.infer<typeof tradeCashflowSchema>;
 export type TradeDraft = z.infer<typeof tradeDraftSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
 export type TradeFilters = z.input<typeof tradeFiltersSchema>;

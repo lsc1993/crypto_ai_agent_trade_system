@@ -18,7 +18,7 @@ export function Topbar({ dataMode, onResetMockData }: TopbarProps) {
         {dataMode === "market-api" ? (
           <div role="status">
             <span>公开市场数据模式</span>
-            <span>市场与报告使用本地 API；交易日志、统计与资讯仍为 Mock</span>
+            <span>市场、报告、交易日志与统计使用本地 API；资讯仍为 Mock</span>
           </div>
         ) : dataMode === "mock" && onResetMockData !== undefined ? (
           <MockModeControls onReset={onResetMockData} />

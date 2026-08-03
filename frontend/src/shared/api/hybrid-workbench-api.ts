@@ -23,7 +23,7 @@ import type {
 import { MockWorkbenchApi } from "./mock-workbench-api";
 import type { ReportRunCreated, WorkbenchApi } from "./workbench-api";
 
-export interface MarketAndReportApi {
+export interface RemoteWorkbenchApi {
   listMarketSummaries(): Promise<MarketSummary[]>;
   getMarket(input: {
     symbol: Symbol;
@@ -39,12 +39,16 @@ export interface MarketAndReportApi {
     analysisId: string,
     onEvent: (event: AnalysisStreamEvent) => void,
   ): () => void;
+  listTrades(filters: TradeFilters): Promise<Page<Trade>>;
+  createTrade(draft: TradeDraft): Promise<Trade>;
+  updateTrade(tradeId: string, draft: TradeDraft): Promise<Trade>;
+  getAnalytics(filters: AnalyticsFilters): Promise<AnalyticsSnapshot>;
 }
 
 export class HybridWorkbenchApi implements WorkbenchApi {
   constructor(
     private readonly mockApi: MockWorkbenchApi,
-    private readonly remoteApi: MarketAndReportApi,
+    private readonly remoteApi: RemoteWorkbenchApi,
   ) {}
 
   async getDashboard(): Promise<DashboardSnapshot> {
@@ -101,18 +105,18 @@ export class HybridWorkbenchApi implements WorkbenchApi {
   }
 
   listTrades(filters: TradeFilters): Promise<Page<Trade>> {
-    return this.mockApi.listTrades(filters);
+    return this.remoteApi.listTrades(filters);
   }
 
   createTrade(draft: TradeDraft): Promise<Trade> {
-    return this.mockApi.createTrade(draft);
+    return this.remoteApi.createTrade(draft);
   }
 
   updateTrade(tradeId: string, draft: TradeDraft): Promise<Trade> {
-    return this.mockApi.updateTrade(tradeId, draft);
+    return this.remoteApi.updateTrade(tradeId, draft);
   }
 
   getAnalytics(filters: AnalyticsFilters): Promise<AnalyticsSnapshot> {
-    return this.mockApi.getAnalytics(filters);
+    return this.remoteApi.getAnalytics(filters);
   }
 }

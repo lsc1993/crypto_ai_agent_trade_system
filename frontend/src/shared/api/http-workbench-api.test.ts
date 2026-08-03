@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { MarketDetail, MarketSummary } from "../../domain/market";
+import { tradeDraftSchema } from "../../domain/trade";
 import { HttpWorkbenchApi } from "./http-workbench-api";
 
 const liveSummary: MarketSummary = {
@@ -109,3 +110,159 @@ describe("HttpWorkbenchApi market reads", () => {
     expect(detailUrl.pathname).toBe("/api/v1/research/market/BTCUSDT");
   });
 });
+
+describe("HttpWorkbenchApi trade journal reads and writes", () => {
+  it("maps real trade and analytics endpoints without leaking frontend-only fields", async () => {
+    const fetchImpl: typeof fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ items: [tradeWire], page: 1, page_size: 20, total: 1 }),
+      )
+      .mockResolvedValueOnce(Response.json(tradeWire))
+      .mockResolvedValueOnce(Response.json(tradeWire))
+      .mockResolvedValueOnce(Response.json(analyticsWire));
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+    const draft = tradeDraftSchema.parse({
+      symbol: "BTCUSDT",
+      direction: "long",
+      horizon: "short_term",
+      labels: ["manual"],
+      linkedReportId: null,
+      leverage: "2",
+      legs: [
+        {
+          id: "00000000-0000-0000-0000-000000000101",
+          action: "open",
+          executedAt: "2026-07-31T12:00:00Z",
+          price: "100",
+          quantity: "1",
+          fee: "0.1",
+        },
+        {
+          id: "00000000-0000-0000-0000-000000000102",
+          action: "close",
+          executedAt: "2026-07-31T13:00:00Z",
+          price: "120",
+          quantity: "1",
+          fee: "0.2",
+        },
+      ],
+      fundingCashflows: [
+        {
+          id: "00000000-0000-0000-0000-000000000103",
+          occurredAt: "2026-07-31T12:30:00Z",
+          amount: "-0.25",
+          reason: "funding payment",
+        },
+      ],
+      thesis: "manual thesis",
+      review: "manual review",
+    });
+
+    await expect(api.listTrades({ page: 1, pageSize: 20 })).resolves.toMatchObject({
+      items: [
+        {
+          id: tradeWire.id,
+          fundingCashflows: tradeWire.cashflows,
+        },
+      ],
+    });
+    await expect(api.createTrade(draft)).resolves.toMatchObject({
+      fundingCashflows: tradeWire.cashflows,
+    });
+    await expect(api.updateTrade("trade/id", draft)).resolves.toMatchObject({
+      id: tradeWire.id,
+    });
+    await expect(
+      api.getAnalytics({ symbol: "BTCUSDT", from: "2026-07-31T00:00:00Z" }),
+    ).resolves.toMatchObject({ profitFactor: null });
+
+    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls;
+    expect(new URL(calls[0]?.[0] as URL).pathname).toBe("/api/v1/trades");
+    const createRequest = calls[1]?.[1] as RequestInit;
+    if (typeof createRequest.body !== "string") {
+      throw new Error("Expected the create request body to be JSON text");
+    }
+    const createBody = JSON.parse(createRequest.body) as {
+      cashflows: unknown;
+      fundingCashflows?: unknown;
+    };
+    expect(createBody.cashflows).toEqual(draft.fundingCashflows);
+    expect(createBody.fundingCashflows).toBeUndefined();
+    expect(new URL(calls[2]?.[0] as URL).pathname).toBe("/api/v1/trades/trade%2Fid");
+    const analyticsUrl = new URL(calls[3]?.[0] as URL);
+    expect(analyticsUrl.pathname).toBe("/api/v1/analytics");
+    expect(analyticsUrl.searchParams.get("symbol")).toBe("BTCUSDT");
+    expect(analyticsUrl.searchParams.get("from")).toBe("2026-07-31T00:00:00Z");
+  });
+});
+
+const tradeWire = {
+  id: "00000000-0000-0000-0000-000000000333",
+  symbol: "BTCUSDT",
+  direction: "long",
+  horizon: "short_term",
+  labels: ["manual"],
+  linkedReportId: null,
+  leverage: "2",
+  legs: [
+    {
+      id: "00000000-0000-0000-0000-000000000101",
+      action: "open",
+      executedAt: "2026-07-31T12:00:00Z",
+      price: "100",
+      quantity: "1",
+      fee: "0.1",
+    },
+    {
+      id: "00000000-0000-0000-0000-000000000102",
+      action: "close",
+      executedAt: "2026-07-31T13:00:00Z",
+      price: "120",
+      quantity: "1",
+      fee: "0.2",
+    },
+  ],
+  cashflows: [
+    {
+      id: "00000000-0000-0000-0000-000000000103",
+      occurredAt: "2026-07-31T12:30:00Z",
+      amount: "-0.25",
+      reason: "funding payment",
+    },
+  ],
+  thesis: "manual thesis",
+  review: "manual review",
+  status: "closed",
+  netPnl: "19.45",
+  openedAt: "2026-07-31T12:00:00Z",
+  closedAt: "2026-07-31T13:00:00Z",
+  createdAt: "2026-07-31T14:00:00Z",
+  updatedAt: "2026-07-31T14:00:00Z",
+} as const;
+
+const analyticsWire = {
+  netPnl: "19.45",
+  winRate: "1",
+  profitFactor: null,
+  expectancy: "19.45",
+  maxDrawdown: "0",
+  equityCurve: [
+    {
+      at: "2026-07-31T13:00:00Z",
+      equity: "19.45",
+      netPnl: "19.45",
+    },
+  ],
+  tradeCalendar: [
+    {
+      at: "2026-07-31T00:00:00Z",
+      netPnl: "19.45",
+      tradeCount: 1,
+    },
+  ],
+  generatedAt: "2026-07-31T14:00:00Z",
+} as const;
