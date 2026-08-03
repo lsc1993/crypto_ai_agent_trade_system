@@ -214,3 +214,71 @@ class TradePage(_TradeModel):
     page: Annotated[int, Field(ge=1)]
     page_size: Annotated[int, Field(ge=1, le=100)]
     total: Annotated[int, Field(ge=0)]
+
+
+class AnalyticsFilters(_TradeModel):
+    symbol: ContractSymbol | None = None
+    direction: TradeDirection | None = None
+    horizon: TradeHorizon | None = None
+    label: Annotated[str, Field(min_length=1, max_length=100)] | None = None
+    from_at: datetime | None = None
+    to_at: datetime | None = None
+
+    @field_validator("label")
+    @classmethod
+    def normalize_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("标签不能为空")
+        return normalized
+
+    @field_validator("from_at", "to_at")
+    @classmethod
+    def validate_filter_utc_time(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _require_utc(value)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> AnalyticsFilters:
+        if self.from_at is not None and self.to_at is not None and self.from_at > self.to_at:
+            raise ValueError("统计筛选开始时间不能晚于结束时间")
+        return self
+
+
+class EquityPoint(_TradeModel):
+    at: datetime
+    equity: Decimal
+    net_pnl: Decimal
+
+    @field_validator("at")
+    @classmethod
+    def validate_utc_time(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+class TradeCalendarPoint(_TradeModel):
+    at: datetime
+    net_pnl: Decimal
+    trade_count: Annotated[int, Field(ge=0)]
+
+    @field_validator("at")
+    @classmethod
+    def validate_utc_time(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+class AnalyticsSnapshot(_TradeModel):
+    net_pnl: Decimal
+    win_rate: Decimal
+    profit_factor: Decimal | None
+    expectancy: Decimal
+    max_drawdown: Decimal
+    equity_curve: tuple[EquityPoint, ...]
+    trade_calendar: tuple[TradeCalendarPoint, ...]
+    generated_at: datetime
+
+    @field_validator("generated_at")
+    @classmethod
+    def validate_utc_time(cls, value: datetime) -> datetime:
+        return _require_utc(value)

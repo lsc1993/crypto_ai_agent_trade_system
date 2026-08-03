@@ -17,6 +17,7 @@ from app.infrastructure.persistence.report_repository import (
     SqlAlchemyAnalysisReportRepository,
 )
 from app.infrastructure.persistence.research_reader import SqlAlchemyPersistedMarketReader
+from app.infrastructure.persistence.trade_repository import SqlAlchemyTradeRepository
 from app.market.binance_usdm import (
     BINANCE_USDM_BASE_URL,
     BinanceUsdmPublicMarketGateway,
@@ -42,6 +43,15 @@ from app.reports.service import DeterministicResearchReportService
 from app.shared.config import AppSettings
 from app.shared.database import create_database_engine, create_session_factory
 from app.shared.logging import configure_logging
+from app.trades.analytics import PerformanceAnalyticsService
+from app.trades.calculator import TradePnl
+from app.trades.contracts import (
+    TradeDraft,
+    TradeFilters,
+    TradeStorageUnavailableError,
+)
+from app.trades.repository import TradeRepository
+from app.trades.service import TradeService
 
 
 class _UnavailablePersistedMarketReader(PersistedMarketReader):
@@ -90,10 +100,58 @@ class _UnavailableAnalysisReportRepository(AnalysisReportRepository):
         _raise_analysis_report_storage_unavailable()
 
 
+class _UnavailableTradeRepository(TradeRepository):
+    async def create(
+        self,
+        *,
+        draft: TradeDraft,
+        pnl: TradePnl,
+        occurred_at: datetime,
+        correlation_id: UUID,
+    ) -> NoReturn:
+        del draft, pnl, occurred_at, correlation_id
+        _raise_trade_storage_unavailable()
+
+    async def replace(
+        self,
+        *,
+        trade_id: UUID,
+        draft: TradeDraft,
+        pnl: TradePnl,
+        occurred_at: datetime,
+        correlation_id: UUID,
+    ) -> NoReturn:
+        del trade_id, draft, pnl, occurred_at, correlation_id
+        _raise_trade_storage_unavailable()
+
+    async def archive(
+        self,
+        trade_id: UUID,
+        *,
+        occurred_at: datetime,
+        correlation_id: UUID,
+    ) -> NoReturn:
+        del trade_id, occurred_at, correlation_id
+        _raise_trade_storage_unavailable()
+
+    async def get_by_id(self, trade_id: UUID) -> NoReturn:
+        del trade_id
+        _raise_trade_storage_unavailable()
+
+    async def list(self, filters: TradeFilters) -> NoReturn:
+        del filters
+        _raise_trade_storage_unavailable()
+
+    async def list_closed(self, filters: TradeFilters) -> NoReturn:
+        del filters
+        _raise_trade_storage_unavailable()
+
+
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
     analysis_report_repository: AnalysisReportRepository | None = None,
+    trade_repository: TradeRepository | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -111,7 +169,11 @@ def create_app(
 
     research_engine: AsyncEngine | None = None
     session_factory = None
-    if market_research_reader is None or analysis_report_repository is None:
+    if (
+        market_research_reader is None
+        or analysis_report_repository is None
+        or trade_repository is None
+    ):
         if settings.database_url is not None:
             research_engine = create_database_engine(settings.database_url)
             session_factory = create_session_factory(research_engine)
@@ -129,6 +191,13 @@ def create_app(
             _UnavailableAnalysisReportRepository()
             if session_factory is None
             else SqlAlchemyAnalysisReportRepository(session_factory)
+        )
+
+    if trade_repository is None:
+        trade_repository = (
+            _UnavailableTradeRepository()
+            if session_factory is None
+            else SqlAlchemyTradeRepository(session_factory)
         )
 
     @asynccontextmanager
@@ -155,12 +224,21 @@ def create_app(
         analysis_report_repository,
         clock=lambda: datetime.now(UTC),
     )
+    app.state.trade_repository = trade_repository
+    app.state.trade_service = TradeService(
+        repository=trade_repository,
+        clock=lambda: datetime.now(UTC),
+    )
+    app.state.performance_analytics_service = PerformanceAnalyticsService(
+        repository=trade_repository,
+        clock=lambda: datetime.now(UTC),
+    )
     install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_allowed_origins),
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Accept", "Content-Type"],
     )
     app.include_router(health_router)
@@ -180,3 +258,7 @@ def _raise_market_research_unavailable() -> NoReturn:
 
 def _raise_analysis_report_storage_unavailable() -> NoReturn:
     raise ReportStorageUnavailableError("研究报告存储不可用")
+
+
+def _raise_trade_storage_unavailable() -> NoReturn:
+    raise TradeStorageUnavailableError("交易日志存储不可用")

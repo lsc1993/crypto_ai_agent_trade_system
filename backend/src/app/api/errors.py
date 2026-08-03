@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.market.contracts import MarketDataUnavailableError
+from app.trades.contracts import TradeStorageUnavailableError
+from app.trades.service import TradeNotFoundError
 
 logger = structlog.get_logger(__name__)
 
@@ -117,6 +119,33 @@ async def _market_data_unavailable_handler(
     )
 
 
+async def _trade_storage_unavailable_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, TradeStorageUnavailableError):
+        raise TypeError("交易存储异常处理器收到了不支持的异常类型")
+    return _response(
+        503,
+        ErrorEnvelope(
+            code="trade_storage_unavailable",
+            message="交易日志存储不可用",
+        ),
+    )
+
+
+async def _trade_not_found_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, TradeNotFoundError):
+        raise TypeError("交易不存在异常处理器收到了不支持的异常类型")
+    return _response(
+        404,
+        ErrorEnvelope(code="not_found", message="交易不存在或已归档"),
+    )
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         StarletteHTTPException,
@@ -129,6 +158,14 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         MarketDataUnavailableError,
         _market_data_unavailable_handler,
+    )
+    app.add_exception_handler(
+        TradeStorageUnavailableError,
+        _trade_storage_unavailable_handler,
+    )
+    app.add_exception_handler(
+        TradeNotFoundError,
+        _trade_not_found_handler,
     )
     app.add_exception_handler(
         Exception,
