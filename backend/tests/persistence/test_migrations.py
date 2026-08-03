@@ -64,6 +64,36 @@ def test_market_migration_creates_numeric_candle_columns_and_unique_key() -> Non
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
+def test_backtest_migration_creates_immutable_numeric_snapshot_tables() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"market_test_{uuid4().hex[:16]}"
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        database = import_module("app.shared.database")
+        database.upgrade_database(test_database_url, schema=schema)
+        runs = asyncio.run(_table_column_types(test_database_url, schema, "backtest_runs"))
+        candles = asyncio.run(
+            _table_column_types(test_database_url, schema, "backtest_candles")
+        )
+        events = asyncio.run(_table_column_types(test_database_url, schema, "backtest_events"))
+        candle_constraints = asyncio.run(
+            _table_constraint_columns(test_database_url, schema, "backtest_candles")
+        )
+        event_constraints = asyncio.run(
+            _table_constraint_columns(test_database_url, schema, "backtest_events")
+        )
+
+        assert runs["initial_cash"] == "numeric"
+        assert candles["close_price"] == "numeric"
+        assert events["payload"] == "jsonb"
+        assert ("PRIMARY KEY", ("run_id", "sequence")) in candle_constraints
+        assert ("PRIMARY KEY", ("run_id", "sequence")) in event_constraints
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
 async def _create_schema(database_url: SecretStr, schema: str) -> None:
     database = import_module("app.shared.database")
     engine = database.create_async_engine_from_secret(database_url)
