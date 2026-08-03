@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import NoReturn
@@ -13,6 +13,7 @@ from app.api.errors import install_exception_handlers
 from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
+from app.infrastructure.persistence.backtest_repository import SqlAlchemyBacktestRepository
 from app.infrastructure.persistence.report_repository import (
     SqlAlchemyAnalysisReportRepository,
 )
@@ -23,11 +24,12 @@ from app.market.binance_usdm import (
     BinanceUsdmPublicMarketGateway,
 )
 from app.market.contracts import (
+    Candle,
     ContractSymbol,
     MarketDataUnavailableError,
     MarketTimeframe,
 )
-from app.market.gateway import PublicMarketGateway
+from app.market.gateway import HistoricalCandleGateway, PublicMarketGateway
 from app.market.research import (
     MarketResearchQueryService,
     PersistedMarketReader,
@@ -40,6 +42,15 @@ from app.reports.contracts import (
 )
 from app.reports.repository import AnalysisReportRepository
 from app.reports.service import DeterministicResearchReportService
+from app.research.backtests.contracts import (
+    BacktestFilters,
+    BacktestRequest,
+    BacktestResult,
+    BacktestStorageUnavailableError,
+)
+from app.research.backtests.engine import DeterministicBacktestEngine
+from app.research.backtests.repository import BacktestRepository
+from app.research.backtests.service import BacktestService
 from app.shared.config import AppSettings
 from app.shared.database import create_database_engine, create_session_factory
 from app.shared.logging import configure_logging
@@ -147,11 +158,68 @@ class _UnavailableTradeRepository(TradeRepository):
         _raise_trade_storage_unavailable()
 
 
+class _UnavailableHistoricalCandleGateway(HistoricalCandleGateway):
+    async def load_closed_candles(
+        self,
+        symbol: ContractSymbol,
+        timeframe: MarketTimeframe,
+        *,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> NoReturn:
+        del symbol, timeframe, start_at, end_at
+        _raise_backtest_history_unavailable()
+
+
+class _UnavailableBacktestRepository(BacktestRepository):
+    async def create_pending(
+        self,
+        request: BacktestRequest,
+        *,
+        occurred_at: datetime,
+    ) -> NoReturn:
+        del request, occurred_at
+        _raise_backtest_storage_unavailable()
+
+    async def complete(
+        self,
+        run_id: UUID,
+        result: BacktestResult,
+        candles: tuple[Candle, ...],
+        *,
+        occurred_at: datetime,
+    ) -> NoReturn:
+        del run_id, result, candles, occurred_at
+        _raise_backtest_storage_unavailable()
+
+    async def fail(
+        self,
+        run_id: UUID,
+        *,
+        code: str,
+        message: str,
+        occurred_at: datetime,
+    ) -> NoReturn:
+        del run_id, code, message, occurred_at
+        _raise_backtest_storage_unavailable()
+
+    async def list(self, filters: BacktestFilters) -> NoReturn:
+        del filters
+        _raise_backtest_storage_unavailable()
+
+    async def get_by_id(self, run_id: UUID) -> NoReturn:
+        del run_id
+        _raise_backtest_storage_unavailable()
+
+
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
     analysis_report_repository: AnalysisReportRepository | None = None,
     trade_repository: TradeRepository | None = None,
+    historical_candle_gateway: HistoricalCandleGateway | None = None,
+    backtest_repository: BacktestRepository | None = None,
+    backtest_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -167,12 +235,20 @@ def create_app(
             clock=lambda: datetime.now(UTC),
         )
 
+    if historical_candle_gateway is None:
+        historical_candle_gateway = (
+            market_gateway
+            if isinstance(market_gateway, BinanceUsdmPublicMarketGateway)
+            else _UnavailableHistoricalCandleGateway()
+        )
+
     research_engine: AsyncEngine | None = None
     session_factory = None
     if (
         market_research_reader is None
         or analysis_report_repository is None
         or trade_repository is None
+        or backtest_repository is None
     ):
         if settings.database_url is not None:
             research_engine = create_database_engine(settings.database_url)
@@ -198,6 +274,13 @@ def create_app(
             _UnavailableTradeRepository()
             if session_factory is None
             else SqlAlchemyTradeRepository(session_factory)
+        )
+
+    if backtest_repository is None:
+        backtest_repository = (
+            _UnavailableBacktestRepository()
+            if session_factory is None
+            else SqlAlchemyBacktestRepository(session_factory)
         )
 
     @asynccontextmanager
@@ -233,6 +316,13 @@ def create_app(
         repository=trade_repository,
         clock=lambda: datetime.now(UTC),
     )
+    app.state.backtest_repository = backtest_repository
+    app.state.backtest_service = BacktestService(
+        history=historical_candle_gateway,
+        repository=backtest_repository,
+        engine=DeterministicBacktestEngine(),
+        clock=backtest_clock or (lambda: datetime.now(UTC)),
+    )
     install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,
@@ -262,3 +352,14 @@ def _raise_analysis_report_storage_unavailable() -> NoReturn:
 
 def _raise_trade_storage_unavailable() -> NoReturn:
     raise TradeStorageUnavailableError("交易日志存储不可用")
+
+
+def _raise_backtest_history_unavailable() -> NoReturn:
+    raise MarketDataUnavailableError(
+        "backtest_history_unavailable",
+        "历史回测行情不可用",
+    )
+
+
+def _raise_backtest_storage_unavailable() -> NoReturn:
+    raise BacktestStorageUnavailableError("回测存储不可用")

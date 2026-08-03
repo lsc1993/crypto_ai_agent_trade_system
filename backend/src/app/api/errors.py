@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.market.contracts import MarketDataUnavailableError
+from app.research.backtests.contracts import (
+    BacktestNotFoundError,
+    BacktestStorageUnavailableError,
+)
 from app.trades.contracts import TradeStorageUnavailableError
 from app.trades.service import TradeNotFoundError
 
@@ -134,6 +138,33 @@ async def _trade_storage_unavailable_handler(
     )
 
 
+async def _backtest_storage_unavailable_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, BacktestStorageUnavailableError):
+        raise TypeError("回测存储异常处理器收到了不支持的异常类型")
+    return _response(
+        503,
+        ErrorEnvelope(
+            code="backtest_storage_unavailable",
+            message="回测存储不可用",
+        ),
+    )
+
+
+async def _backtest_not_found_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, BacktestNotFoundError):
+        raise TypeError("回测不存在异常处理器收到了不支持的异常类型")
+    return _response(
+        404,
+        ErrorEnvelope(code="not_found", message="回测运行不存在"),
+    )
+
+
 async def _trade_not_found_handler(
     _request: Request,
     exception: Exception,
@@ -162,6 +193,14 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         TradeStorageUnavailableError,
         _trade_storage_unavailable_handler,
+    )
+    app.add_exception_handler(
+        BacktestStorageUnavailableError,
+        _backtest_storage_unavailable_handler,
+    )
+    app.add_exception_handler(
+        BacktestNotFoundError,
+        _backtest_not_found_handler,
     )
     app.add_exception_handler(
         TradeNotFoundError,
