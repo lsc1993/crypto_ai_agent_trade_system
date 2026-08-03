@@ -34,6 +34,7 @@ ALLOWED_PATHS = frozenset(
 SUMMARY_TTL = timedelta(seconds=10)
 CANDLE_TTL = timedelta(seconds=60)
 MAX_ATTEMPTS = 2
+MAX_BACKTEST_CANDLES = 1049
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -80,6 +81,49 @@ class BinanceUsdmPublicMarketGateway:
             *(self._get_candles(symbol, timeframe) for timeframe in timeframes),
         )
         return MarketDetail(summary=summary, series=tuple(series))
+
+    async def load_closed_candles(
+        self,
+        symbol: ContractSymbol,
+        timeframe: MarketTimeframe,
+        *,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> tuple[Candle, ...]:
+        if timeframe is not MarketTimeframe.H1:
+            raise ValueError("历史回测仅支持 1h K 线")
+        _validate_utc_range(start_at, end_at)
+        payload = await self._get_public_json(
+            "/fapi/v1/klines",
+            {
+                "symbol": symbol.value,
+                "interval": timeframe.value,
+                "startTime": str(int(start_at.timestamp() * 1000)),
+                "endTime": str(int(end_at.timestamp() * 1000)),
+                "limit": str(MAX_BACKTEST_CANDLES),
+            },
+        )
+        candles = _closed_candles_from_payload(
+            payload,
+            symbol=symbol,
+            timeframe=timeframe,
+            fetched_at=self._now(),
+        )
+        open_times = tuple(candle.open_at for candle in candles)
+        if len(open_times) != len(set(open_times)):
+            raise MarketDataUnavailableError(
+                "market_data_invalid_response",
+                "公开 K 线响应包含重复时间",
+            )
+        requested_candles = tuple(
+            candle for candle in candles if start_at <= candle.open_at < end_at
+        )
+        if not requested_candles:
+            raise MarketDataUnavailableError(
+                "market_data_missing",
+                "公开行情未提供请求范围内的已收盘 K 线",
+            )
+        return requested_candles
 
     async def _get_summary(self, symbol: ContractSymbol) -> MarketSummary:
         return await self._summary_cache.get_or_load(
@@ -138,48 +182,15 @@ class BinanceUsdmPublicMarketGateway:
             "/fapi/v1/klines",
             {"symbol": symbol.value, "interval": timeframe.value, "limit": "200"},
         )
-        rows = _list_payload(payload)
-        fetched_at = self._now()
-        candles: list[Candle] = []
-        for row in rows:
-            if not isinstance(row, Sequence) or isinstance(row, (str, bytes)):
-                raise MarketDataUnavailableError(
-                    "market_data_invalid_response",
-                    "公开 K 线响应包含无效记录",
-                )
-            values = cast(Sequence[object], row)
-            if len(values) < 7:
-                raise MarketDataUnavailableError(
-                    "market_data_invalid_response",
-                    "公开 K 线响应包含无效记录",
-                )
-            open_at = _timestamp_value(values[0])
-            close_at = _timestamp_value(values[6])
-            if close_at > fetched_at:
-                continue
-            candles.append(
-                Candle(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    open_at=open_at,
-                    close_at=close_at,
-                    open_price=_decimal_value(values[1]),
-                    high_price=_decimal_value(values[2]),
-                    low_price=_decimal_value(values[3]),
-                    close_price=_decimal_value(values[4]),
-                    volume=_decimal_value(values[5]),
-                    observed_at=close_at,
-                    fetched_at=fetched_at,
-                )
-            )
-        if not candles:
-            raise MarketDataUnavailableError(
-                "market_data_missing",
-                "公开行情未提供已收盘 K 线",
-            )
+        candles = _closed_candles_from_payload(
+            payload,
+            symbol=symbol,
+            timeframe=timeframe,
+            fetched_at=self._now(),
+        )
         return CandleSeries(
             timeframe=timeframe,
-            candles=tuple(sorted(candles, key=lambda candle: candle.open_at)),
+            candles=candles,
         )
 
     async def _get_public_json(self, path: str, params: dict[str, str]) -> object:
@@ -242,6 +253,62 @@ class BinanceUsdmPublicMarketGateway:
         if now.tzinfo is None or now.utcoffset() != timedelta(0):
             raise ValueError("市场数据时钟必须返回 UTC 带时区时间")
         return now
+
+
+def _validate_utc_range(start_at: datetime, end_at: datetime) -> None:
+    for value in (start_at, end_at):
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("历史 K 线范围必须使用 UTC 带时区时间")
+    if start_at >= end_at:
+        raise ValueError("历史 K 线开始时间必须早于结束时间")
+
+
+def _closed_candles_from_payload(
+    payload: object,
+    *,
+    symbol: ContractSymbol,
+    timeframe: MarketTimeframe,
+    fetched_at: datetime,
+) -> tuple[Candle, ...]:
+    rows = _list_payload(payload)
+    candles: list[Candle] = []
+    for row in rows:
+        if not isinstance(row, Sequence) or isinstance(row, (str, bytes)):
+            raise MarketDataUnavailableError(
+                "market_data_invalid_response",
+                "公开 K 线响应包含无效记录",
+            )
+        values = cast(Sequence[object], row)
+        if len(values) < 7:
+            raise MarketDataUnavailableError(
+                "market_data_invalid_response",
+                "公开 K 线响应包含无效记录",
+            )
+        open_at = _timestamp_value(values[0])
+        close_at = _timestamp_value(values[6])
+        if close_at > fetched_at:
+            continue
+        candles.append(
+            Candle(
+                symbol=symbol,
+                timeframe=timeframe,
+                open_at=open_at,
+                close_at=close_at,
+                open_price=_decimal_value(values[1]),
+                high_price=_decimal_value(values[2]),
+                low_price=_decimal_value(values[3]),
+                close_price=_decimal_value(values[4]),
+                volume=_decimal_value(values[5]),
+                observed_at=close_at,
+                fetched_at=fetched_at,
+            )
+        )
+    if not candles:
+        raise MarketDataUnavailableError(
+            "market_data_missing",
+            "公开行情未提供已收盘 K 线",
+        )
+    return tuple(sorted(candles, key=lambda candle: candle.open_at))
 
 
 def _mapping_payload(payload: object) -> Mapping[str, object]:
