@@ -8,7 +8,7 @@ export type Timeframe = "15m" | "1h" | "4h" | "1d";
 const canonicalDecimalPattern = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const unsignedDecimalPattern = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const utcZuluPattern =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|\+00:00)$/;
 
 function hasSupportedPrecision(value: string): boolean {
   const unsigned = value.startsWith("-") ? value.slice(1) : value;
@@ -109,7 +109,7 @@ export const nonNegativeDecimalStringSchema = z
 
 export const utcIsoStringSchema = z
   .string()
-  .regex(utcZuluPattern, "Expected an RFC3339 UTC timestamp ending in Z")
+  .regex(utcZuluPattern, "Expected an RFC3339 UTC timestamp")
   .refine(isRealUtcCalendarTimestamp, {
     message: "Expected a valid UTC timestamp",
   });
