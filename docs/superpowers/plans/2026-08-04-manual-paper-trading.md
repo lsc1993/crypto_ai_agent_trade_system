@@ -134,7 +134,25 @@ class ExecutionQuote(BaseModel):
 def submit_and_fill_at_quote(
     self, order: SimulatedOrder, quote: ExecutionQuote
 ) -> SimulatedFill:
-    # 用 quote.price 计算双向不利滑点、手续费和 fill_ratio；filled_at 为 quote.observed_at。
+    if quote.symbol is not order.symbol:
+        raise ValueError("订单标的必须与行情报价一致")
+    signed_slippage = self._config.slippage_rate if order.is_buy else -self._config.slippage_rate
+    price = quote.price * (Decimal("1") + signed_slippage)
+    quantity = order.requested_quantity * self._config.fill_ratio
+    fee = quantity * price * self._config.fee_rate
+    return SimulatedFill(
+        run_id=order.run_id,
+        symbol=order.symbol,
+        action=order.action,
+        order_idempotency_key=order.idempotency_key,
+        submitted_at=order.submitted_at,
+        filled_at=quote.observed_at,
+        requested_quantity=order.requested_quantity,
+        quantity=quantity,
+        price=price,
+        fee=fee,
+        status=OrderStatus.FILLED if quantity == order.requested_quantity else OrderStatus.PARTIALLY_FILLED,
+    )
 ```
 
 让原 `submit_and_fill` 从 K 线开盘价构造报价后调用新方法，保证历史回测现有断言不变。
@@ -511,7 +529,7 @@ class PaperTradingService:
         raise NotImplementedError
 ```
 
-在任何外部请求前调用 `repository.find_outcome`；命中时直接返回既有账户详情。未命中时读取账户、请求一次公开市场详情并从 `detail.summary.last_price`、`detail.summary.freshness` 构造 `ExecutionQuote` 与 `PaperMarketSnapshot`。手动操作构造 `run_id=account_id`、`source=MANUAL` 的 `TradeIntent`；策略操作加载 51 根严格连续且已收盘的 H1 K 线，以账户当前持仓调用 `SmaCrossoverStrategy.decide`，并用账户、策略版本、最新 K 线收盘时间生成幂等键。
+在任何外部请求前调用 `repository.find_outcome`；命中时直接返回既有账户详情。未命中时读取账户、请求一次公开市场详情并从 `detail.summary.last_price`、`detail.summary.freshness` 构造 `ExecutionQuote` 与 `PaperMarketSnapshot`。手动操作以 `quote.observed_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)` 作为最近已收盘 1h 的时间锚点，不额外读取行情；再构造 `run_id=account_id`、`source=MANUAL` 的 `TradeIntent`。策略操作加载 51 根严格连续且已收盘的 H1 K 线，以账户当前持仓调用 `SmaCrossoverStrategy.decide`，并用账户、策略版本、最新 K 线收盘时间生成幂等键。
 
 两条路径都将最新已收盘 H1 时间传给纯引擎以推进冷却期和 UTC 日损失状态。`MarketDataUnavailableError` 时调用 `record_market_failure` 写入安全审计事件后重新抛出；若存储不可用，仅抛出 `PaperStorageUnavailableError`，不得宣称事件已保存。
 
