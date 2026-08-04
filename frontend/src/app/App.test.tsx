@@ -218,6 +218,15 @@ describe("application shell routes", () => {
       api.listTrades({ page: 1, pageSize: 20 }),
     ).resolves.toEqual(seed);
   });
+
+  it("does not expose a live execution label in the application shell", async () => {
+    renderApp("/paper-trading");
+
+    await screen.findByRole("heading", { name: "模拟盘" });
+    expect(
+      screen.queryByText(/真实下单|连接交易所账户|自动执行/),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("DataFreshnessBadge", () => {

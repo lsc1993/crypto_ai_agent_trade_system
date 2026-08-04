@@ -1,7 +1,7 @@
 # 手动触发的可审计模拟盘设计
 
 **日期：** 2026-08-04
-**状态：** 已确认，待实施计划
+**状态：** 已实施并验证
 
 ## 目标与范围
 
@@ -116,6 +116,16 @@ npm run typecheck
 npm run test -- --run
 npm run build
 ```
+
+## 实施验证记录
+
+2026-08-04 已完成本设计对应的手动模拟盘实现与受限本地验证。
+
+- 后端质量门槛：`uv run ruff check .` 通过；`uv run pyright` 为 0 errors、0 warnings；`uv run pytest` 为 143 passed。
+- 前端质量门槛：`npm run lint`、`npm run typecheck`、`npm run build` 均通过；`npm run test -- --run` 为 31 个测试文件、213 项测试通过。
+- 本地数据库迁移已前向验证至 `0006_create_paper_trading (head)`。
+- 在临时本地 API 与前端会话中，创建本地模拟账户并手动触发一次 SMA 策略评估；结果为“无信号”。页面显示公开行情来源、观察/获取 UTC 时间和对应不可变审计事件，且没有生成模拟订单或成交。
+- 验证期间未调用交易所私有端点、未读取真实账户、未使用凭证，也未发起真实订单、撤单、资金划转或提现。
 
 ## 非目标与安全边界
 

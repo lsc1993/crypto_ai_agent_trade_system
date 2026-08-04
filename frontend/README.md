@@ -26,6 +26,33 @@ npm run dev -- --host 127.0.0.1 --port 4173
 uv run python scripts/check_public_market.py
 ```
 
+## 模拟盘（本地 API 与 PostgreSQL）
+
+模拟盘是手动触发的、本地持久化的 `BTCUSDT` 模拟账户。它要求后端、PostgreSQL 和公开 Binance 行情在**点击操作时**可用；不需要 Docker 或后台任务持续运行。没有任何自动轮询、定时策略评估或真实执行能力。
+
+先确保后端的 `.env` 已由你在本地安全配置 `DATABASE_URL` 与 `TEST_DATABASE_URL`，然后在后端目录前向迁移数据库（不在文档、命令输出或提交中记录连接串和密码）：
+
+```powershell
+Set-Location backend
+uv run alembic upgrade head
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+在另一个 PowerShell 窗口启动前端。`api` 与 `market-api` 都会把模拟盘请求委托给本地 HTTP API；`mock` 模式会明确提示“模拟盘需要本地 API 与数据库”。
+
+```powershell
+Set-Location frontend
+$env:VITE_API_BASE_URL = "http://127.0.0.1:8000"
+$env:VITE_DATA_MODE = "api"
+npm run dev -- --host 127.0.0.1 --port 4173
+```
+
+在浏览器打开 `http://127.0.0.1:4173/paper-trading`，创建初始资金为正十进制数的账户后，才可以手动开多、手动平多或运行一次 SMA 策略评估。每次点击都会先生成结构化意图，再经过确定性风控，并使用一次冻结的**公开**行情快照模拟成交；页面保留订单、成交、账本、快照和审计事件。
+
+模拟盘即时使用快照价格、固定滑点和手续费成交；历史回测仍是“收盘决策、下一根开盘成交”。两者的结果不可直接比较，也不能代表真实盘口、流动性、资金费率、实际部分成交或交易所规则。
+
+该功能不读取交易所账户、余额或持仓，不需要 API Key、Secret、Passphrase 或私钥，也没有真实下单、撤单、资金划转或提现接口。归档仅允许空仓的活动模拟账户，并保留所有历史审计记录。
+
 ## 本地验证
 
 ```powershell
