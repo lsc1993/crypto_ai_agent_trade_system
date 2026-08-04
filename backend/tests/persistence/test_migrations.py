@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from importlib import import_module
 from importlib.util import find_spec
 from uuid import uuid4
@@ -6,8 +7,11 @@ from uuid import uuid4
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from app.shared.config import AppSettings
+
+PAPER_TEST_NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -90,6 +94,48 @@ def test_backtest_migration_creates_immutable_numeric_snapshot_tables() -> None:
         assert events["payload"] == "jsonb"
         assert ("PRIMARY KEY", ("run_id", "sequence")) in candle_constraints
         assert ("PRIMARY KEY", ("run_id", "sequence")) in event_constraints
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
+def test_paper_trading_migration_enforces_active_account_and_immutable_records() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"paper_test_{uuid4().hex[:16]}"
+    account_id = uuid4()
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        database = import_module("app.shared.database")
+        database.upgrade_database(test_database_url, schema=schema)
+
+        accounts = asyncio.run(_table_column_types(test_database_url, schema, "paper_accounts"))
+        snapshots = asyncio.run(
+            _table_column_types(test_database_url, schema, "paper_market_snapshots")
+        )
+        events = asyncio.run(
+            _table_column_types(test_database_url, schema, "paper_audit_events")
+        )
+        event_constraints = asyncio.run(
+            _table_constraint_columns(test_database_url, schema, "paper_audit_events")
+        )
+
+        assert accounts["initial_cash"] == "numeric"
+        assert accounts["last_closed_candle_at"] == "timestamp with time zone"
+        assert snapshots["price"] == "numeric"
+        assert events["payload"] == "jsonb"
+        assert ("PRIMARY KEY", ("account_id", "sequence")) in event_constraints
+
+        asyncio.run(_insert_paper_account(test_database_url, schema, account_id))
+        with pytest.raises(DBAPIError):
+            asyncio.run(_insert_paper_account(test_database_url, schema, uuid4()))
+
+        asyncio.run(_insert_paper_intent_event(test_database_url, schema, account_id, 0))
+        with pytest.raises(DBAPIError):
+            asyncio.run(_insert_paper_intent_event(test_database_url, schema, account_id, 1))
+
+        asyncio.run(_seed_paper_immutable_records(test_database_url, schema, account_id))
+        asyncio.run(_assert_paper_immutable_records(test_database_url, schema))
     finally:
         asyncio.run(_drop_schema(test_database_url, schema))
 
@@ -184,5 +230,183 @@ async def _drop_schema(database_url: SecretStr, schema: str) -> None:
     try:
         async with engine.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+    finally:
+        await engine.dispose()
+
+
+async def _insert_paper_account(
+    database_url: SecretStr,
+    schema: str,
+    account_id: object,
+) -> None:
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO paper_accounts ("
+            "id, status, symbol, initial_cash, cash, equity, peak_equity, "
+            "daily_start_equity, daily_realized_loss, daily_day, cooldown_remaining, "
+            "risk_config, execution_config, created_at"
+            ") VALUES ("
+            ":id, 'active', 'BTCUSDT', 10000, 10000, 10000, 10000, "
+            "10000, 0, DATE '2026-08-04', 0, '{}'::jsonb, '{}'::jsonb, :created_at"
+            ")"
+        ),
+        {"id": account_id, "created_at": PAPER_TEST_NOW},
+    )
+
+
+async def _insert_paper_intent_event(
+    database_url: SecretStr,
+    schema: str,
+    account_id: object,
+    sequence: int,
+) -> None:
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO paper_audit_events ("
+            "account_id, sequence, kind, occurred_at, idempotency_key, payload"
+            ") VALUES ("
+            ":account_id, :sequence, 'intent', :occurred_at, 'manual:duplicate', '{}'::jsonb"
+            ")"
+        ),
+        {
+            "account_id": account_id,
+            "sequence": sequence,
+            "occurred_at": PAPER_TEST_NOW,
+        },
+    )
+
+
+async def _seed_paper_immutable_records(
+    database_url: SecretStr,
+    schema: str,
+    account_id: object,
+) -> None:
+    snapshot_id = uuid4()
+    order_id = uuid4()
+    fill_id = uuid4()
+    engine = _database_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            await connection.execute(
+                text(
+                    "INSERT INTO paper_market_snapshots ("
+                    "id, account_id, price, source, observed_at, fetched_at, payload_hash"
+                    ") VALUES ("
+                    ":id, :account_id, 100, 'binance_usdm_public', :observed_at, "
+                    ":fetched_at, :payload_hash"
+                    ")"
+                ),
+                {
+                    "id": snapshot_id,
+                    "account_id": account_id,
+                    "observed_at": PAPER_TEST_NOW,
+                    "fetched_at": PAPER_TEST_NOW,
+                    "payload_hash": "a" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO paper_orders ("
+                    "id, account_id, snapshot_id, action, source, idempotency_key, "
+                    "submitted_at, requested_quantity, status"
+                    ") VALUES ("
+                    ":id, :account_id, :snapshot_id, 'open_long', 'manual', "
+                    "'manual:immutable', :submitted_at, 1, 'filled'"
+                    ")"
+                ),
+                {
+                    "id": order_id,
+                    "account_id": account_id,
+                    "snapshot_id": snapshot_id,
+                    "submitted_at": PAPER_TEST_NOW,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO paper_fills ("
+                    "id, order_id, account_id, quantity, price, fee, filled_at, status"
+                    ") VALUES ("
+                    ":id, :order_id, :account_id, 1, 100, 0.1, :filled_at, 'filled'"
+                    ")"
+                ),
+                {
+                    "id": fill_id,
+                    "order_id": order_id,
+                    "account_id": account_id,
+                    "filled_at": PAPER_TEST_NOW,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO paper_ledger_entries ("
+                    "account_id, sequence, occurred_at, kind, cash_delta, position_delta, "
+                    "realized_pnl, fee, cash_after, quantity_after"
+                    ") VALUES ("
+                    ":account_id, 0, :occurred_at, 'open_long', -100.1, 1, 0, 0.1, "
+                    "9899.9, 1"
+                    ")"
+                ),
+                {"account_id": account_id, "occurred_at": PAPER_TEST_NOW},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO paper_audit_events ("
+                    "account_id, sequence, kind, occurred_at, idempotency_key, payload"
+                    ") VALUES ("
+                    ":account_id, 2, 'fill', :occurred_at, 'manual:immutable', '{}'::jsonb"
+                    ")"
+                ),
+                {"account_id": account_id, "occurred_at": PAPER_TEST_NOW},
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _assert_paper_immutable_records(database_url: SecretStr, schema: str) -> None:
+    assignments = {
+        "paper_market_snapshots": "price = price",
+        "paper_orders": "status = status",
+        "paper_fills": "fee = fee",
+        "paper_ledger_entries": "cash_after = cash_after",
+        "paper_audit_events": "payload = payload",
+    }
+    for table, assignment in assignments.items():
+        with pytest.raises(DBAPIError, match="immutable"):
+            await _execute_in_schema(
+                database_url,
+                schema,
+                text(f"UPDATE {table} SET {assignment}"),
+                {},
+            )
+        with pytest.raises(DBAPIError, match="immutable"):
+            await _execute_in_schema(
+                database_url,
+                schema,
+                text(f"DELETE FROM {table}"),
+                {},
+            )
+
+
+def _database_engine(database_url: SecretStr):
+    database = import_module("app.shared.database")
+    return database.create_async_engine_from_secret(database_url)
+
+
+async def _execute_in_schema(
+    database_url: SecretStr,
+    schema: str,
+    statement: object,
+    parameters: dict[str, object],
+) -> None:
+    engine = _database_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            await connection.execute(statement, parameters)
     finally:
         await engine.dispose()
