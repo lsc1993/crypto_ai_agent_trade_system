@@ -95,6 +95,11 @@ describe("application shell routes", () => {
         heading: "分析报告",
       },
       {
+        linkName: "模拟盘",
+        path: "/paper-trading",
+        heading: "模拟盘",
+      },
+      {
         linkName: "交易日志",
         path: "/trades",
         heading: "交易日志",

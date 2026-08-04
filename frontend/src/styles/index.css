@@ -917,6 +917,111 @@
   background: var(--surface-raised);
 }
 
+.paper-account-form,
+.paper-detail-section,
+.paper-account-current {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+
+.paper-account-form > p,
+.paper-account-current p,
+.paper-detail-section__description {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.paper-account-form label {
+  display: grid;
+  width: min(100%, 22rem);
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.paper-account-form input {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  color: var(--text);
+  background: var(--surface-raised);
+  font: inherit;
+}
+
+.paper-account-form__error {
+  padding: 0.75rem;
+  border-left: 0.2rem solid var(--danger);
+  color: var(--danger) !important;
+  background: var(--surface-raised);
+}
+
+.paper-account-current {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.paper-account-current h2 {
+  margin: 0.25rem 0 0;
+  font-size: 1.25rem;
+}
+
+.paper-account-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  gap: 0.75rem;
+}
+
+.paper-account-metrics > div {
+  min-width: 0;
+  padding: 0.75rem;
+  border-left: 0.2rem solid var(--accent);
+  background: var(--surface-raised);
+}
+
+.paper-account-metrics dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.paper-account-metrics dd {
+  margin: 0.3rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.paper-action-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.paper-archive-action {
+  width: fit-content;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #804853;
+  border-radius: 0.65rem;
+  color: var(--danger);
+  background: transparent;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.paper-archive-action:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 @media (max-width: 880px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -977,7 +1082,12 @@
   .report-risk-grid,
   .analytics-filters__fields,
   .backtest-form__fields,
-  .backtest-form__assumptions {
+  .backtest-form__assumptions,
+  .paper-account-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .paper-account-current {
     grid-template-columns: 1fr;
   }
 

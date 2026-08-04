@@ -5,6 +5,8 @@ import { BacktestDetailPage } from "../features/backtests/BacktestDetailPage";
 import { BacktestListPage } from "../features/backtests/BacktestListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { MarketPage } from "../features/market/MarketPage";
+import { PaperAccountDetailPage } from "../features/paper-trading/PaperAccountDetailPage";
+import { PaperAccountListPage } from "../features/paper-trading/PaperAccountListPage";
 import { ReportDetailPage } from "../features/reports/ReportDetailPage";
 import { ReportListPage } from "../features/reports/ReportListPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
@@ -43,6 +45,11 @@ export function AppRouter() {
     {
       path: "/backtests/:backtestId",
       element: <BacktestDetailPage />,
+    },
+    { path: "/paper-trading", element: <PaperAccountListPage /> },
+    {
+      path: "/paper-trading/:accountId",
+      element: <PaperAccountDetailPage />,
     },
     { path: "/trades", element: <TradeListPage /> },
     { path: "/trades/new", element: <TradeEditorPage /> },
