@@ -38,8 +38,14 @@ class PaperTradingEngine:
         intent: TradeIntent | None,
         quote: ExecutionQuote,
         latest_closed_candle_at: datetime,
+        no_signal_idempotency_key: str | None = None,
+        no_signal_source: IntentSource | None = None,
     ) -> PaperTransition:
         self._validate_inputs(account, position, intent, quote, latest_closed_candle_at)
+        if (no_signal_idempotency_key is None) != (no_signal_source is None):
+            raise ValueError("无信号审计必须同时包含幂等键和来源")
+        if intent is not None and no_signal_idempotency_key is not None:
+            raise ValueError("已有交易意图时不得附加无信号审计")
         advanced_account = self._advance_account(
             account,
             position=position,
@@ -57,8 +63,11 @@ class PaperTradingEngine:
                 events,
                 kind=PaperEventKind.NO_SIGNAL,
                 occurred_at=quote.observed_at,
-                idempotency_key=None,
-                payload={"symbol": quote.symbol.value},
+                idempotency_key=no_signal_idempotency_key,
+                payload={
+                    "symbol": quote.symbol.value,
+                    "source": None if no_signal_source is None else no_signal_source.value,
+                },
             )
             return PaperTransition(
                 account=advanced_account,
@@ -70,8 +79,8 @@ class PaperTradingEngine:
                 events=tuple(events),
                 outcome=PaperActionOutcome(
                     kind=PaperActionOutcomeKind.NO_SIGNAL,
-                    source=None,
-                    idempotency_key=None,
+                    source=no_signal_source,
+                    idempotency_key=no_signal_idempotency_key,
                 ),
             )
 

@@ -143,7 +143,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
     ) -> PaperActionOutcome | None:
         try:
             async with self._session_factory() as session:
-                event = await _intent_event(session, account_id, idempotency_key)
+                event = await _idempotent_event(session, account_id, idempotency_key)
                 return None if event is None else _outcome_from_event(event)
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户幂等结果读取不可用") from error
@@ -160,7 +160,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         try:
             async with self._session_factory.begin() as session:
                 account, position = await _locked_account_and_position(session, account_id)
-                existing = await _intent_event(session, account_id, idempotency_key)
+                existing = await _idempotent_event(session, account_id, idempotency_key)
                 if existing is not None:
                     return await _detail_from_session(session, account, position)
 
@@ -306,7 +306,7 @@ async def _position_for_account(
     return position
 
 
-async def _intent_event(
+async def _idempotent_event(
     session: AsyncSession,
     account_id: UUID,
     idempotency_key: str,
@@ -314,7 +314,11 @@ async def _intent_event(
     result = await session.execute(
         select(PaperAuditEventRecord)
         .where(PaperAuditEventRecord.account_id == account_id)
-        .where(PaperAuditEventRecord.kind == PaperEventKind.INTENT.value)
+        .where(
+            PaperAuditEventRecord.kind.in_(
+                (PaperEventKind.INTENT.value, PaperEventKind.NO_SIGNAL.value)
+            )
+        )
         .where(PaperAuditEventRecord.idempotency_key == idempotency_key)
     )
     return result.scalar_one_or_none()
@@ -417,7 +421,8 @@ def _validate_transition(
     if not idempotency_key.strip():
         raise ValueError("模拟盘状态转换幂等键不能为空")
     if not any(
-        event.kind is PaperEventKind.INTENT and event.idempotency_key == idempotency_key
+        event.kind in {PaperEventKind.INTENT, PaperEventKind.NO_SIGNAL}
+        and event.idempotency_key == idempotency_key
         for event in transition.events
     ):
         raise ValueError("模拟盘状态转换必须包含匹配的意图审计事件")
@@ -545,7 +550,10 @@ def _event_records(
     records: list[PaperAuditEventRecord] = []
     for offset, event in enumerate(events):
         payload = _json_object(event.payload)
-        if event.kind is PaperEventKind.INTENT and event.idempotency_key == idempotency_key:
+        if (
+            event.kind in {PaperEventKind.INTENT, PaperEventKind.NO_SIGNAL}
+            and event.idempotency_key == idempotency_key
+        ):
             payload["outcome"] = outcome.model_dump(mode="json")
         records.append(
             PaperAuditEventRecord(
@@ -674,7 +682,10 @@ def _latest_action_outcome(
     events: tuple[PaperAuditEventRecord, ...],
 ) -> PaperActionOutcome | None:
     for event in reversed(events):
-        if event.kind != PaperEventKind.INTENT.value:
+        if event.kind not in {
+            PaperEventKind.INTENT.value,
+            PaperEventKind.NO_SIGNAL.value,
+        }:
             continue
         outcome = event.payload.get("outcome")
         if isinstance(outcome, dict):
