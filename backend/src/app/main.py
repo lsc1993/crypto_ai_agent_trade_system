@@ -14,6 +14,9 @@ from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
 from app.infrastructure.persistence.backtest_repository import SqlAlchemyBacktestRepository
+from app.infrastructure.persistence.paper_trading_repository import (
+    SqlAlchemyPaperTradingRepository,
+)
 from app.infrastructure.persistence.report_repository import (
     SqlAlchemyAnalysisReportRepository,
 )
@@ -35,6 +38,14 @@ from app.market.research import (
     PersistedMarketReader,
 )
 from app.market.service import MarketQueryService
+from app.paper_trading.contracts import (
+    PaperAccountCreate,
+    PaperAccountFilters,
+    PaperStorageUnavailableError,
+    PaperTransition,
+)
+from app.paper_trading.repository import PaperTradingRepository
+from app.paper_trading.service import PaperTradingService
 from app.reports.contracts import (
     AnalysisReportCreation,
     AnalysisReportStatus,
@@ -212,6 +223,59 @@ class _UnavailableBacktestRepository(BacktestRepository):
         _raise_backtest_storage_unavailable()
 
 
+class _UnavailablePaperTradingRepository(PaperTradingRepository):
+    async def create_account(
+        self,
+        request: PaperAccountCreate,
+        *,
+        occurred_at: datetime,
+    ) -> NoReturn:
+        del request, occurred_at
+        _raise_paper_storage_unavailable()
+
+    async def list(self, filters: PaperAccountFilters) -> NoReturn:
+        del filters
+        _raise_paper_storage_unavailable()
+
+    async def get_by_id(self, account_id: UUID) -> NoReturn:
+        del account_id
+        _raise_paper_storage_unavailable()
+
+    async def find_outcome(
+        self,
+        account_id: UUID,
+        idempotency_key: str,
+    ) -> NoReturn:
+        del account_id, idempotency_key
+        _raise_paper_storage_unavailable()
+
+    async def apply_transition(
+        self,
+        account_id: UUID,
+        idempotency_key: str,
+        transition: PaperTransition,
+        *,
+        occurred_at: datetime,
+    ) -> NoReturn:
+        del account_id, idempotency_key, transition, occurred_at
+        _raise_paper_storage_unavailable()
+
+    async def record_market_failure(
+        self,
+        account_id: UUID,
+        idempotency_key: str,
+        *,
+        code: str,
+        occurred_at: datetime,
+    ) -> NoReturn:
+        del account_id, idempotency_key, code, occurred_at
+        _raise_paper_storage_unavailable()
+
+    async def archive(self, account_id: UUID, *, occurred_at: datetime) -> NoReturn:
+        del account_id, occurred_at
+        _raise_paper_storage_unavailable()
+
+
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
@@ -220,6 +284,8 @@ def create_app(
     historical_candle_gateway: HistoricalCandleGateway | None = None,
     backtest_repository: BacktestRepository | None = None,
     backtest_clock: Callable[[], datetime] | None = None,
+    paper_repository: PaperTradingRepository | None = None,
+    paper_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -249,6 +315,7 @@ def create_app(
         or analysis_report_repository is None
         or trade_repository is None
         or backtest_repository is None
+        or paper_repository is None
     ):
         if settings.database_url is not None:
             research_engine = create_database_engine(settings.database_url)
@@ -281,6 +348,13 @@ def create_app(
             _UnavailableBacktestRepository()
             if session_factory is None
             else SqlAlchemyBacktestRepository(session_factory)
+        )
+
+    if paper_repository is None:
+        paper_repository = (
+            _UnavailablePaperTradingRepository()
+            if session_factory is None
+            else SqlAlchemyPaperTradingRepository(session_factory)
         )
 
     @asynccontextmanager
@@ -323,6 +397,13 @@ def create_app(
         engine=DeterministicBacktestEngine(),
         clock=backtest_clock or (lambda: datetime.now(UTC)),
     )
+    app.state.paper_trading_repository = paper_repository
+    app.state.paper_trading_service = PaperTradingService(
+        market=market_gateway,
+        history=historical_candle_gateway,
+        repository=paper_repository,
+        clock=paper_clock or (lambda: datetime.now(UTC)),
+    )
     install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,
@@ -363,3 +444,7 @@ def _raise_backtest_history_unavailable() -> NoReturn:
 
 def _raise_backtest_storage_unavailable() -> NoReturn:
     raise BacktestStorageUnavailableError("回测存储不可用")
+
+
+def _raise_paper_storage_unavailable() -> NoReturn:
+    raise PaperStorageUnavailableError("模拟盘存储不可用")

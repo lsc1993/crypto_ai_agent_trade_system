@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.market.contracts import MarketDataUnavailableError
+from app.paper_trading.contracts import (
+    PaperAccountNotFoundError,
+    PaperAccountStateError,
+    PaperStorageUnavailableError,
+)
 from app.research.backtests.contracts import (
     BacktestNotFoundError,
     BacktestStorageUnavailableError,
@@ -165,6 +170,39 @@ async def _backtest_not_found_handler(
     )
 
 
+async def _paper_storage_unavailable_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, PaperStorageUnavailableError):
+        raise TypeError("模拟盘存储异常处理器收到了不支持的异常类型")
+    return _response(
+        503,
+        ErrorEnvelope(code="paper_storage_unavailable", message="模拟盘存储不可用"),
+    )
+
+
+async def _paper_not_found_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, PaperAccountNotFoundError):
+        raise TypeError("模拟盘账户不存在异常处理器收到了不支持的异常类型")
+    return _response(404, ErrorEnvelope(code="not_found", message="模拟账户不存在"))
+
+
+async def _paper_state_error_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, PaperAccountStateError):
+        raise TypeError("模拟盘账户状态异常处理器收到了不支持的异常类型")
+    return _response(
+        409,
+        ErrorEnvelope(code="paper_account_state_invalid", message="模拟账户状态不允许当前操作"),
+    )
+
+
 async def _trade_not_found_handler(
     _request: Request,
     exception: Exception,
@@ -201,6 +239,18 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         BacktestNotFoundError,
         _backtest_not_found_handler,
+    )
+    app.add_exception_handler(
+        PaperStorageUnavailableError,
+        _paper_storage_unavailable_handler,
+    )
+    app.add_exception_handler(
+        PaperAccountNotFoundError,
+        _paper_not_found_handler,
+    )
+    app.add_exception_handler(
+        PaperAccountStateError,
+        _paper_state_error_handler,
     )
     app.add_exception_handler(
         TradeNotFoundError,
