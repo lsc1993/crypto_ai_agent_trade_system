@@ -25,7 +25,7 @@ from app.research.backtests.contracts import (
 )
 from app.risk.contracts import PortfolioSnapshot, RiskDecision
 from app.risk.engine import RiskEngine
-from app.strategy.contracts import IntentAction, TradeIntent
+from app.strategy.contracts import IntentAction, IntentSource, TradeIntent
 from app.strategy.sma_crossover import SmaCrossoverStrategy
 
 _HOUR = timedelta(hours=1)
@@ -327,8 +327,7 @@ class DeterministicBacktestEngine:
             symbol=candle.symbol,
             action=IntentAction.CLOSE_LONG,
             decision_at=candle.close_at,
-            strategy_id="sma_crossover",
-            strategy_version="v1",
+            source=IntentSource.RISK,
             idempotency_key=f"{run_id}:risk-exit:{reason}:{candle.close_at.isoformat()}",
         )
         if intent.idempotency_key in seen_idempotency_keys:

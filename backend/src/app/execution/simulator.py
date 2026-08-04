@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from app.execution.contracts import (
     ExecutionConfig,
+    ExecutionQuote,
     OrderStatus,
     SimulatedFill,
     SimulatedOrder,
@@ -23,10 +24,29 @@ class SimulatedExecutionService:
         if candle.open_price <= Decimal("0"):
             raise ValueError("下一根 K 线开盘价必须为正")
 
+        return self.submit_and_fill_at_quote(
+            order,
+            ExecutionQuote(
+                symbol=candle.symbol,
+                price=candle.open_price,
+                observed_at=candle.open_at,
+                fetched_at=candle.fetched_at,
+                source="historical_candle",
+            ),
+        )
+
+    def submit_and_fill_at_quote(
+        self,
+        order: SimulatedOrder,
+        quote: ExecutionQuote,
+    ) -> SimulatedFill:
+        if quote.symbol is not order.symbol:
+            raise ValueError("订单标的必须与行情报价一致")
+
         signed_slippage = (
             self._config.slippage_rate if order.is_buy else -self._config.slippage_rate
         )
-        price = candle.open_price * (Decimal("1") + signed_slippage)
+        price = quote.price * (Decimal("1") + signed_slippage)
         quantity = order.requested_quantity * self._config.fill_ratio
         fee = quantity * price * self._config.fee_rate
         status = (
@@ -40,7 +60,7 @@ class SimulatedExecutionService:
             action=order.action,
             order_idempotency_key=order.idempotency_key,
             submitted_at=order.submitted_at,
-            filled_at=candle.open_at,
+            filled_at=quote.observed_at,
             requested_quantity=order.requested_quantity,
             quantity=quantity,
             price=price,

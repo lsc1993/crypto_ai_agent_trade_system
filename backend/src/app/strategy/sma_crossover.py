@@ -4,7 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.market.contracts import Candle
-from app.strategy.contracts import IntentAction, TradeIntent
+from app.strategy.contracts import IntentAction, IntentSource, TradeIntent
 
 
 class SmaCrossoverStrategy:
@@ -46,6 +46,7 @@ class SmaCrossoverStrategy:
             symbol=candles[-1].symbol,
             action=action,
             decision_at=decision_at,
+            source=IntentSource.STRATEGY,
             strategy_id="sma_crossover",
             strategy_version="v1",
             idempotency_key=(

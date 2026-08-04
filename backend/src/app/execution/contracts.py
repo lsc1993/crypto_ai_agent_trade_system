@@ -43,6 +43,44 @@ DEFAULT_EXECUTION_CONFIG = ExecutionConfig(
 )
 
 
+class ExecutionQuote(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    symbol: ContractSymbol
+    price: Decimal
+    observed_at: datetime
+    fetched_at: datetime
+    source: str
+
+    @field_validator("price")
+    @classmethod
+    def validate_price(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= Decimal("0"):
+            raise ValueError("行情报价价格必须为正的有限十进制数")
+        return value
+
+    @field_validator("observed_at", "fetched_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("行情报价时间必须是 UTC 且带时区")
+        return value
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("行情报价来源不能为空")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_fetched_at(self) -> ExecutionQuote:
+        if self.fetched_at < self.observed_at:
+            raise ValueError("行情报价获取时间不能早于观察时间")
+        return self
+
+
 class SimulatedOrder(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

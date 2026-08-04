@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from app.execution import contracts as execution_contracts
 from app.execution.contracts import ExecutionConfig, OrderStatus, SimulatedOrder
 from app.execution.simulator import SimulatedExecutionService
 from app.market.contracts import Candle, ContractSymbol, MarketTimeframe
@@ -41,6 +42,42 @@ def test_sell_fill_uses_downward_slippage() -> None:
     assert fill.price == Decimal("99.9500")
     assert fill.quantity == Decimal("2")
     assert fill.status is OrderStatus.FILLED
+
+
+def test_quote_fill_uses_observed_time_and_adverse_slippage() -> None:
+    quote = execution_contracts.ExecutionQuote(
+        symbol=ContractSymbol.BTCUSDT,
+        price=Decimal("100"),
+        observed_at=ORDERED_AT + timedelta(minutes=2),
+        fetched_at=ORDERED_AT + timedelta(minutes=2),
+        source="binance_usdm_public",
+    )
+
+    fill = SimulatedExecutionService(_config()).submit_and_fill_at_quote(
+        _approved_order(IntentAction.OPEN_LONG, quantity="2"),
+        quote,
+    )
+
+    assert fill.price == Decimal("100.0500")
+    assert fill.quantity == Decimal("2")
+    assert fill.fee == Decimal("0.2001000")
+    assert fill.filled_at == quote.observed_at
+
+
+def test_quote_fill_rejects_a_mismatched_symbol() -> None:
+    quote = execution_contracts.ExecutionQuote(
+        symbol=ContractSymbol.ETHUSDT,
+        price=Decimal("100"),
+        observed_at=ORDERED_AT,
+        fetched_at=ORDERED_AT,
+        source="binance_usdm_public",
+    )
+
+    with pytest.raises(ValueError, match="行情报价"):
+        SimulatedExecutionService(_config()).submit_and_fill_at_quote(
+            _approved_order(IntentAction.OPEN_LONG, quantity="1"),
+            quote,
+        )
 
 
 def test_execution_rejects_invalid_config_and_non_positive_order_inputs() -> None:

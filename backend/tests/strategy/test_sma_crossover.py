@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from app.market.contracts import Candle, ContractSymbol, MarketTimeframe
+from app.strategy import contracts as strategy_contracts
 from app.strategy.contracts import IntentAction, TradeIntent
 from app.strategy.sma_crossover import SmaCrossoverStrategy
 
@@ -29,6 +30,7 @@ def test_sma_crossover_emits_open_after_an_observable_upward_cross() -> None:
     assert intent.decision_at == START + timedelta(hours=4)
     assert intent.strategy_id == "sma_crossover"
     assert intent.strategy_version == "v1"
+    assert intent.source is strategy_contracts.IntentSource.STRATEGY
     assert intent.idempotency_key == (
         "00000000-0000-0000-0000-000000000401:sma_crossover:v1:"
         "2026-07-01T04:00:00+00:00:open_long"
@@ -85,6 +87,33 @@ def test_trade_intent_requires_a_utc_decision_time() -> None:
             strategy_id="sma_crossover",
             strategy_version="v1",
             idempotency_key="intent-key",
+        )
+
+
+def test_manual_trade_intent_is_valid_without_strategy_metadata() -> None:
+    intent = TradeIntent(
+        run_id=RUN_ID,
+        symbol=ContractSymbol.BTCUSDT,
+        action=IntentAction.OPEN_LONG,
+        decision_at=START,
+        source=strategy_contracts.IntentSource.MANUAL,
+        idempotency_key="paper:manual:request-1",
+    )
+
+    assert intent.source is strategy_contracts.IntentSource.MANUAL
+    assert intent.strategy_id is None
+    assert intent.strategy_version is None
+
+
+def test_strategy_trade_intent_requires_strategy_metadata() -> None:
+    with pytest.raises(ValueError, match="策略意图"):
+        TradeIntent(
+            run_id=RUN_ID,
+            symbol=ContractSymbol.BTCUSDT,
+            action=IntentAction.OPEN_LONG,
+            decision_at=START,
+            source=strategy_contracts.IntentSource.STRATEGY,
+            idempotency_key="strategy:missing-metadata",
         )
 
 
