@@ -16,6 +16,13 @@ import type {
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type {
+  ManualPaperIntent,
+  PaperAccountCreate,
+  PaperAccountDetail,
+  PaperAccountFilters,
+  PaperAccountSummary,
+} from "../../domain/paper-trading";
+import type {
   AnalysisReport,
   AnalysisReportSummary,
   AnalysisStreamEvent,
@@ -54,6 +61,17 @@ export interface RemoteWorkbenchApi {
     filters: BacktestFilters,
   ): Promise<Page<BacktestRunSummary>>;
   getBacktest(backtestId: string): Promise<BacktestRunDetail>;
+  createPaperAccount(input: PaperAccountCreate): Promise<PaperAccountDetail>;
+  listPaperAccounts(
+    filters: PaperAccountFilters,
+  ): Promise<Page<PaperAccountSummary>>;
+  getPaperAccount(accountId: string): Promise<PaperAccountDetail>;
+  submitPaperManualIntent(
+    accountId: string,
+    input: ManualPaperIntent,
+  ): Promise<PaperAccountDetail>;
+  evaluatePaperStrategy(accountId: string): Promise<PaperAccountDetail>;
+  archivePaperAccount(accountId: string): Promise<PaperAccountDetail>;
 }
 
 export class HybridWorkbenchApi implements WorkbenchApi {
@@ -143,5 +161,34 @@ export class HybridWorkbenchApi implements WorkbenchApi {
 
   getBacktest(backtestId: string): Promise<BacktestRunDetail> {
     return this.remoteApi.getBacktest(backtestId);
+  }
+
+  createPaperAccount(input: PaperAccountCreate): Promise<PaperAccountDetail> {
+    return this.remoteApi.createPaperAccount(input);
+  }
+
+  listPaperAccounts(
+    filters: PaperAccountFilters,
+  ): Promise<Page<PaperAccountSummary>> {
+    return this.remoteApi.listPaperAccounts(filters);
+  }
+
+  getPaperAccount(accountId: string): Promise<PaperAccountDetail> {
+    return this.remoteApi.getPaperAccount(accountId);
+  }
+
+  submitPaperManualIntent(
+    accountId: string,
+    input: ManualPaperIntent,
+  ): Promise<PaperAccountDetail> {
+    return this.remoteApi.submitPaperManualIntent(accountId, input);
+  }
+
+  evaluatePaperStrategy(accountId: string): Promise<PaperAccountDetail> {
+    return this.remoteApi.evaluatePaperStrategy(accountId);
+  }
+
+  archivePaperAccount(accountId: string): Promise<PaperAccountDetail> {
+    return this.remoteApi.archivePaperAccount(accountId);
   }
 }

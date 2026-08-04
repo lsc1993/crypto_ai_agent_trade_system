@@ -55,6 +55,18 @@ describe("Mock mode controls", () => {
       startBacktest: () => Promise.reject(new Error("not called by the shell")),
       listBacktests: () => Promise.reject(new Error("not called by the shell")),
       getBacktest: () => Promise.reject(new Error("not called by the shell")),
+      createPaperAccount: () =>
+        Promise.reject(new Error("not called by the shell")),
+      listPaperAccounts: () =>
+        Promise.reject(new Error("not called by the shell")),
+      getPaperAccount: () =>
+        Promise.reject(new Error("not called by the shell")),
+      submitPaperManualIntent: () =>
+        Promise.reject(new Error("not called by the shell")),
+      evaluatePaperStrategy: () =>
+        Promise.reject(new Error("not called by the shell")),
+      archivePaperAccount: () =>
+        Promise.reject(new Error("not called by the shell")),
     };
     const api = new HybridWorkbenchApi(new MockWorkbenchApi(), marketApi);
 

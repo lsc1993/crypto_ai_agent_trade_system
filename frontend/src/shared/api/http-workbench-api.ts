@@ -24,6 +24,18 @@ import {
   type Symbol,
   type Timeframe,
 } from "../../domain/primitives";
+import {
+  manualPaperIntentSchema,
+  paperAccountCreateSchema,
+  paperAccountDetailSchema,
+  paperAccountFiltersSchema,
+  paperAccountSummarySchema,
+  type ManualPaperIntent,
+  type PaperAccountCreate,
+  type PaperAccountDetail,
+  type PaperAccountFilters,
+  type PaperAccountSummary,
+} from "../../domain/paper-trading";
 import type {
   AnalyticsFilters,
   AnalyticsSnapshot,
@@ -137,6 +149,12 @@ const tradeWireSchema = z
   );
 const tradePageSchema = createWirePageSchema(tradeWireSchema);
 const backtestPageSchema = createWirePageSchema(backtestRunSummarySchema);
+const paperAccountPageSchema = z.object({
+  items: z.array(paperAccountSummarySchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+});
 
 function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
   return Promise.reject(new WorkbenchEndpointUnavailableError(operation));
@@ -356,6 +374,76 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     return this.transport.request(
       `/api/v1/backtests/${encodeURIComponent(parsedBacktestId)}`,
       backtestRunDetailSchema,
+    );
+  }
+
+  createPaperAccount(input: PaperAccountCreate): Promise<PaperAccountDetail> {
+    const payload = paperAccountCreateSchema.parse(input);
+    return this.transport.request(
+      "/api/v1/paper-accounts",
+      paperAccountDetailSchema,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+  }
+
+  listPaperAccounts(
+    filters: PaperAccountFilters,
+  ): Promise<Page<PaperAccountSummary>> {
+    const parsedFilters = paperAccountFiltersSchema.parse(filters);
+    const query = new URLSearchParams({
+      page: String(parsedFilters.page),
+      pageSize: String(parsedFilters.pageSize),
+    });
+    return this.transport.request(
+      `/api/v1/paper-accounts?${query.toString()}`,
+      paperAccountPageSchema,
+    );
+  }
+
+  getPaperAccount(accountId: string): Promise<PaperAccountDetail> {
+    const parsedAccountId = uuidSchema.parse(accountId);
+    return this.transport.request(
+      `/api/v1/paper-accounts/${encodeURIComponent(parsedAccountId)}`,
+      paperAccountDetailSchema,
+    );
+  }
+
+  submitPaperManualIntent(
+    accountId: string,
+    input: ManualPaperIntent,
+  ): Promise<PaperAccountDetail> {
+    const parsedAccountId = uuidSchema.parse(accountId);
+    const payload = manualPaperIntentSchema.parse(input);
+    return this.transport.request(
+      `/api/v1/paper-accounts/${encodeURIComponent(parsedAccountId)}/manual-intents`,
+      paperAccountDetailSchema,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+  }
+
+  evaluatePaperStrategy(accountId: string): Promise<PaperAccountDetail> {
+    const parsedAccountId = uuidSchema.parse(accountId);
+    return this.transport.request(
+      `/api/v1/paper-accounts/${encodeURIComponent(parsedAccountId)}/strategy-evaluations`,
+      paperAccountDetailSchema,
+      { method: "POST" },
+    );
+  }
+
+  archivePaperAccount(accountId: string): Promise<PaperAccountDetail> {
+    const parsedAccountId = uuidSchema.parse(accountId);
+    return this.transport.request(
+      `/api/v1/paper-accounts/${encodeURIComponent(parsedAccountId)}/archive`,
+      paperAccountDetailSchema,
+      { method: "POST" },
     );
   }
 

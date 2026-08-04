@@ -14,6 +14,13 @@ import type {
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type {
+  ManualPaperIntent,
+  PaperAccountCreate,
+  PaperAccountDetail,
+  PaperAccountFilters,
+  PaperAccountSummary,
+} from "../../domain/paper-trading";
+import type {
   AnalysisReport,
   AnalysisReportSummary,
   AnalysisStreamEvent,
@@ -55,4 +62,15 @@ export interface WorkbenchApi {
     filters: BacktestFilters,
   ): Promise<Page<BacktestRunSummary>>;
   getBacktest(backtestId: string): Promise<BacktestRunDetail>;
+  createPaperAccount(input: PaperAccountCreate): Promise<PaperAccountDetail>;
+  listPaperAccounts(
+    filters: PaperAccountFilters,
+  ): Promise<Page<PaperAccountSummary>>;
+  getPaperAccount(accountId: string): Promise<PaperAccountDetail>;
+  submitPaperManualIntent(
+    accountId: string,
+    input: ManualPaperIntent,
+  ): Promise<PaperAccountDetail>;
+  evaluatePaperStrategy(accountId: string): Promise<PaperAccountDetail>;
+  archivePaperAccount(accountId: string): Promise<PaperAccountDetail>;
 }

@@ -7,6 +7,10 @@ import type {
   BacktestRunSummary,
 } from "../../domain/backtest";
 import type { MarketDetail, MarketSummary } from "../../domain/market";
+import type {
+  PaperAccountDetail,
+  PaperAccountSummary,
+} from "../../domain/paper-trading";
 import type { Page, Symbol } from "../../domain/primitives";
 import type {
   AnalysisReport,
@@ -93,6 +97,17 @@ function remoteApi(
     startBacktest: () => unexpected<BacktestRunDetail>("startBacktest")(),
     listBacktests: () => unexpected<Page<BacktestRunSummary>>("listBacktests")(),
     getBacktest: () => unexpected<BacktestRunDetail>("getBacktest")(),
+    createPaperAccount: () =>
+      unexpected<PaperAccountDetail>("createPaperAccount")(),
+    listPaperAccounts: () =>
+      unexpected<Page<PaperAccountSummary>>("listPaperAccounts")(),
+    getPaperAccount: () => unexpected<PaperAccountDetail>("getPaperAccount")(),
+    submitPaperManualIntent: () =>
+      unexpected<PaperAccountDetail>("submitPaperManualIntent")(),
+    evaluatePaperStrategy: () =>
+      unexpected<PaperAccountDetail>("evaluatePaperStrategy")(),
+    archivePaperAccount: () =>
+      unexpected<PaperAccountDetail>("archivePaperAccount")(),
     ...overrides,
   };
 }

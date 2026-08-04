@@ -28,6 +28,13 @@ import {
   type Symbol,
   type Timeframe,
 } from "../../domain/primitives";
+import type {
+  ManualPaperIntent,
+  PaperAccountCreate,
+  PaperAccountDetail,
+  PaperAccountFilters,
+  PaperAccountSummary,
+} from "../../domain/paper-trading";
 import {
   analysisReportSchema,
   analysisReportSummarySchema,
@@ -66,6 +73,7 @@ const marketInputSchema = z.object({
 const reportStartSchema = z.object({ symbol: symbolSchema });
 const analysisResultSchema = z.object({ analysisId: identifierSchema });
 const BACKTEST_REQUIRES_BACKEND_MESSAGE = "策略回测需要连接本地后端";
+const PAPER_TRADING_REQUIRES_BACKEND_MESSAGE = "模拟盘需要本地 API 与数据库";
 
 export class MockWorkbenchNotFoundError extends Error {
   constructor(resource: "report" | "trade", identifier: string) {
@@ -526,6 +534,42 @@ export class MockWorkbenchApi implements WorkbenchApi {
   getBacktest(_backtestId: string): Promise<BacktestRunDetail> {
     void _backtestId;
     return Promise.reject(new Error(BACKTEST_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  createPaperAccount(_input: PaperAccountCreate): Promise<PaperAccountDetail> {
+    void _input;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  listPaperAccounts(
+    _filters: PaperAccountFilters,
+  ): Promise<Page<PaperAccountSummary>> {
+    void _filters;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  getPaperAccount(_accountId: string): Promise<PaperAccountDetail> {
+    void _accountId;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  submitPaperManualIntent(
+    _accountId: string,
+    _input: ManualPaperIntent,
+  ): Promise<PaperAccountDetail> {
+    void _accountId;
+    void _input;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  evaluatePaperStrategy(_accountId: string): Promise<PaperAccountDetail> {
+    void _accountId;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  archivePaperAccount(_accountId: string): Promise<PaperAccountDetail> {
+    void _accountId;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
   }
 
   reset(): void {
