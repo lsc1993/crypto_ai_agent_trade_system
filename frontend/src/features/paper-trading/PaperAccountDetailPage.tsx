@@ -13,6 +13,7 @@ import type {
   PaperAccountDetail,
 } from "../../domain/paper-trading";
 import { formatDecimal } from "../../shared/format";
+import { PaperPerformancePanel } from "./PaperPerformancePanel";
 
 const eventLabels: Record<
   PaperAccountDetail["events"][number]["kind"],
@@ -55,6 +56,9 @@ function PaperAccountDetails({ account }: { account: PaperAccountDetail }) {
     void queryClient.invalidateQueries({ queryKey: ["paper-accounts"] });
     void queryClient.invalidateQueries({
       queryKey: ["paper-account", account.id],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["paper-performance", account.id],
     });
   };
   const openMutation = useMutation({
@@ -140,6 +144,8 @@ function PaperAccountDetails({ account }: { account: PaperAccountDetail }) {
           <div><dt>平均开仓价</dt><dd>{account.position.averageEntryPrice === null ? "无" : `${formatDecimal(account.position.averageEntryPrice)} USDT`}</dd></div>
         </dl>
       </section>
+
+      <PaperPerformancePanel accountId={account.id} />
 
       <section className="paper-detail-section" aria-labelledby="paper-market-snapshot-title">
         <div className="section-heading">

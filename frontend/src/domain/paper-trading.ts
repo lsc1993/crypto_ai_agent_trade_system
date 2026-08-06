@@ -204,3 +204,4 @@ export type PaperAccountFilters = z.input<typeof paperAccountFiltersSchema>;
 export type PaperPerformanceSnapshot = z.infer<
   typeof paperPerformanceSnapshotSchema
 >;
+export type PaperDecisionStats = z.infer<typeof paperDecisionStatsSchema>;

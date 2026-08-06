@@ -8,6 +8,7 @@ import {
   type PaperAccountCreate,
   type PaperAccountDetail,
   type PaperAccountSummary,
+  type PaperPerformanceSnapshot,
 } from "../../domain/paper-trading";
 import type { Page } from "../../domain/primitives";
 import { MockWorkbenchApi } from "../../shared/api/mock-workbench-api";
@@ -63,10 +64,65 @@ function createAccount(
   });
 }
 
+function createPerformance(
+  overrides: Partial<PaperPerformanceSnapshot> = {},
+): PaperPerformanceSnapshot {
+  return {
+    accountId,
+    initialCash: "10000",
+    currentEquity: "10025",
+    netPnl: "25",
+    returnFraction: "0.0025",
+    realizedPnl: "20",
+    unrealizedPnl: "5",
+    totalFee: "1",
+    maxDrawdownAmount: "10",
+    maxDrawdownFraction: "0.001",
+    openFillCount: 1,
+    closeFillCount: 1,
+    profitableCloseCount: 1,
+    unprofitableCloseCount: 0,
+    breakEvenCloseCount: 0,
+    closeWinRate: "1",
+    decisionStats: {
+      manualIntentCount: 1,
+      strategyEvaluationCount: 1,
+      noSignalCount: 0,
+      riskRejectedCount: 0,
+      riskExitCount: 0,
+      orderCount: 2,
+      fillCount: 2,
+    },
+    historyStatus: "complete",
+    historyStartedAt: "2026-08-04T00:00:00Z",
+    historyEndedAt: "2026-08-04T01:00:00Z",
+    equityCurve: [
+      {
+        at: "2026-08-04T00:00:00Z",
+        cash: "10000",
+        positionQuantity: "0",
+        equity: "10000",
+        netPnl: "0",
+      },
+      {
+        at: "2026-08-04T01:00:00Z",
+        cash: "10025",
+        positionQuantity: "0",
+        equity: "10025",
+        netPnl: "25",
+      },
+    ],
+    generatedAt: "2026-08-04T01:00:00Z",
+    ...overrides,
+  };
+}
+
 class PaperAccountsApi extends MockWorkbenchApi {
   readonly createRequests: PaperAccountCreate[] = [];
 
   account = createAccount();
+
+  performance = createPerformance();
 
   override listPaperAccounts(): Promise<Page<PaperAccountSummary>> {
     return Promise.resolve({ items: [], page: 1, pageSize: 20, total: 0 });
@@ -82,6 +138,12 @@ class PaperAccountsApi extends MockWorkbenchApi {
 
   override getPaperAccount(accountIdToRead: string): Promise<PaperAccountDetail> {
     return Promise.resolve({ ...this.account, id: accountIdToRead });
+  }
+
+  override getPaperPerformance(
+    accountIdToRead: string,
+  ): Promise<PaperPerformanceSnapshot> {
+    return Promise.resolve({ ...this.performance, accountId: accountIdToRead });
   }
 }
 
@@ -113,6 +175,12 @@ class ArchivablePaperAccountsApi extends PaperAccountsApi {
       archivedAt: "2026-08-04T00:10:00Z",
     });
     return Promise.resolve(this.account);
+  }
+}
+
+class FailingPaperPerformanceApi extends PaperAccountsApi {
+  override getPaperPerformance(): Promise<PaperPerformanceSnapshot> {
+    return Promise.reject(new Error("performance unavailable"));
   }
 }
 
@@ -194,6 +262,33 @@ describe("paper trading pages", () => {
     expect(
       screen.getByRole("table", { name: "模拟盘审计事件" }),
     ).toHaveTextContent("无信号");
+  });
+
+  it("renders a persisted paper performance report and labels partial history", async () => {
+    const api = new PaperAccountsApi();
+    api.performance = createPerformance({ historyStatus: "partial" });
+    renderPaperAccountDetail(api);
+
+    expect(
+      await screen.findByRole("heading", { name: "模拟盘绩效报告" }),
+    ).toBeVisible();
+    expect(await screen.findByText("净盈亏", { selector: "dt" })).toBeVisible();
+    expect(screen.getByText("仅覆盖迁移基线之后的可用记录。")).toBeVisible();
+    expect(
+      screen.getByRole("table", { name: "权益曲线文本数据" }),
+    ).toHaveTextContent("10,025");
+  });
+
+  it("keeps account details visible when only the performance read fails", async () => {
+    renderPaperAccountDetail(new FailingPaperPerformanceApi());
+
+    expect(
+      await screen.findByRole("alert", {
+        name: "模拟盘绩效读取失败",
+      }),
+    ).toHaveTextContent("无法读取模拟盘绩效，请稍后重试。");
+    expect(screen.getByText("账户与仓位")).toBeVisible();
+    expect(screen.getByText(accountId)).toBeVisible();
   });
 
   it("shows the local API and database requirement in Mock mode", async () => {
