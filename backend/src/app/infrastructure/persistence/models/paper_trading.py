@@ -80,6 +80,36 @@ class PaperMarketSnapshotRecord(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class PaperAccountValuationRecord(Base):
+    __tablename__ = "paper_account_valuations"
+    __table_args__ = (
+        Index(
+            "ix_paper_valuations_account_valued_at",
+            "account_id",
+            "valued_at",
+            "sequence",
+        ),
+    )
+
+    account_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("paper_accounts.id", name="fk_paper_valuations_account"),
+        primary_key=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    snapshot_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("paper_market_snapshots.id", name="fk_paper_valuations_snapshot"),
+        nullable=True,
+    )
+    valued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cash: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    position_quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    equity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    peak_equity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+
+
 class PaperOrderRecord(Base):
     __tablename__ = "paper_orders"
     __table_args__ = (

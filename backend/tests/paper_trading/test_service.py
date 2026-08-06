@@ -25,6 +25,7 @@ from app.paper_trading.contracts import (
     PaperAccountPage,
     PaperAccountStatus,
     PaperActionOutcome,
+    PaperPerformanceData,
     PaperPosition,
     PaperTransition,
 )
@@ -103,6 +104,13 @@ class FakePaperRepository:
 
     async def get_by_id(self, account_id: UUID) -> PaperAccountDetail | None:
         return self.detail if account_id == ACCOUNT_ID else None
+
+    async def get_performance_data(
+        self,
+        account_id: UUID,
+    ) -> PaperPerformanceData | None:
+        del account_id
+        return None
 
     async def find_outcome(
         self,

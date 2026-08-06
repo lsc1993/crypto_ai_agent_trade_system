@@ -241,6 +241,10 @@ class _UnavailablePaperTradingRepository(PaperTradingRepository):
         del account_id
         _raise_paper_storage_unavailable()
 
+    async def get_performance_data(self, account_id: UUID) -> NoReturn:
+        del account_id
+        _raise_paper_storage_unavailable()
+
     async def find_outcome(
         self,
         account_id: UUID,

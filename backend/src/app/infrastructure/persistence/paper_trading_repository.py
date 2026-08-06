@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.execution.contracts import ExecutionConfig, OrderStatus, SimulatedFill, SimulatedOrder
 from app.infrastructure.persistence.models.paper_trading import (
     PaperAccountRecord,
+    PaperAccountValuationRecord,
     PaperAuditEventRecord,
     PaperFillRecord,
     PaperLedgerEntryRecord,
@@ -31,14 +32,17 @@ from app.paper_trading.contracts import (
     PaperAccountStateError,
     PaperAccountStatus,
     PaperAccountSummary,
+    PaperAccountValuation,
     PaperActionOutcome,
     PaperAuditEvent,
     PaperEventKind,
     PaperLedgerEntry,
     PaperMarketSnapshot,
+    PaperPerformanceData,
     PaperPosition,
     PaperStorageUnavailableError,
     PaperTransition,
+    PaperValuationKind,
 )
 from app.paper_trading.repository import PaperTradingRepository
 from app.risk.contracts import DEFAULT_RISK_CONFIG, RiskConfig
@@ -92,6 +96,20 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
             async with self._session_factory.begin() as session:
                 session.add_all((account, position))
                 await session.flush()
+                session.add(
+                    PaperAccountValuationRecord(
+                        account_id=account_id,
+                        sequence=0,
+                        kind=PaperValuationKind.INITIAL.value,
+                        snapshot_id=None,
+                        valued_at=occurred_at,
+                        cash=request.initial_cash,
+                        position_quantity=Decimal("0"),
+                        equity=request.initial_cash,
+                        peak_equity=request.initial_cash,
+                    )
+                )
+                await session.flush()
                 return await _detail_from_session(session, account, position)
         except IntegrityError as error:
             if "uq_paper_accounts_one_active" in str(error):
@@ -136,6 +154,20 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户读取不可用") from error
 
+    async def get_performance_data(
+        self,
+        account_id: UUID,
+    ) -> PaperPerformanceData | None:
+        try:
+            async with self._session_factory() as session:
+                account = await _account_by_id(session, account_id)
+                if account is None:
+                    return None
+                position = await _position_for_account(session, account_id)
+                return await _performance_data_from_session(session, account, position)
+        except SQLAlchemyError as error:
+            raise PaperStorageUnavailableError("模拟账户绩效读取不可用") from error
+
     async def find_outcome(
         self,
         account_id: UUID,
@@ -168,6 +200,18 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
                 _apply_position(position, transition.position)
                 snapshot_id = uuid4()
                 session.add(_snapshot_record(snapshot_id, account_id, transition.snapshot))
+                valuation_sequence = await _next_valuation_sequence(session, account_id)
+                session.add(
+                    _valuation_record(
+                        account_id,
+                        valuation_sequence,
+                        kind=PaperValuationKind.MARKET_VALUATION,
+                        snapshot_id=snapshot_id,
+                        valued_at=transition.snapshot.observed_at,
+                        account=transition.account,
+                        position=transition.position,
+                    )
+                )
                 order_ids = _order_records(
                     account_id,
                     snapshot_id,
@@ -336,6 +380,18 @@ async def _next_ledger_sequence(
     return int(result.scalar_one()) + 1
 
 
+async def _next_valuation_sequence(
+    session: AsyncSession,
+    account_id: UUID,
+) -> int:
+    result = await session.execute(
+        select(func.coalesce(func.max(PaperAccountValuationRecord.sequence), -1)).where(
+            PaperAccountValuationRecord.account_id == account_id
+        )
+    )
+    return int(result.scalar_one()) + 1
+
+
 async def _next_event_sequence(session: AsyncSession, account_id: UUID) -> int:
     result = await session.execute(
         select(func.coalesce(func.max(PaperAuditEventRecord.sequence), -1)).where(
@@ -411,6 +467,59 @@ async def _detail_from_session(
     )
 
 
+async def _performance_data_from_session(
+    session: AsyncSession,
+    account: PaperAccountRecord,
+    position: PaperPositionRecord,
+) -> PaperPerformanceData:
+    valuation_records = tuple(
+        (
+            await session.execute(
+                select(PaperAccountValuationRecord)
+                .where(PaperAccountValuationRecord.account_id == account.id)
+                .order_by(PaperAccountValuationRecord.sequence.asc())
+            )
+        ).scalars()
+    )
+    fill_rows = tuple(
+        (
+            await session.execute(
+                select(PaperFillRecord, PaperOrderRecord)
+                .join(PaperOrderRecord, PaperFillRecord.order_id == PaperOrderRecord.id)
+                .where(PaperFillRecord.account_id == account.id)
+                .order_by(PaperFillRecord.filled_at.asc(), PaperFillRecord.id.asc())
+            )
+        ).tuples()
+    )
+    ledger_records = tuple(
+        (
+            await session.execute(
+                select(PaperLedgerEntryRecord)
+                .where(PaperLedgerEntryRecord.account_id == account.id)
+                .order_by(PaperLedgerEntryRecord.sequence.asc())
+            )
+        ).scalars()
+    )
+    event_records = tuple(
+        (
+            await session.execute(
+                select(PaperAuditEventRecord)
+                .where(PaperAuditEventRecord.account_id == account.id)
+                .order_by(PaperAuditEventRecord.sequence.asc())
+            )
+        ).scalars()
+    )
+    return PaperPerformanceData(
+        account=_to_account(account),
+        position=_to_position(position),
+        valuations=tuple(_to_valuation(record) for record in valuation_records),
+        fills=tuple(_to_fill(fill, order) for fill, order in fill_rows),
+        ledger_entries=tuple(_to_ledger_entry(entry) for entry in ledger_records),
+        events=tuple(_to_event(event) for event in event_records),
+    )
+
+
+
 def _validate_transition(
     account_id: UUID,
     idempotency_key: str,
@@ -464,6 +573,29 @@ def _snapshot_record(
         observed_at=snapshot.observed_at,
         fetched_at=snapshot.fetched_at,
         payload_hash=snapshot.payload_hash,
+    )
+
+
+def _valuation_record(
+    account_id: UUID,
+    sequence: int,
+    *,
+    kind: PaperValuationKind,
+    snapshot_id: UUID | None,
+    valued_at: datetime,
+    account: PaperAccount,
+    position: PaperPosition,
+) -> PaperAccountValuationRecord:
+    return PaperAccountValuationRecord(
+        account_id=account_id,
+        sequence=sequence,
+        kind=kind.value,
+        snapshot_id=snapshot_id,
+        valued_at=valued_at,
+        cash=account.cash,
+        position_quantity=position.quantity,
+        equity=account.equity,
+        peak_equity=account.peak_equity,
     )
 
 
@@ -624,6 +756,20 @@ def _to_snapshot(record: PaperMarketSnapshotRecord) -> PaperMarketSnapshot:
         observed_at=record.observed_at,
         fetched_at=record.fetched_at,
         payload_hash=record.payload_hash,
+    )
+
+
+def _to_valuation(record: PaperAccountValuationRecord) -> PaperAccountValuation:
+    return PaperAccountValuation(
+        account_id=record.account_id,
+        sequence=record.sequence,
+        kind=PaperValuationKind(record.kind),
+        snapshot_id=record.snapshot_id,
+        valued_at=record.valued_at,
+        cash=record.cash,
+        position_quantity=record.position_quantity,
+        equity=record.equity,
+        peak_equity=record.peak_equity,
     )
 
 

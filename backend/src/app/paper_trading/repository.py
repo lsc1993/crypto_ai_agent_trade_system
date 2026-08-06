@@ -10,6 +10,7 @@ from app.paper_trading.contracts import (
     PaperAccountFilters,
     PaperAccountPage,
     PaperActionOutcome,
+    PaperPerformanceData,
     PaperTransition,
 )
 
@@ -25,6 +26,11 @@ class PaperTradingRepository(Protocol):
     async def list(self, filters: PaperAccountFilters) -> PaperAccountPage: ...
 
     async def get_by_id(self, account_id: UUID) -> PaperAccountDetail | None: ...
+
+    async def get_performance_data(
+        self,
+        account_id: UUID,
+    ) -> PaperPerformanceData | None: ...
 
     async def find_outcome(
         self,

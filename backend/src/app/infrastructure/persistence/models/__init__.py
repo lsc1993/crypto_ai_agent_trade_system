@@ -2,6 +2,7 @@
 
 from app.infrastructure.persistence.models.paper_trading import (
     PaperAccountRecord,
+    PaperAccountValuationRecord,
     PaperAuditEventRecord,
     PaperFillRecord,
     PaperLedgerEntryRecord,
@@ -12,6 +13,7 @@ from app.infrastructure.persistence.models.paper_trading import (
 
 __all__ = [
     "PaperAccountRecord",
+    "PaperAccountValuationRecord",
     "PaperAuditEventRecord",
     "PaperFillRecord",
     "PaperLedgerEntryRecord",
