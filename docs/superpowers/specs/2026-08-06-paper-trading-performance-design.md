@@ -1,7 +1,15 @@
 # 单账户模拟盘绩效报告设计
 
 **日期：** 2026-08-06  
-**状态：** 已确认，待实施
+**状态：** 已实施并验证
+
+## 实施与验证记录
+
+- 2026-08-06 已实现单账户模拟盘绩效聚合、不可变估值持久化、只读 API 与账户详情绩效面板。
+- 开发数据库已从 `0006_create_paper_trading` 前向迁移至 `0007_paper_account_valuations (head)`；迁移仅创建估值表并为已有模拟盘追加初始值与迁移基线，未删除或重置账户、订单、成交、账本或审计记录。
+- 后端验证通过：`uv run ruff check .`、`uv run pyright`（0 errors、0 warnings）以及 `uv run pytest`（151 passed）。
+- 前端验证通过：`npm run lint`、`npm run typecheck`、`npm run test -- --run`（31 个测试文件、219 passed）以及 `npm run build`。
+- 安全确认：实现只使用本地 PostgreSQL 和已持久化的公开行情快照；未读取真实账户、未读取或写入凭证、未调用交易所私有接口、未产生真实订单、资金操作或后台定时任务。
 
 ## 目标与范围
 
