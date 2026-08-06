@@ -141,6 +141,49 @@ export const paperActionOutcomeSchema = z.object({
   reason: z.string().nullable(),
 });
 
+export const paperPerformancePointSchema = z.object({
+  at: utcIsoStringSchema,
+  cash: nonNegativeDecimalStringSchema,
+  positionQuantity: nonNegativeDecimalStringSchema,
+  equity: nonNegativeDecimalStringSchema,
+  netPnl: decimalStringSchema,
+});
+
+export const paperDecisionStatsSchema = z.object({
+  manualIntentCount: z.number().int().nonnegative(),
+  strategyEvaluationCount: z.number().int().nonnegative(),
+  noSignalCount: z.number().int().nonnegative(),
+  riskRejectedCount: z.number().int().nonnegative(),
+  riskExitCount: z.number().int().nonnegative(),
+  orderCount: z.number().int().nonnegative(),
+  fillCount: z.number().int().nonnegative(),
+});
+
+export const paperPerformanceSnapshotSchema = z.object({
+  accountId: uuidSchema,
+  initialCash: positiveDecimalStringSchema,
+  currentEquity: nonNegativeDecimalStringSchema,
+  netPnl: decimalStringSchema,
+  returnFraction: decimalStringSchema,
+  realizedPnl: decimalStringSchema,
+  unrealizedPnl: decimalStringSchema,
+  totalFee: nonNegativeDecimalStringSchema,
+  maxDrawdownAmount: nonNegativeDecimalStringSchema,
+  maxDrawdownFraction: nonNegativeDecimalStringSchema,
+  openFillCount: z.number().int().nonnegative(),
+  closeFillCount: z.number().int().nonnegative(),
+  profitableCloseCount: z.number().int().nonnegative(),
+  unprofitableCloseCount: z.number().int().nonnegative(),
+  breakEvenCloseCount: z.number().int().nonnegative(),
+  closeWinRate: nonNegativeDecimalStringSchema,
+  decisionStats: paperDecisionStatsSchema,
+  historyStatus: z.enum(["complete", "partial"]),
+  historyStartedAt: utcIsoStringSchema,
+  historyEndedAt: utcIsoStringSchema,
+  equityCurve: z.array(paperPerformancePointSchema),
+  generatedAt: utcIsoStringSchema,
+});
+
 export const paperAccountDetailSchema = paperAccountBaseSchema.extend({
   position: paperPositionSchema,
   latestSnapshot: paperMarketSnapshotSchema.nullable(),
@@ -158,3 +201,6 @@ export type ManualPaperIntent = z.infer<typeof manualPaperIntentSchema>;
 export type PaperAccountSummary = z.infer<typeof paperAccountSummarySchema>;
 export type PaperAccountDetail = z.infer<typeof paperAccountDetailSchema>;
 export type PaperAccountFilters = z.input<typeof paperAccountFiltersSchema>;
+export type PaperPerformanceSnapshot = z.infer<
+  typeof paperPerformanceSnapshotSchema
+>;

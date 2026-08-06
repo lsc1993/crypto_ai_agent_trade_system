@@ -34,6 +34,7 @@ import type {
   PaperAccountDetail,
   PaperAccountFilters,
   PaperAccountSummary,
+  PaperPerformanceSnapshot,
 } from "../../domain/paper-trading";
 import {
   analysisReportSchema,
@@ -549,6 +550,11 @@ export class MockWorkbenchApi implements WorkbenchApi {
   }
 
   getPaperAccount(_accountId: string): Promise<PaperAccountDetail> {
+    void _accountId;
+    return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
+  }
+
+  getPaperPerformance(_accountId: string): Promise<PaperPerformanceSnapshot> {
     void _accountId;
     return Promise.reject(new Error(PAPER_TRADING_REQUIRES_BACKEND_MESSAGE));
   }

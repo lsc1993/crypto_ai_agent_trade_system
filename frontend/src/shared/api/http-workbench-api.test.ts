@@ -254,6 +254,33 @@ describe("HttpWorkbenchApi deterministic backtests", () => {
   });
 });
 
+describe("HttpWorkbenchApi paper trading performance", () => {
+  it("reads and validates the persisted local performance endpoint", async () => {
+    const fetchImpl: typeof fetch = vi.fn(() =>
+      Promise.resolve(Response.json(paperPerformanceWire)),
+    );
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+
+    await expect(
+      api.getPaperPerformance(paperPerformanceWire.accountId),
+    ).resolves.toMatchObject({
+      currentEquity: "10025",
+      historyStatus: "complete",
+      decisionStats: { fillCount: 2 },
+    });
+
+    const requestUrl = new URL(
+      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
+    );
+    expect(requestUrl.pathname).toBe(
+      `/api/v1/paper-accounts/${paperPerformanceWire.accountId}/performance`,
+    );
+  });
+});
+
 const tradeWire = {
   id: "00000000-0000-4000-8000-000000000333",
   symbol: "BTCUSDT",
@@ -376,4 +403,52 @@ const analyticsWire = {
     },
   ],
   generatedAt: "2026-07-31T14:00:00Z",
+} as const;
+
+const paperPerformanceWire = {
+  accountId: "00000000-0000-4000-8000-000000000801",
+  initialCash: "10000",
+  currentEquity: "10025",
+  netPnl: "25",
+  returnFraction: "0.0025",
+  realizedPnl: "20",
+  unrealizedPnl: "5",
+  totalFee: "1",
+  maxDrawdownAmount: "10",
+  maxDrawdownFraction: "0.001",
+  openFillCount: 1,
+  closeFillCount: 1,
+  profitableCloseCount: 1,
+  unprofitableCloseCount: 0,
+  breakEvenCloseCount: 0,
+  closeWinRate: "1",
+  decisionStats: {
+    manualIntentCount: 1,
+    strategyEvaluationCount: 1,
+    noSignalCount: 0,
+    riskRejectedCount: 0,
+    riskExitCount: 0,
+    orderCount: 2,
+    fillCount: 2,
+  },
+  historyStatus: "complete",
+  historyStartedAt: "2026-08-04T00:00:00Z",
+  historyEndedAt: "2026-08-04T01:00:00Z",
+  equityCurve: [
+    {
+      at: "2026-08-04T00:00:00Z",
+      cash: "10000",
+      positionQuantity: "0",
+      equity: "10000",
+      netPnl: "0",
+    },
+    {
+      at: "2026-08-04T01:00:00Z",
+      cash: "10025",
+      positionQuantity: "0",
+      equity: "10025",
+      netPnl: "25",
+    },
+  ],
+  generatedAt: "2026-08-04T01:00:00Z",
 } as const;

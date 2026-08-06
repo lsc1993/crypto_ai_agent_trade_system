@@ -21,6 +21,7 @@ import type {
   PaperAccountDetail,
   PaperAccountFilters,
   PaperAccountSummary,
+  PaperPerformanceSnapshot,
 } from "../../domain/paper-trading";
 import type {
   AnalysisReport,
@@ -66,6 +67,7 @@ export interface RemoteWorkbenchApi {
     filters: PaperAccountFilters,
   ): Promise<Page<PaperAccountSummary>>;
   getPaperAccount(accountId: string): Promise<PaperAccountDetail>;
+  getPaperPerformance(accountId: string): Promise<PaperPerformanceSnapshot>;
   submitPaperManualIntent(
     accountId: string,
     input: ManualPaperIntent,
@@ -175,6 +177,10 @@ export class HybridWorkbenchApi implements WorkbenchApi {
 
   getPaperAccount(accountId: string): Promise<PaperAccountDetail> {
     return this.remoteApi.getPaperAccount(accountId);
+  }
+
+  getPaperPerformance(accountId: string): Promise<PaperPerformanceSnapshot> {
+    return this.remoteApi.getPaperPerformance(accountId);
   }
 
   submitPaperManualIntent(

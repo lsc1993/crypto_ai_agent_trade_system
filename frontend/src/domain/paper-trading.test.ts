@@ -17,7 +17,71 @@ describe("paper trading domain boundary", () => {
       paperAccountDetailSchema.parse({ ...account, symbol: "ETHUSDT" }),
     ).toThrow();
   });
+
+  it("accepts a persisted performance snapshot and rejects a non-canonical PnL", async () => {
+    const { paperPerformanceSnapshotSchema } = await import("./paper-trading");
+    const snapshot = performanceWire();
+
+    expect(paperPerformanceSnapshotSchema.parse(snapshot)).toMatchObject({
+      accountId: snapshot.accountId,
+      historyStatus: "complete",
+      decisionStats: { fillCount: 2 },
+    });
+    expect(() =>
+      paperPerformanceSnapshotSchema.parse({ ...snapshot, netPnl: 12.5 }),
+    ).toThrow();
+  });
 });
+
+function performanceWire() {
+  return {
+    accountId: "00000000-0000-4000-8000-000000000801",
+    initialCash: "10000",
+    currentEquity: "10025",
+    netPnl: "25",
+    returnFraction: "0.0025",
+    realizedPnl: "20",
+    unrealizedPnl: "5",
+    totalFee: "1",
+    maxDrawdownAmount: "10",
+    maxDrawdownFraction: "0.001",
+    openFillCount: 1,
+    closeFillCount: 1,
+    profitableCloseCount: 1,
+    unprofitableCloseCount: 0,
+    breakEvenCloseCount: 0,
+    closeWinRate: "1",
+    decisionStats: {
+      manualIntentCount: 1,
+      strategyEvaluationCount: 1,
+      noSignalCount: 0,
+      riskRejectedCount: 0,
+      riskExitCount: 0,
+      orderCount: 2,
+      fillCount: 2,
+    },
+    historyStatus: "complete",
+    historyStartedAt: "2026-08-04T00:00:00Z",
+    historyEndedAt: "2026-08-04T01:00:00Z",
+    equityCurve: [
+      {
+        at: "2026-08-04T00:00:00Z",
+        cash: "10000",
+        positionQuantity: "0",
+        equity: "10000",
+        netPnl: "0",
+      },
+      {
+        at: "2026-08-04T01:00:00Z",
+        cash: "10025",
+        positionQuantity: "0",
+        equity: "10025",
+        netPnl: "25",
+      },
+    ],
+    generatedAt: "2026-08-04T01:00:00Z",
+  };
+}
 
 export function accountWire() {
   return {

@@ -19,6 +19,7 @@ import type {
   PaperAccountDetail,
   PaperAccountFilters,
   PaperAccountSummary,
+  PaperPerformanceSnapshot,
 } from "../../domain/paper-trading";
 import type {
   AnalysisReport,
@@ -67,6 +68,7 @@ export interface WorkbenchApi {
     filters: PaperAccountFilters,
   ): Promise<Page<PaperAccountSummary>>;
   getPaperAccount(accountId: string): Promise<PaperAccountDetail>;
+  getPaperPerformance(accountId: string): Promise<PaperPerformanceSnapshot>;
   submitPaperManualIntent(
     accountId: string,
     input: ManualPaperIntent,

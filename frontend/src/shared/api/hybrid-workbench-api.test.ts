@@ -10,6 +10,7 @@ import type { MarketDetail, MarketSummary } from "../../domain/market";
 import type {
   PaperAccountDetail,
   PaperAccountSummary,
+  PaperPerformanceSnapshot,
 } from "../../domain/paper-trading";
 import type { Page, Symbol } from "../../domain/primitives";
 import type {
@@ -102,6 +103,8 @@ function remoteApi(
     listPaperAccounts: () =>
       unexpected<Page<PaperAccountSummary>>("listPaperAccounts")(),
     getPaperAccount: () => unexpected<PaperAccountDetail>("getPaperAccount")(),
+    getPaperPerformance: () =>
+      unexpected<PaperPerformanceSnapshot>("getPaperPerformance")(),
     submitPaperManualIntent: () =>
       unexpected<PaperAccountDetail>("submitPaperManualIntent")(),
     evaluatePaperStrategy: () =>
@@ -298,4 +301,69 @@ describe("HybridWorkbenchApi", () => {
     );
     await expect(api.listBacktests(filters)).rejects.toBe(unavailable);
   });
+
+  it("delegates paper performance reads to the remote API without Mock fallback", async () => {
+    const snapshot = paperPerformanceSnapshot();
+    const getPaperPerformance = vi.fn(() => Promise.resolve(snapshot));
+    const api = new HybridWorkbenchApi(
+      new MockWorkbenchApi(),
+      remoteApi({ getPaperPerformance }),
+    );
+
+    await expect(api.getPaperPerformance(snapshot.accountId)).resolves.toEqual(
+      snapshot,
+    );
+    expect(getPaperPerformance).toHaveBeenCalledWith(snapshot.accountId);
+  });
+
+  it("requires the local API and database for Mock paper performance", async () => {
+    await expect(
+      new MockWorkbenchApi().getPaperPerformance(
+        "00000000-0000-4000-8000-000000000801",
+      ),
+    ).rejects.toThrow("模拟盘需要本地 API 与数据库");
+  });
 });
+
+function paperPerformanceSnapshot(): PaperPerformanceSnapshot {
+  return {
+    accountId: "00000000-0000-4000-8000-000000000801",
+    initialCash: "10000",
+    currentEquity: "10025",
+    netPnl: "25",
+    returnFraction: "0.0025",
+    realizedPnl: "20",
+    unrealizedPnl: "5",
+    totalFee: "1",
+    maxDrawdownAmount: "10",
+    maxDrawdownFraction: "0.001",
+    openFillCount: 1,
+    closeFillCount: 1,
+    profitableCloseCount: 1,
+    unprofitableCloseCount: 0,
+    breakEvenCloseCount: 0,
+    closeWinRate: "1",
+    decisionStats: {
+      manualIntentCount: 1,
+      strategyEvaluationCount: 1,
+      noSignalCount: 0,
+      riskRejectedCount: 0,
+      riskExitCount: 0,
+      orderCount: 2,
+      fillCount: 2,
+    },
+    historyStatus: "complete",
+    historyStartedAt: "2026-08-04T00:00:00Z",
+    historyEndedAt: "2026-08-04T01:00:00Z",
+    equityCurve: [
+      {
+        at: "2026-08-04T00:00:00Z",
+        cash: "10000",
+        positionQuantity: "0",
+        equity: "10000",
+        netPnl: "0",
+      },
+    ],
+    generatedAt: "2026-08-04T01:00:00Z",
+  };
+}

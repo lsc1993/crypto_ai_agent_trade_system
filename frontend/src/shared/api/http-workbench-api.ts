@@ -30,11 +30,13 @@ import {
   paperAccountDetailSchema,
   paperAccountFiltersSchema,
   paperAccountSummarySchema,
+  paperPerformanceSnapshotSchema,
   type ManualPaperIntent,
   type PaperAccountCreate,
   type PaperAccountDetail,
   type PaperAccountFilters,
   type PaperAccountSummary,
+  type PaperPerformanceSnapshot,
 } from "../../domain/paper-trading";
 import type {
   AnalyticsFilters,
@@ -409,6 +411,14 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     return this.transport.request(
       `/api/v1/paper-accounts/${encodeURIComponent(parsedAccountId)}`,
       paperAccountDetailSchema,
+    );
+  }
+
+  getPaperPerformance(accountId: string): Promise<PaperPerformanceSnapshot> {
+    const parsedAccountId = uuidSchema.parse(accountId);
+    return this.transport.request(
+      `/api/v1/paper-accounts/${encodeURIComponent(parsedAccountId)}/performance`,
+      paperPerformanceSnapshotSchema,
     );
   }
 

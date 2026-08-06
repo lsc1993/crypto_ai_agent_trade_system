@@ -61,6 +61,8 @@ describe("Mock mode controls", () => {
         Promise.reject(new Error("not called by the shell")),
       getPaperAccount: () =>
         Promise.reject(new Error("not called by the shell")),
+      getPaperPerformance: () =>
+        Promise.reject(new Error("not called by the shell")),
       submitPaperManualIntent: () =>
         Promise.reject(new Error("not called by the shell")),
       evaluatePaperStrategy: () =>
