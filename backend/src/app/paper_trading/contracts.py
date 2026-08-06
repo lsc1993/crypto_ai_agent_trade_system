@@ -336,6 +336,201 @@ class PaperAccountDetail(_PaperModel):
     action_outcome: PaperActionOutcome | None
 
 
+class PaperValuationKind(StrEnum):
+    INITIAL = "initial"
+    MARKET_VALUATION = "market_valuation"
+    MIGRATION_BASELINE = "migration_baseline"
+
+
+class PaperHistoryStatus(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
+class PaperAccountValuation(_PaperModel):
+    account_id: UUID
+    sequence: int
+    kind: PaperValuationKind
+    snapshot_id: UUID | None
+    valued_at: datetime
+    cash: Decimal
+    position_quantity: Decimal
+    equity: Decimal
+    peak_equity: Decimal
+
+    @field_validator("sequence")
+    @classmethod
+    def validate_sequence(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("模拟账户估值序号不能为负数")
+        return value
+
+    @field_validator("valued_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @field_validator("cash", "position_quantity", "equity", "peak_equity")
+    @classmethod
+    def validate_value(cls, value: Decimal) -> Decimal:
+        return _finite_decimal(value, message="模拟账户估值必须是有限非负十进制数")
+
+    @model_validator(mode="after")
+    def validate_snapshot_and_equity(self) -> PaperAccountValuation:
+        if self.peak_equity < self.equity:
+            raise ValueError("模拟账户估值峰值权益不能低于权益")
+        if self.kind is PaperValuationKind.INITIAL and self.snapshot_id is not None:
+            raise ValueError("初始模拟账户估值不得关联行情快照")
+        if self.kind is PaperValuationKind.MARKET_VALUATION and self.snapshot_id is None:
+            raise ValueError("市场模拟账户估值必须关联行情快照")
+        return self
+
+
+class PaperPerformanceData(_PaperModel):
+    account: PaperAccount
+    position: PaperPosition
+    valuations: tuple[PaperAccountValuation, ...]
+    fills: tuple[SimulatedFill, ...]
+    ledger_entries: tuple[PaperLedgerEntry, ...]
+    events: tuple[PaperAuditEvent, ...]
+
+    @model_validator(mode="after")
+    def validate_account_scope(self) -> PaperPerformanceData:
+        if self.position.account_id != self.account.id:
+            raise ValueError("模拟盘绩效仓位必须属于账户")
+        if any(value.account_id != self.account.id for value in self.valuations):
+            raise ValueError("模拟盘绩效估值必须属于账户")
+        if any(fill.run_id != self.account.id for fill in self.fills):
+            raise ValueError("模拟盘绩效成交必须属于账户")
+        return self
+
+
+class PaperPerformancePoint(_PaperModel):
+    at: datetime
+    cash: Decimal
+    position_quantity: Decimal
+    equity: Decimal
+    net_pnl: Decimal
+
+    @field_validator("at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @field_validator("cash", "position_quantity", "equity")
+    @classmethod
+    def validate_nonnegative_value(cls, value: Decimal) -> Decimal:
+        return _finite_decimal(value, message="模拟盘绩效曲线数值必须是有限非负十进制数")
+
+    @field_validator("net_pnl")
+    @classmethod
+    def validate_net_pnl(cls, value: Decimal) -> Decimal:
+        if not value.is_finite():
+            raise ValueError("模拟盘绩效净盈亏必须是有限十进制数")
+        return value
+
+
+class PaperDecisionStats(_PaperModel):
+    manual_intent_count: int
+    strategy_evaluation_count: int
+    no_signal_count: int
+    risk_rejected_count: int
+    risk_exit_count: int
+    order_count: int
+    fill_count: int
+
+    @field_validator(
+        "manual_intent_count",
+        "strategy_evaluation_count",
+        "no_signal_count",
+        "risk_rejected_count",
+        "risk_exit_count",
+        "order_count",
+        "fill_count",
+    )
+    @classmethod
+    def validate_count(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("模拟盘绩效计数不能为负数")
+        return value
+
+
+class PaperPerformanceSnapshot(_PaperModel):
+    account_id: UUID
+    initial_cash: Decimal
+    current_equity: Decimal
+    net_pnl: Decimal
+    return_fraction: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    total_fee: Decimal
+    max_drawdown_amount: Decimal
+    max_drawdown_fraction: Decimal
+    open_fill_count: int
+    close_fill_count: int
+    profitable_close_count: int
+    unprofitable_close_count: int
+    break_even_close_count: int
+    close_win_rate: Decimal
+    decision_stats: PaperDecisionStats
+    history_status: PaperHistoryStatus
+    history_started_at: datetime
+    history_ended_at: datetime
+    equity_curve: tuple[PaperPerformancePoint, ...]
+    generated_at: datetime
+
+    @field_validator("initial_cash")
+    @classmethod
+    def validate_initial_cash(cls, value: Decimal) -> Decimal:
+        return _finite_decimal(value, message="模拟盘绩效初始资金必须为正", allow_zero=False)
+
+    @field_validator("current_equity", "total_fee", "max_drawdown_amount")
+    @classmethod
+    def validate_nonnegative_value(cls, value: Decimal) -> Decimal:
+        return _finite_decimal(value, message="模拟盘绩效数值必须是有限非负十进制数")
+
+    @field_validator("max_drawdown_fraction", "close_win_rate")
+    @classmethod
+    def validate_fraction(cls, value: Decimal) -> Decimal:
+        value = _finite_decimal(value, message="模拟盘绩效比例必须是有限非负十进制数")
+        if value > Decimal("1"):
+            raise ValueError("模拟盘绩效比例不能超过一")
+        return value
+
+    @field_validator("net_pnl", "return_fraction", "realized_pnl", "unrealized_pnl")
+    @classmethod
+    def validate_signed_value(cls, value: Decimal) -> Decimal:
+        if not value.is_finite():
+            raise ValueError("模拟盘绩效数值必须是有限十进制数")
+        return value
+
+    @field_validator(
+        "open_fill_count",
+        "close_fill_count",
+        "profitable_close_count",
+        "unprofitable_close_count",
+        "break_even_close_count",
+    )
+    @classmethod
+    def validate_count(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("模拟盘绩效计数不能为负数")
+        return value
+
+    @field_validator("history_started_at", "history_ended_at", "generated_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def validate_history(self) -> PaperPerformanceSnapshot:
+        if not self.equity_curve:
+            raise ValueError("模拟盘绩效必须包含至少一个估值点")
+        if self.history_ended_at < self.history_started_at:
+            raise ValueError("模拟盘绩效历史结束时间不能早于开始时间")
+        return self
+
+
 class PaperAccountFilters(_PaperModel):
     page: int = 1
     page_size: int = 20
