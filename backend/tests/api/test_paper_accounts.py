@@ -17,10 +17,15 @@ from app.paper_trading.contracts import (
     PaperAccountCreate,
     PaperAccountDetail,
     PaperAccountFilters,
+    PaperAccountNotFoundError,
     PaperAccountPage,
     PaperAccountStatus,
     PaperActionOutcome,
     PaperActionOutcomeKind,
+    PaperDecisionStats,
+    PaperHistoryStatus,
+    PaperPerformancePoint,
+    PaperPerformanceSnapshot,
     PaperPosition,
 )
 from app.risk.contracts import DEFAULT_RISK_CONFIG
@@ -90,10 +95,67 @@ async def test_paper_account_routes_reject_non_string_cash_and_hide_storage_deta
     assert "postgres" not in unavailable.text.lower()
 
 
+@pytest.mark.asyncio
+async def test_paper_performance_route_returns_a_local_read_only_snapshot() -> None:
+    service = FakePaperTradingService(_detail())
+    app = create_app()
+    app.state.paper_trading_service = service
+
+    response = await _request(
+        app,
+        "GET",
+        f"/api/v1/paper-accounts/{ACCOUNT_ID}/performance",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["netPnl"] == "-500"
+    assert response.json()["historyStatus"] == "complete"
+    assert response.json()["equityCurve"] == [
+        {
+            "at": NOW.isoformat().replace("+00:00", "Z"),
+            "cash": "9500",
+            "positionQuantity": "0",
+            "equity": "9500",
+            "netPnl": "-500",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_paper_performance_route_returns_safe_not_found_and_storage_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing_service = MissingPaperTradingService(_detail())
+    missing_app = create_app()
+    missing_app.state.paper_trading_service = missing_service
+
+    missing = await _request(
+        missing_app,
+        "GET",
+        f"/api/v1/paper-accounts/{ACCOUNT_ID}/performance",
+    )
+
+    monkeypatch.setattr("app.main.AppSettings", lambda: AppSettings(database_url=None))
+    unavailable = await _request(
+        create_app(),
+        "GET",
+        f"/api/v1/paper-accounts/{ACCOUNT_ID}/performance",
+    )
+
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "not_found"
+    assert unavailable.status_code == 503
+    assert unavailable.json()["code"] == "paper_storage_unavailable"
+
+
 class FakePaperTradingService:
     def __init__(self, detail: PaperAccountDetail) -> None:
         self.detail = detail
         self.manual_requests: list[ManualPaperIntent] = []
+
+    async def get_performance(self, account_id: UUID) -> PaperPerformanceSnapshot:
+        assert account_id == ACCOUNT_ID
+        return _performance_snapshot()
 
     async def create_account(self, request: PaperAccountCreate) -> PaperAccountDetail:
         assert request.initial_cash == Decimal("10000")
@@ -127,6 +189,12 @@ class FakePaperTradingService:
     async def archive_account(self, account_id: UUID) -> PaperAccountDetail:
         assert account_id == ACCOUNT_ID
         return self.detail
+
+
+class MissingPaperTradingService(FakePaperTradingService):
+    async def get_performance(self, account_id: UUID) -> PaperPerformanceSnapshot:
+        assert account_id == ACCOUNT_ID
+        raise PaperAccountNotFoundError("未找到模拟账户")
 
 
 async def _request(
@@ -179,4 +247,47 @@ def _detail() -> PaperAccountDetail:
             source=IntentSource.MANUAL,
             idempotency_key="paper:manual:test",
         ),
+    )
+
+
+def _performance_snapshot() -> PaperPerformanceSnapshot:
+    return PaperPerformanceSnapshot(
+        account_id=ACCOUNT_ID,
+        initial_cash=Decimal("10000"),
+        current_equity=Decimal("9500"),
+        net_pnl=Decimal("-500"),
+        return_fraction=Decimal("-0.05"),
+        realized_pnl=Decimal("-500"),
+        unrealized_pnl=Decimal("0"),
+        total_fee=Decimal("5"),
+        max_drawdown_amount=Decimal("500"),
+        max_drawdown_fraction=Decimal("0.05"),
+        open_fill_count=1,
+        close_fill_count=1,
+        profitable_close_count=0,
+        unprofitable_close_count=1,
+        break_even_close_count=0,
+        close_win_rate=Decimal("0"),
+        decision_stats=PaperDecisionStats(
+            manual_intent_count=1,
+            strategy_evaluation_count=0,
+            no_signal_count=0,
+            risk_rejected_count=0,
+            risk_exit_count=0,
+            order_count=2,
+            fill_count=2,
+        ),
+        history_status=PaperHistoryStatus.COMPLETE,
+        history_started_at=NOW,
+        history_ended_at=NOW,
+        equity_curve=(
+            PaperPerformancePoint(
+                at=NOW,
+                cash=Decimal("9500"),
+                position_quantity=Decimal("0"),
+                equity=Decimal("9500"),
+                net_pnl=Decimal("-500"),
+            ),
+        ),
+        generated_at=NOW,
     )

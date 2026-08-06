@@ -22,12 +22,15 @@ from app.paper_trading.contracts import (
     PaperAccountCreate,
     PaperAccountDetail,
     PaperAccountFilters,
+    PaperAccountNotFoundError,
     PaperAccountPage,
     PaperAccountStatus,
+    PaperAccountValuation,
     PaperActionOutcome,
     PaperPerformanceData,
     PaperPosition,
     PaperTransition,
+    PaperValuationKind,
 )
 from app.paper_trading.service import PaperTradingService
 from app.risk.contracts import DEFAULT_RISK_CONFIG
@@ -85,11 +88,48 @@ async def test_strategy_without_cross_persists_no_signal_without_order() -> None
     assert market.history_calls == 1
 
 
+@pytest.mark.asyncio
+async def test_performance_read_uses_only_local_persisted_data() -> None:
+    repository = FakePaperRepository(_detail())
+    repository.performance_data = _performance_data()
+    market = FakePublicMarket(_market_detail(price="100"), _closed_candles())
+    service = PaperTradingService(
+        market=market,
+        history=market,
+        repository=repository,
+        clock=lambda: NOW,
+    )
+
+    snapshot = await service.get_performance(ACCOUNT_ID)
+
+    assert snapshot.account_id == ACCOUNT_ID
+    assert snapshot.current_equity == Decimal("10000")
+    assert snapshot.history_status.value == "complete"
+    assert market.get_market_calls == 0
+    assert market.history_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_performance_read_rejects_unknown_account() -> None:
+    repository = FakePaperRepository(_detail())
+    market = FakePublicMarket(_market_detail(price="100"), _closed_candles())
+    service = PaperTradingService(
+        market=market,
+        history=market,
+        repository=repository,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(PaperAccountNotFoundError, match="未找到"):
+        await service.get_performance(ACCOUNT_ID)
+
+
 class FakePaperRepository:
     def __init__(self, detail: PaperAccountDetail) -> None:
         self.detail = detail
         self.outcomes: dict[str, PaperActionOutcome] = {}
         self.transitions: list[PaperTransition] = []
+        self.performance_data: PaperPerformanceData | None = None
 
     async def create_account(
         self,
@@ -110,7 +150,7 @@ class FakePaperRepository:
         account_id: UUID,
     ) -> PaperPerformanceData | None:
         del account_id
-        return None
+        return self.performance_data
 
     async def find_outcome(
         self,
@@ -228,6 +268,30 @@ def _detail() -> PaperAccountDetail:
         ledger_entries=(),
         events=(),
         action_outcome=None,
+    )
+
+
+def _performance_data() -> PaperPerformanceData:
+    detail = _detail()
+    return PaperPerformanceData(
+        account=detail.account,
+        position=detail.position,
+        valuations=(
+            PaperAccountValuation(
+                account_id=ACCOUNT_ID,
+                sequence=0,
+                kind=PaperValuationKind.INITIAL,
+                snapshot_id=None,
+                valued_at=NOW,
+                cash=Decimal("10000"),
+                position_quantity=Decimal("0"),
+                equity=Decimal("10000"),
+                peak_equity=Decimal("10000"),
+            ),
+        ),
+        fills=(),
+        ledger_entries=(),
+        events=(),
     )
 
 

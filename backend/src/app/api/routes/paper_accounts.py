@@ -20,9 +20,13 @@ from app.paper_trading.contracts import (
     PaperAccountSummary,
     PaperActionOutcome,
     PaperAuditEvent,
+    PaperDecisionStats,
     PaperEventKind,
+    PaperHistoryStatus,
     PaperLedgerEntry,
     PaperMarketSnapshot,
+    PaperPerformancePoint,
+    PaperPerformanceSnapshot,
     PaperPosition,
 )
 from app.paper_trading.service import PaperTradingService
@@ -148,6 +152,49 @@ class PaperActionOutcomeResponse(_ApiModel):
     reason: str | None
 
 
+class PaperPerformancePointResponse(_ApiModel):
+    at: UtcDateTime
+    cash: DecimalValue
+    position_quantity: DecimalValue
+    equity: DecimalValue
+    net_pnl: DecimalValue
+
+
+class PaperDecisionStatsResponse(_ApiModel):
+    manual_intent_count: int
+    strategy_evaluation_count: int
+    no_signal_count: int
+    risk_rejected_count: int
+    risk_exit_count: int
+    order_count: int
+    fill_count: int
+
+
+class PaperPerformanceResponse(_ApiModel):
+    account_id: UUID
+    initial_cash: DecimalValue
+    current_equity: DecimalValue
+    net_pnl: DecimalValue
+    return_fraction: DecimalValue
+    realized_pnl: DecimalValue
+    unrealized_pnl: DecimalValue
+    total_fee: DecimalValue
+    max_drawdown_amount: DecimalValue
+    max_drawdown_fraction: DecimalValue
+    open_fill_count: int
+    close_fill_count: int
+    profitable_close_count: int
+    unprofitable_close_count: int
+    break_even_close_count: int
+    close_win_rate: DecimalValue
+    decision_stats: PaperDecisionStatsResponse
+    history_status: PaperHistoryStatus
+    history_started_at: UtcDateTime
+    history_ended_at: UtcDateTime
+    equity_curve: tuple[PaperPerformancePointResponse, ...]
+    generated_at: UtcDateTime
+
+
 class PaperAccountDetailResponse(PaperAccountResponse):
     position: PaperPositionResponse
     latest_snapshot: PaperMarketSnapshotResponse | None
@@ -197,6 +244,14 @@ async def list_paper_accounts(
     return _to_page_response(
         await service.list_accounts(PaperAccountFilters(page=page, page_size=page_size))
     )
+
+
+@router.get("/{account_id}/performance", response_model=PaperPerformanceResponse)
+async def get_paper_performance(
+    account_id: UUID,
+    service: Annotated[PaperTradingService, Depends(get_paper_trading_service)],
+) -> PaperPerformanceResponse:
+    return _to_performance_response(await service.get_performance(account_id))
 
 
 @router.get("/{account_id}", response_model=PaperAccountDetailResponse)
@@ -394,3 +449,46 @@ def _to_outcome_response(outcome: PaperActionOutcome) -> PaperActionOutcomeRespo
         idempotency_key=outcome.idempotency_key,
         reason=outcome.reason,
     )
+
+
+def _to_performance_response(
+    snapshot: PaperPerformanceSnapshot,
+) -> PaperPerformanceResponse:
+    return PaperPerformanceResponse(
+        account_id=snapshot.account_id,
+        initial_cash=snapshot.initial_cash,
+        current_equity=snapshot.current_equity,
+        net_pnl=snapshot.net_pnl,
+        return_fraction=snapshot.return_fraction,
+        realized_pnl=snapshot.realized_pnl,
+        unrealized_pnl=snapshot.unrealized_pnl,
+        total_fee=snapshot.total_fee,
+        max_drawdown_amount=snapshot.max_drawdown_amount,
+        max_drawdown_fraction=snapshot.max_drawdown_fraction,
+        open_fill_count=snapshot.open_fill_count,
+        close_fill_count=snapshot.close_fill_count,
+        profitable_close_count=snapshot.profitable_close_count,
+        unprofitable_close_count=snapshot.unprofitable_close_count,
+        break_even_close_count=snapshot.break_even_close_count,
+        close_win_rate=snapshot.close_win_rate,
+        decision_stats=_to_decision_stats_response(snapshot.decision_stats),
+        history_status=snapshot.history_status,
+        history_started_at=snapshot.history_started_at,
+        history_ended_at=snapshot.history_ended_at,
+        equity_curve=tuple(
+            _to_performance_point_response(point) for point in snapshot.equity_curve
+        ),
+        generated_at=snapshot.generated_at,
+    )
+
+
+def _to_decision_stats_response(
+    stats: PaperDecisionStats,
+) -> PaperDecisionStatsResponse:
+    return PaperDecisionStatsResponse(**stats.model_dump())
+
+
+def _to_performance_point_response(
+    point: PaperPerformancePoint,
+) -> PaperPerformancePointResponse:
+    return PaperPerformancePointResponse(**point.model_dump())

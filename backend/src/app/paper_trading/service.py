@@ -21,8 +21,10 @@ from app.paper_trading.contracts import (
     PaperAccountFilters,
     PaperAccountNotFoundError,
     PaperAccountPage,
+    PaperPerformanceSnapshot,
 )
 from app.paper_trading.engine import PaperTradingEngine
+from app.paper_trading.performance import aggregate_paper_performance
 from app.paper_trading.repository import PaperTradingRepository
 from app.strategy.contracts import IntentSource, TradeIntent
 from app.strategy.sma_crossover import SmaCrossoverStrategy
@@ -60,6 +62,12 @@ class PaperTradingService:
 
     async def get_account(self, account_id: UUID) -> PaperAccountDetail:
         return await self._require_account(account_id)
+
+    async def get_performance(self, account_id: UUID) -> PaperPerformanceSnapshot:
+        data = await self._repository.get_performance_data(account_id)
+        if data is None:
+            raise PaperAccountNotFoundError("未找到模拟账户")
+        return aggregate_paper_performance(data, generated_at=self._now())
 
     async def submit_manual_intent(
         self,
