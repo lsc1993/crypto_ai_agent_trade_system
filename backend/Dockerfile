@@ -6,6 +6,7 @@ COPY --from=uv /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_NO_SYNC=1 \
     PYTHONPATH=/app/src
 
 WORKDIR /app

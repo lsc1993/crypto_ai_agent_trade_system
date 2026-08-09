@@ -114,6 +114,7 @@ def test_container_images_run_without_root_users() -> None:
     frontend_dockerfile = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     assert "USER app" in backend_dockerfile
+    assert "UV_NO_SYNC=1" in backend_dockerfile
     assert "nginxinc/nginx-unprivileged" in frontend_dockerfile
 
 
