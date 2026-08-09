@@ -115,3 +115,28 @@ def test_container_images_run_without_root_users() -> None:
 
     assert "USER app" in backend_dockerfile
     assert "nginxinc/nginx-unprivileged" in frontend_dockerfile
+
+
+def test_compose_exposes_only_local_web_ports(tmp_path: Path) -> None:
+    configuration = load_compose_configuration(tmp_path)
+    services = cast(dict[str, dict[str, object]], configuration["services"])
+    api = services["api"]
+    frontend = services["frontend"]
+
+    api_ports = cast(list[dict[str, object]], api["ports"])
+    frontend_ports = cast(list[dict[str, object]], frontend["ports"])
+    api_port = api_ports[0]
+    frontend_port = frontend_ports[0]
+    assert api_port["target"] == 8000
+    assert str(api_port["published"]) == "8000"
+    assert frontend_port["target"] == 8080
+    assert str(frontend_port["published"]) == "8080"
+    api_environment = cast(dict[str, str], api["environment"])
+    assert api_environment["APP_ENV"] == "production"
+    assert api_environment["CORS_ALLOWED_ORIGINS"] == '["http://localhost:8080"]'
+
+
+def test_dockerignore_excludes_local_configuration_and_generated_state() -> None:
+    for path in (ROOT / "backend" / ".dockerignore", ROOT / "frontend" / ".dockerignore"):
+        patterns = set(path.read_text(encoding="utf-8").splitlines())
+        assert {".env", ".venv", "node_modules", ".git", "dist", "test-results"} <= patterns
