@@ -2,10 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createWorkbenchApi } from "./create-api";
-import {
-  HttpWorkbenchApi,
-  WorkbenchEndpointUnavailableError,
-} from "./http-workbench-api";
+import { HttpWorkbenchApi } from "./http-workbench-api";
 import { HybridWorkbenchApi } from "./hybrid-workbench-api";
 import {
   createWirePageSchema,
@@ -13,7 +10,7 @@ import {
 } from "./http-transport";
 import { MockWorkbenchApi } from "./mock-workbench-api";
 import { WorkbenchConfigurationError } from "../config/env";
-import { mockTradeDraft } from "../mocks/fixtures";
+import { mockDashboard, mockTradeDraft } from "../mocks/fixtures";
 
 describe("createWorkbenchApi", () => {
   afterEach(() => {
@@ -266,18 +263,16 @@ describe("HttpTransport", () => {
 });
 
 describe("HttpWorkbenchApi", () => {
-  it("signals that business endpoints are unavailable until routes exist", async () => {
+  it("loads the dashboard from the API", async () => {
     const fetchImpl: typeof fetch = vi.fn(() =>
-      Promise.reject(new Error("fetch must not be called")),
+      Promise.resolve(Response.json(mockDashboard)),
     );
     const api = new HttpWorkbenchApi({
       baseUrl: "http://localhost:8000",
       fetchImpl,
     });
 
-    await expect(api.getDashboard()).rejects.toBeInstanceOf(
-      WorkbenchEndpointUnavailableError,
-    );
-    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(api.getDashboard()).resolves.toEqual(mockDashboard);
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });
