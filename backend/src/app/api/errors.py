@@ -15,6 +15,7 @@ from app.paper_trading.contracts import (
     PaperAccountStateError,
     PaperStorageUnavailableError,
 )
+from app.reports.contracts import ReportStorageUnavailableError
 from app.research.backtests.contracts import (
     BacktestNotFoundError,
     BacktestStorageUnavailableError,
@@ -143,6 +144,21 @@ async def _trade_storage_unavailable_handler(
     )
 
 
+async def _report_storage_unavailable_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, ReportStorageUnavailableError):
+        raise TypeError("报告存储异常处理器收到了不支持的异常类型")
+    return _response(
+        503,
+        ErrorEnvelope(
+            code="report_storage_unavailable",
+            message="研究报告存储暂不可用",
+        ),
+    )
+
+
 async def _backtest_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -227,6 +243,10 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         MarketDataUnavailableError,
         _market_data_unavailable_handler,
+    )
+    app.add_exception_handler(
+        ReportStorageUnavailableError,
+        _report_storage_unavailable_handler,
     )
     app.add_exception_handler(
         TradeStorageUnavailableError,

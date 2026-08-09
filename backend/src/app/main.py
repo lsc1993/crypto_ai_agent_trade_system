@@ -13,6 +13,7 @@ from app.api.errors import install_exception_handlers
 from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
+from app.dashboard.service import DashboardService
 from app.infrastructure.persistence.backtest_repository import SqlAlchemyBacktestRepository
 from app.infrastructure.persistence.paper_trading_repository import (
     SqlAlchemyPaperTradingRepository,
@@ -290,6 +291,7 @@ def create_app(
     backtest_clock: Callable[[], datetime] | None = None,
     paper_repository: PaperTradingRepository | None = None,
     paper_clock: Callable[[], datetime] | None = None,
+    dashboard_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -375,6 +377,11 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.market_service = MarketQueryService(market_gateway)
+    app.state.dashboard_service = DashboardService(
+        app.state.market_service,
+        analysis_report_repository,
+        clock=dashboard_clock or (lambda: datetime.now(UTC)),
+    )
     app.state.market_research_service = MarketResearchQueryService(
         market_research_reader,
         clock=lambda: datetime.now(UTC),
