@@ -10,6 +10,14 @@ from typing import cast
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
+BACKGROUND_PROCESS_TOKENS = (
+    "market-worker",
+    "celery",
+    "beat",
+    "scheduler",
+    "worker",
+    "queue",
+)
 
 
 def load_compose_configuration(tmp_path: Path) -> dict[str, object]:
@@ -74,7 +82,7 @@ def test_compose_declares_only_safe_local_services(tmp_path: Path) -> None:
     ).lower()
     assert all(
         token not in api_runtime
-        for token in ("market-worker", "celery", "beat", "scheduler", "worker", "queue")
+        for token in BACKGROUND_PROCESS_TOKENS
     )
     frontend_build = cast(dict[str, dict[str, str]], frontend["build"])
     assert frontend_build["args"] == {
@@ -93,6 +101,7 @@ def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
         token not in entrypoint.lower()
         for token in ("alembic downgrade", "drop", "truncate", "reset")
     )
+    assert all(token not in entrypoint.lower() for token in BACKGROUND_PROCESS_TOKENS)
     assert "proxy_pass http://api:8000" in nginx
     assert all(
         host not in nginx.lower()
