@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import cast
+from urllib.parse import quote, urlsplit
 
 import pytest
 
@@ -18,6 +20,33 @@ BACKGROUND_PROCESS_TOKENS = (
     "worker",
     "queue",
 )
+CHILD_ENVIRONMENT_NAMES = (
+    "APPDATA",
+    "DOCKER_CERT_PATH",
+    "DOCKER_CONFIG",
+    "DOCKER_CONTEXT",
+    "DOCKER_HOST",
+    "DOCKER_TLS_VERIFY",
+    "HOME",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "WINDIR",
+)
+
+
+def compose_child_environment() -> dict[str, str]:
+    environment = {
+        name: os.environ[name]
+        for name in CHILD_ENVIRONMENT_NAMES
+        if name in os.environ
+    }
+    environment["COMPOSE_PROJECT_NAME"] = "crypto_compose_test"
+    return environment
 
 
 def load_compose_configuration(tmp_path: Path) -> dict[str, object]:
@@ -42,7 +71,7 @@ def load_compose_configuration(tmp_path: Path) -> dict[str, object]:
     result = subprocess.run(
         [docker, "compose", "--env-file", str(env_file), "config", "--format", "json"],
         cwd=ROOT,
-        env={**os.environ, "COMPOSE_PROJECT_NAME": "crypto_compose_test"},
+        env=compose_child_environment(),
         capture_output=True,
         check=False,
         text=True,
@@ -102,7 +131,10 @@ def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
         for token in ("alembic downgrade", "drop", "truncate", "reset")
     )
     assert all(token not in entrypoint.lower() for token in BACKGROUND_PROCESS_TOKENS)
-    assert "proxy_pass http://api:8000" in nginx
+    proxy_targets = re.findall(r"(?m)^\s*proxy_pass\s+([^;]+);", nginx)
+    assert proxy_targets == ["http://api:8000", "http://api:8000"]
+    assert "location /api/ {" in nginx
+    assert "location = /healthz {" in nginx
     assert all(
         host not in nginx.lower()
         for host in ("binance", "openai", "api.binance", "api.openai")
@@ -126,15 +158,78 @@ def test_compose_exposes_only_local_web_ports(tmp_path: Path) -> None:
 
     api_ports = cast(list[dict[str, object]], api["ports"])
     frontend_ports = cast(list[dict[str, object]], frontend["ports"])
+    assert len(api_ports) == 1
+    assert len(frontend_ports) == 1
     api_port = api_ports[0]
     frontend_port = frontend_ports[0]
+    assert api_port["host_ip"] == "127.0.0.1"
     assert api_port["target"] == 8000
     assert str(api_port["published"]) == "8000"
+    assert frontend_port["host_ip"] == "127.0.0.1"
     assert frontend_port["target"] == 8080
     assert str(frontend_port["published"]) == "8080"
     api_environment = cast(dict[str, str], api["environment"])
     assert api_environment["APP_ENV"] == "production"
     assert api_environment["CORS_ALLOWED_ORIGINS"] == '["http://localhost:8080"]'
+
+
+def test_compose_configuration_ignores_host_project_and_application_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    poisoned_values = {
+        "POSTGRES_DB": "host_database",
+        "POSTGRES_USER": "host_user",
+        "POSTGRES_PASSWORD": "host_password",
+        "DATABASE_URL": "postgresql+asyncpg://host:host@outside:5432/host",
+        "APP_ENV": "host-environment",
+        "LOG_LEVEL": "DEBUG",
+        "CORS_ALLOWED_ORIGINS": '["https://outside.invalid"]',
+        "COMPOSE_FILE": str(tmp_path / "untrusted-compose.yaml"),
+        "COMPOSE_PROJECT_NAME": "host_project",
+        "COMPOSE_PROFILES": "host_profile",
+    }
+    for name, value in poisoned_values.items():
+        monkeypatch.setenv(name, value)
+
+    configuration = load_compose_configuration(tmp_path)
+    services = cast(dict[str, dict[str, object]], configuration["services"])
+    postgres_environment = cast(dict[str, str], services["postgres"]["environment"])
+    api_environment = cast(dict[str, str], services["api"]["environment"])
+
+    assert configuration["name"] == "crypto_compose_test"
+    assert postgres_environment["POSTGRES_DB"] == "crypto_research"
+    assert postgres_environment["POSTGRES_USER"] == "crypto_research"
+    assert postgres_environment["POSTGRES_PASSWORD"] == "compose-test-password"
+    assert api_environment["DATABASE_URL"] == (
+        "postgresql+asyncpg://crypto_research:compose-test-password"
+        "@postgres:5432/crypto_research"
+    )
+    assert api_environment["APP_ENV"] == "production"
+    assert api_environment["LOG_LEVEL"] == "INFO"
+    assert api_environment["CORS_ALLOWED_ORIGINS"] == '["http://localhost:8080"]'
+
+
+def test_environment_template_has_unique_synchronized_compose_values() -> None:
+    template = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assignments: list[tuple[str, str]] = []
+    for line in template.splitlines():
+        if line and not line.startswith("#") and "=" in line:
+            name, value = line.split("=", maxsplit=1)
+            assignments.append((name, value))
+    names = [name for name, _ in assignments]
+    values = dict(assignments)
+
+    assert len(names) == len(set(names))
+    assert "# Non-Compose development options" in template
+    assert "# Compose local deployment" in template
+
+    database_url = urlsplit(values["DATABASE_URL"])
+    password = values["POSTGRES_PASSWORD"]
+    assert quote(password, safe="") == password
+    assert database_url.username == values["POSTGRES_USER"]
+    assert database_url.password == password
+    assert database_url.hostname == "postgres"
+    assert database_url.path == f"/{values['POSTGRES_DB']}"
 
 
 def test_dockerignore_excludes_local_configuration_and_generated_state() -> None:
