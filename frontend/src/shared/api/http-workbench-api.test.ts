@@ -43,7 +43,58 @@ const liveDetail: MarketDetail = {
   news: [],
 };
 
+const dashboardWire = {
+  markets: [
+    liveSummary,
+    {
+      symbol: "ETHUSDT",
+      price: "3500.10",
+      change24h: "-0.75",
+      volume24h: "98765.4321",
+      fundingRate: "-0.00005000",
+      openInterest: "876.5432",
+      freshness: {
+        status: "fresh",
+        source: "binance_usdm_public_rest",
+        observedAt: "2026-07-28T12:00:00Z",
+        fetchedAt: "2026-07-28T12:00:00Z",
+      },
+    },
+  ],
+  news: [],
+  recentReports: [
+    {
+      id: "00000000-0000-4000-8000-000000000401",
+      analysisId: "00000000-0000-4000-8000-000000000402",
+      symbol: "BTCUSDT",
+      status: "completed",
+      title: "BTC market analysis",
+      summary: "Market conditions are stable.",
+      createdAt: "2026-07-28T12:00:00Z",
+      dataCutoffAt: "2026-07-28T11:55:00Z",
+    },
+  ],
+  generatedAt: "2026-07-28T12:00:00Z",
+} as const;
+
 describe("HttpWorkbenchApi market reads", () => {
+  it("loads the schema-validated dashboard snapshot from the API", async () => {
+    const fetchImpl: typeof fetch = vi.fn(() =>
+      Promise.resolve(Response.json(dashboardWire)),
+    );
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+
+    await expect(api.getDashboard()).resolves.toEqual(dashboardWire);
+
+    const requestUrl = new URL(
+      (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
+    );
+    expect(requestUrl.pathname).toBe("/api/v1/dashboard");
+  });
+
   it("maps the bounded summary endpoint to the existing market contract", async () => {
     const fetchImpl: typeof fetch = vi.fn(() =>
       Promise.resolve(Response.json({ items: [liveSummary] })),

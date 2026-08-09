@@ -51,7 +51,11 @@ import type {
   MarketDetail,
   MarketSummary,
 } from "../../domain/market";
-import { marketDetailSchema, marketSummarySchema } from "../../domain/market";
+import {
+  dashboardSnapshotSchema,
+  marketDetailSchema,
+  marketSummarySchema,
+} from "../../domain/market";
 import type {
   Trade,
   TradeDraft,
@@ -158,10 +162,6 @@ const paperAccountPageSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 
-function unavailable<T>(operation: keyof WorkbenchApi): Promise<T> {
-  return Promise.reject(new WorkbenchEndpointUnavailableError(operation));
-}
-
 export class HttpWorkbenchApi implements WorkbenchApi {
   private readonly transport: HttpTransport;
   private readonly marketApiPrefix: string;
@@ -189,7 +189,7 @@ export class HttpWorkbenchApi implements WorkbenchApi {
   }
 
   getDashboard(): Promise<DashboardSnapshot> {
-    return unavailable("getDashboard");
+    return this.transport.request("/api/v1/dashboard", dashboardSnapshotSchema);
   }
 
   getMarket(input: {
