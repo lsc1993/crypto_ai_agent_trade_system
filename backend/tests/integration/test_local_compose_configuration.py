@@ -141,3 +141,20 @@ def test_dockerignore_excludes_local_configuration_and_generated_state() -> None
     for path in (ROOT / "backend" / ".dockerignore", ROOT / "frontend" / ".dockerignore"):
         patterns = set(path.read_text(encoding="utf-8").splitlines())
         assert {".env", ".venv", "node_modules", ".git", "dist", "test-results"} <= patterns
+
+
+def test_local_deployment_documentation_preserves_safe_operations() -> None:
+    documents = "\n".join(
+        (ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "docs/local-deployment.md",
+            "docs/operational-boundaries.md",
+        )
+    )
+
+    assert "docker compose up -d --build" in documents
+    assert "docker compose down" in documents
+    assert "真实下单" in documents
+    assert "不支持" in documents
+    assert "docker compose down -v" not in documents
