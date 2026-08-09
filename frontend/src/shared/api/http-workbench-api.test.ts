@@ -4,6 +4,7 @@ import { backtestRequestSchema } from "../../domain/backtest";
 import type { MarketDetail, MarketSummary } from "../../domain/market";
 import { tradeDraftSchema } from "../../domain/trade";
 import { HttpWorkbenchApi } from "./http-workbench-api";
+import { WorkbenchResponseError } from "./http-transport";
 
 const liveSummary: MarketSummary = {
   symbol: "BTCUSDT",
@@ -93,6 +94,25 @@ describe("HttpWorkbenchApi market reads", () => {
       (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
     );
     expect(requestUrl.pathname).toBe("/api/v1/dashboard");
+  });
+
+  it("rejects a dashboard response that does not match the contract", async () => {
+    const malformedDashboardWire: Omit<typeof dashboardWire, "generatedAt"> = {
+      markets: dashboardWire.markets,
+      news: dashboardWire.news,
+      recentReports: dashboardWire.recentReports,
+    };
+    const fetchImpl: typeof fetch = vi.fn(() =>
+      Promise.resolve(Response.json(malformedDashboardWire)),
+    );
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+
+    await expect(api.getDashboard()).rejects.toBeInstanceOf(
+      WorkbenchResponseError,
+    );
   });
 
   it("maps the bounded summary endpoint to the existing market contract", async () => {
