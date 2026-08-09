@@ -65,9 +65,16 @@ def test_compose_declares_only_safe_local_services(tmp_path: Path) -> None:
 
     api_environment = cast(dict[str, str], api["environment"])
     assert all(
-        forbidden not in name
+        forbidden not in name.upper()
         for name in api_environment
         for forbidden in ("OPENAI", "BINANCE", "SECRET", "PASSPHRASE", "PRIVATE_KEY")
+    )
+    api_runtime = "\n".join(
+        str(api.get(field, "")) for field in ("entrypoint", "command")
+    ).lower()
+    assert all(
+        token not in api_runtime
+        for token in ("market-worker", "celery", "beat", "scheduler", "worker", "queue")
     )
     frontend_build = cast(dict[str, dict[str, str]], frontend["build"])
     assert frontend_build["args"] == {
