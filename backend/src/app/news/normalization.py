@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+import unicodedata
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -21,7 +22,6 @@ from app.news.contracts import (
 _SCRIPT_OR_STYLE = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG = re.compile(r"<[^>]*>")
 _WHITESPACE = re.compile(r"\s+")
-_NON_ENGLISH = re.compile(r"[\u0400-\u052f\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 _TRACKING_KEY = re.compile(r"^(utm_.+|fbclid)$", re.IGNORECASE)
 
 
@@ -39,7 +39,7 @@ def normalize_news_item(
 
     title = _normalize_text(item.title, maximum=300)
     summary = _normalize_text(item.summary, maximum=1_600)
-    if _NON_ENGLISH.search(f"{title} {summary}"):
+    if _contains_non_latin_letter(f"{title} {summary}"):
         raise ValueError("仅支持英文新闻")
 
     canonical_url = _canonicalize_url(str(item.url)) if item.url is not None else None
@@ -77,6 +77,14 @@ def _normalize_text(value: str, *, maximum: int) -> str:
     if not normalized:
         raise ValueError("新闻文本不能为空")
     return normalized
+
+
+def _contains_non_latin_letter(value: str) -> bool:
+    return any(
+        unicodedata.category(character).startswith("L")
+        and "LATIN" not in unicodedata.name(character, "")
+        for character in value
+    )
 
 
 def _canonicalize_url(value: str):

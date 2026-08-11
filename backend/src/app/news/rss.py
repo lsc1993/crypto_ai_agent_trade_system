@@ -37,18 +37,27 @@ class RssNewsSourceAdapter:
         self._timeout = httpx.Timeout(timeout_seconds)
 
     async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]:
-        response = await self._client.get(
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("新闻抓取时间必须带时区")
+        normalized_fetched_at = fetched_at.astimezone(UTC)
+
+        payload = bytearray()
+        async with self._client.stream(
+            "GET",
             str(self._source.feed_url),
             headers={"Accept": _ACCEPT_HEADER},
             timeout=self._timeout,
-        )
-        response.raise_for_status()
-        payload = response.content
-        if len(payload) > self.MAX_RESPONSE_BYTES:
-            raise ValueError("新闻响应超过大小限制")
+            follow_redirects=False,
+        ) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                if len(payload) + len(chunk) > self.MAX_RESPONSE_BYTES:
+                    raise ValueError("新闻响应超过大小限制")
+                payload.extend(chunk)
+
         root = ElementTree.fromstring(payload)
         return tuple(
-            normalize_news_item(item, source=self._source, fetched_at=fetched_at.astimezone(UTC))
+            normalize_news_item(item, source=self._source, fetched_at=normalized_fetched_at)
             for item in self._parse_items(root)
         )[: self._source.max_items_per_run]
 

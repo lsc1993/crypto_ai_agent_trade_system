@@ -103,6 +103,33 @@ def test_normalize_news_item_rejects_non_english_and_unapproved_source() -> None
         )
 
 
+@pytest.mark.parametrize(
+    "non_english_text",
+    (
+        "Αγορά Bitcoin",
+        "تحديث Bitcoin",
+        "עדכון Bitcoin",
+        "बिटकॉइन update",
+        "বিটকয়েন update",
+        "อัปเดต Bitcoin",
+    ),
+)
+def test_normalize_news_item_rejects_non_latin_writing_systems(
+    non_english_text: str,
+) -> None:
+    with pytest.raises(ValueError, match="仅支持英文"):
+        normalize_news_item(
+            ExternalNewsItem(
+                title=non_english_text,
+                summary="Market update",
+                url=parse_http_url("https://www.coindesk.com/a"),
+                published_at=utc("2026-08-10T08:00:00Z"),
+            ),
+            source=COINDESK_SOURCE,
+            fetched_at=utc("2026-08-10T08:01:00Z"),
+        )
+
+
 def test_normalize_news_item_bounds_text_and_marks_sec_market_regulation_for_both_symbols() -> None:
     normalized = normalize_news_item(
         ExternalNewsItem(
