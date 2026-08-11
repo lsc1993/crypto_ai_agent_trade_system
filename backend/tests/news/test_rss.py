@@ -34,7 +34,10 @@ async def test_rss_adapter_parses_only_registered_coindesk_feed_from_fixture() -
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(200, content=(FIXTURES / "coindesk.xml").read_bytes())
+        return httpx.Response(
+            200,
+            stream=_TrackedAsyncByteStream(((FIXTURES / "coindesk.xml").read_bytes(),)),
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
@@ -46,6 +49,7 @@ async def test_rss_adapter_parses_only_registered_coindesk_feed_from_fixture() -
         requests[0].headers["accept"]
         == "application/atom+xml, application/rss+xml, application/xml"
     )
+    assert requests[0].headers["accept-encoding"] == "identity"
     assert len(items) == 1
     assert items[0].source_id == "coindesk"
     assert items[0].related_symbols == (ContractSymbol.BTCUSDT,)
@@ -55,7 +59,10 @@ async def test_rss_adapter_parses_only_registered_coindesk_feed_from_fixture() -
 @pytest.mark.asyncio
 async def test_rss_adapter_parses_sec_atom_fixture_and_rejects_unknown_source() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=(FIXTURES / "sec_press_releases.xml").read_bytes())
+        return httpx.Response(
+            200,
+            stream=_TrackedAsyncByteStream(((FIXTURES / "sec_press_releases.xml").read_bytes(),)),
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         adapter = RssNewsSourceAdapter(
@@ -83,7 +90,10 @@ async def test_rss_adapter_parses_sec_atom_fixture_and_rejects_unknown_source() 
 @pytest.mark.asyncio
 async def test_rss_adapter_rejects_oversized_response_without_article_fetch() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=b"x" * (RssNewsSourceAdapter.MAX_RESPONSE_BYTES + 1))
+        return httpx.Response(
+            200,
+            stream=_TrackedAsyncByteStream((b"x" * (RssNewsSourceAdapter.MAX_RESPONSE_BYTES + 1),)),
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
@@ -110,6 +120,22 @@ async def test_rss_adapter_stops_streaming_as_soon_as_response_exceeds_limit() -
             await adapter.fetch_items(fetched_at=FETCHED_AT)
 
     assert stream.chunks_read == 2
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_rss_adapter_rejects_compressed_response_before_reading_body() -> None:
+    stream = _TrackedAsyncByteStream((b"compressed-response",))
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"Content-Encoding": "gzip"}, stream=stream)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
+        with pytest.raises(ValueError, match="新闻响应不允许压缩编码"):
+            await adapter.fetch_items(fetched_at=FETCHED_AT)
+
+    assert stream.chunks_read == 0
     assert stream.closed is True
 
 

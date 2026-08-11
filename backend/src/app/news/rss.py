@@ -45,12 +45,15 @@ class RssNewsSourceAdapter:
         async with self._client.stream(
             "GET",
             str(self._source.feed_url),
-            headers={"Accept": _ACCEPT_HEADER},
+            headers={"Accept": _ACCEPT_HEADER, "Accept-Encoding": "identity"},
             timeout=self._timeout,
             follow_redirects=False,
         ) as response:
             response.raise_for_status()
-            async for chunk in response.aiter_bytes():
+            content_encoding = response.headers.get("Content-Encoding")
+            if content_encoding is not None and content_encoding.strip().casefold() != "identity":
+                raise ValueError("新闻响应不允许压缩编码")
+            async for chunk in response.aiter_raw():
                 if len(payload) + len(chunk) > self.MAX_RESPONSE_BYTES:
                     raise ValueError("新闻响应超过大小限制")
                 payload.extend(chunk)
