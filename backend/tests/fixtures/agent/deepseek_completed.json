@@ -1,0 +1,9 @@
+{
+  "choices": [
+    {
+      "message": {
+        "content": "{\"outlook\":\"bullish\",\"confidence\":\"medium\",\"catalysts\":[{\"category\":\"market\",\"direction\":\"bullish\",\"claim\":\"The frozen market evidence shows short-term momentum above the stated support zone.\",\"evidence_ids\":[\"00000000-0000-0000-0000-000000000001\"],\"timing\":\"Within one to three days.\"}],\"risks_and_invalidation\":[{\"condition\":\"The cited support zone fails on closed-candle data.\",\"impact\":\"The outlook requires reassessment.\",\"evidence_ids\":[\"00000000-0000-0000-0000-000000000001\"]}],\"limitations\":[\"This proposal only interprets frozen public evidence.\"]}"
+      }
+    }
+  ]
+}
