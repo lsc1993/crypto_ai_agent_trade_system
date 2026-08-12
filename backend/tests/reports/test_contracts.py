@@ -133,6 +133,17 @@ def test_agent_creation_json_round_trip_preserves_referenced_evidence_ids() -> N
     assert restored.agent_analysis.catalysts[0].evidence_ids == (evidence.id,)
 
 
+def test_catalyst_rejects_a_category_empty_after_normalization() -> None:
+    with pytest.raises(ValidationError, match="类别不能为空"):
+        Catalyst(
+            category="   ",
+            direction=MarketOutlook.NEUTRAL,
+            claim="Frozen evidence describes the current market context.",
+            evidence_ids=(uuid4(),),
+            timing="Within one to three days.",
+        )
+
+
 def _completed_report(
     *,
     summary: str = "本报告只陈述已冻结的公开市场观察。",

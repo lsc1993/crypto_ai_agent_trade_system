@@ -257,10 +257,15 @@ class Catalyst(_ReportModel):
     evidence_ids: tuple[UUID, ...]
     timing: str
 
-    @field_validator("category")
+    @field_validator("category", mode="before")
     @classmethod
-    def validate_category(cls, value: str) -> str:
-        return value.strip()
+    def validate_category(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("催化事件类别不能为空")
+        return normalized
 
     @field_validator("claim", "timing")
     @classmethod
