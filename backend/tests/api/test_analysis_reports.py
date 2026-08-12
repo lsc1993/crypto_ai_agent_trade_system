@@ -216,7 +216,7 @@ class InMemoryAnalysisReportRepository:
         return ReportPage(
             items=tuple(
                 AnalysisReportSummary(
-                    **report.model_dump(exclude={"evidence"}),
+                    **report.model_dump(exclude={"evidence", "agent_analysis"}),
                 )
                 for report in reports[(page - 1) * page_size : page * page_size]
             ),

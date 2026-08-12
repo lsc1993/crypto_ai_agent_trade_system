@@ -188,36 +188,4 @@ def _install_immutable_trigger(
 
 
 def downgrade() -> None:
-    _drop_immutable_trigger(
-        table_name="agent_report_details",
-        function_name="prevent_agent_report_detail_mutation",
-        trigger_name="trg_agent_report_details_immutable",
-    )
-    _drop_immutable_trigger(
-        table_name="agent_analysis_runs",
-        function_name="prevent_agent_run_mutation",
-        trigger_name="trg_agent_analysis_runs_immutable",
-    )
-    _drop_immutable_trigger(
-        table_name="news_items",
-        function_name="prevent_news_item_mutation",
-        trigger_name="trg_news_items_immutable",
-    )
-    op.drop_table("agent_report_details")
-    op.drop_index(
-        "ix_agent_analysis_runs_symbol_completed_at",
-        table_name="agent_analysis_runs",
-    )
-    op.drop_table("agent_analysis_runs")
-    op.drop_index("ix_news_items_published_at", table_name="news_items")
-    op.drop_table("news_items")
-
-
-def _drop_immutable_trigger(
-    *,
-    table_name: str,
-    function_name: str,
-    trigger_name: str,
-) -> None:
-    op.execute(f"DROP TRIGGER {trigger_name} ON {table_name}")
-    op.execute(f"DROP FUNCTION {function_name}()")
+    raise NotImplementedError("Agent 研究持久化迁移不可逆，禁止删除审计记录")

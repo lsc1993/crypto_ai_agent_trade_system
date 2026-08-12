@@ -2,8 +2,9 @@ import asyncio
 from argparse import Namespace
 from datetime import UTC, datetime
 from importlib import import_module
-from importlib.util import find_spec
+from importlib.util import find_spec, module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import ModuleType
 from uuid import uuid4
 
 import pytest
@@ -168,6 +169,36 @@ def test_agent_research_migration_adds_immutable_tables_without_rewriting_report
         asyncio.run(_assert_agent_tables_immutable(test_database_url, schema, report_id))
     finally:
         asyncio.run(_drop_schema(test_database_url, schema))
+
+
+def test_agent_research_migration_downgrade_fails_before_schema_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = _load_agent_research_migration()
+
+    class NoSchemaMutation:
+        def execute(self, _: str) -> None:
+            raise AssertionError("downgrade must not mutate the schema")
+
+    monkeypatch.setattr(migration, "op", NoSchemaMutation())
+
+    with pytest.raises(NotImplementedError, match="不可逆"):
+        migration.downgrade()
+
+
+def _load_agent_research_migration() -> ModuleType:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "0008_create_agent_research.py"
+    )
+    spec = spec_from_file_location("agent_research_migration", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError("unable to load agent research migration")
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
 
 
 def _upgrade_to(database_url: SecretStr, schema: str, revision: str) -> None:

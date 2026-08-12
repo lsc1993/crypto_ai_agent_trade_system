@@ -6,12 +6,18 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import JsonValue, ValidationError
 
-from app.market.contracts import ContractSymbol
+from app.market.contracts import ContractSymbol, FreshnessStatus
 from app.reports.contracts import (
+    AgentAnalysis,
+    AgentDataQuality,
+    AgentReportCreation,
     AnalysisEvidenceDraft,
     AnalysisReportCreation,
     AnalysisReportDraft,
     AnalysisReportStatus,
+    Catalyst,
+    MarketOutlook,
+    RiskAndInvalidation,
     report_payload_sha256,
 )
 
@@ -82,6 +88,49 @@ def test_creation_accepts_a_matching_immutable_completed_report() -> None:
     )
     with pytest.raises(ValidationError):
         creation.report.title = "不可修改的标题"  # type: ignore[misc]
+
+
+def test_agent_creation_json_round_trip_preserves_referenced_evidence_ids() -> None:
+    evidence = _valid_evidence(report_id=REPORT_ID)
+    creation = AgentReportCreation(
+        report=_completed_report(),
+        evidences=(evidence,),
+        started_at=NOW,
+        completed_at=NOW,
+        agent_analysis=AgentAnalysis(
+            horizon="1_to_3_days",
+            outlook=MarketOutlook.NEUTRAL,
+            confidence="low",
+            support_zones=(),
+            resistance_zones=(),
+            catalysts=(
+                Catalyst(
+                    category="market",
+                    direction=MarketOutlook.NEUTRAL,
+                    claim="Frozen evidence describes the current market context.",
+                    evidence_ids=(evidence.id,),
+                    timing="Within one to three days.",
+                ),
+            ),
+            risks_and_invalidation=(
+                RiskAndInvalidation(
+                    condition="The cited market context materially changes.",
+                    impact="The outlook requires reassessment.",
+                    evidence_ids=(evidence.id,),
+                ),
+            ),
+            data_quality=AgentDataQuality(
+                freshness=FreshnessStatus.FRESH,
+                missing_inputs=(),
+                source_coverage="partial",
+            ),
+        ),
+    )
+
+    restored = AgentReportCreation.model_validate_json(creation.model_dump_json())
+
+    assert restored.evidences[0].id == evidence.id
+    assert restored.agent_analysis.catalysts[0].evidence_ids == (evidence.id,)
 
 
 def _completed_report(

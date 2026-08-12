@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -12,6 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -324,8 +325,21 @@ class AgentReportCreation(AnalysisReportCreation):
     started_at: UtcDateTime
     completed_at: UtcDateTime
     generator_kind: ReportGeneratorKind = ReportGeneratorKind.LANGGRAPH_DEEPSEEK
-    error_code: Annotated[str | None, Field(default=None, max_length=100)]
+    error_code: Annotated[str | None, Field(max_length=100)] = None
     agent_analysis: AgentAnalysis
+
+    @field_serializer("evidences", when_used="json")
+    def serialize_agent_evidences(
+        self,
+        evidences: tuple[AnalysisEvidenceDraft, ...],
+    ) -> tuple[dict[str, JsonValue], ...]:
+        return tuple(
+            cast(
+                dict[str, JsonValue],
+                {"id": str(evidence.id), **evidence.model_dump(mode="json")},
+            )
+            for evidence in evidences
+        )
 
     @field_validator("started_at", "completed_at")
     @classmethod
