@@ -6,11 +6,14 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from app.agent.contracts import AgentRunState
+from app.agent.contracts import AgentErrorCode, AgentRunState
 from app.market.contracts import ContractSymbol
 from app.news.contracts import (
+    COINDESK_SOURCE,
+    SEC_PRESS_RELEASES_SOURCE,
     NewsEventCategory,
     NewsItemDraft,
+    NewsSourceDefinition,
     NewsSourceTier,
     parse_http_url,
 )
@@ -27,9 +30,12 @@ class StubNewsSource:
         self,
         items: tuple[NewsItemDraft, ...] = (),
         error: Exception | None = None,
+        *,
+        source: NewsSourceDefinition = COINDESK_SOURCE,
     ) -> None:
         self.items = items
         self.error = error
+        self.source = source
         self.fetch_times: list[datetime] = []
 
     async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]:
@@ -66,7 +72,7 @@ async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
     repository = RecordingNewsRepository()
     sources = (
         StubNewsSource((duplicate, wrong_symbol, too_old)),
-        StubNewsSource((duplicate,)),
+        StubNewsSource((duplicate,), source=SEC_PRESS_RELEASES_SOURCE),
     )
     service = NewsIngestionService(sources=sources, repository=repository)
 
@@ -94,7 +100,7 @@ async def test_news_collection_isolates_a_source_failure() -> None:
     service = NewsIngestionService(
         sources=(
             StubNewsSource(error=RuntimeError("secret upstream detail")),
-            StubNewsSource((item,)),
+            StubNewsSource((item,), source=SEC_PRESS_RELEASES_SOURCE),
         ),
         repository=repository,
     )
@@ -117,7 +123,10 @@ async def test_news_collection_reports_all_source_failures_without_persisting() 
     service = NewsIngestionService(
         sources=(
             StubNewsSource(error=RuntimeError("sensitive one")),
-            StubNewsSource(error=ValueError("sensitive two")),
+            StubNewsSource(
+                error=ValueError("sensitive two"),
+                source=SEC_PRESS_RELEASES_SOURCE,
+            ),
         ),
         repository=repository,
     )
@@ -138,6 +147,44 @@ async def test_news_collection_reports_all_source_failures_without_persisting() 
     assert repository.ingested == []
 
 
+def test_news_ingestion_rejects_unapproved_or_duplicate_source_definitions() -> None:
+    repository = RecordingNewsRepository()
+    impostor = COINDESK_SOURCE.model_copy(update={"source_name": "Impostor"})
+
+    with pytest.raises(ValueError, match="未获准"):
+        NewsIngestionService(
+            sources=(StubNewsSource(source=impostor),),
+            repository=repository,
+        )
+    with pytest.raises(ValueError, match="重复"):
+        NewsIngestionService(
+            sources=(StubNewsSource(), StubNewsSource()),
+            repository=repository,
+        )
+
+
+@pytest.mark.asyncio
+async def test_news_ingestion_freezes_the_injected_source_sequence() -> None:
+    repository = RecordingNewsRepository()
+    sources = [StubNewsSource((_news_item(key="one", published_at=NOW),))]
+    service = NewsIngestionService(sources=sources, repository=repository)
+    sources.append(
+        StubNewsSource(
+            error=RuntimeError("must not be called"),
+            source=SEC_PRESS_RELEASES_SOURCE,
+        )
+    )
+
+    result = await service.collect(
+        ContractSymbol.BTCUSDT,
+        since=NOW - timedelta(days=1),
+        until=NOW,
+    )
+
+    assert result.source_count == 1
+    assert result.failed_source_count == 0
+
+
 def test_agent_run_state_accepts_only_safe_identifiers_counts_and_error_codes() -> None:
     state = AgentRunState(
         analysis_id=ANALYSIS_ID,
@@ -149,7 +196,7 @@ def test_agent_run_state_accepts_only_safe_identifiers_counts_and_error_codes() 
         news_success_count=1,
         news_failure_count=1,
         node_name="collect_news",
-        error_codes=("news_source_failed",),
+        error_codes=(AgentErrorCode.NEWS_SOURCE_FAILED,),
     )
 
     assert state.model_dump(mode="json") == {
@@ -174,7 +221,7 @@ def test_agent_run_state_accepts_only_safe_identifiers_counts_and_error_codes() 
             "source_count": 1,
             "successful_source_count": 0,
             "failed_source_count": 1,
-            "error_codes": ("unsafe detail",),
+            "error_codes": ("api_key_supersecret",),
         },
     ),
 )
@@ -217,14 +264,19 @@ def test_agent_run_state_rejects_payload_fields(field: str, value: object) -> No
         )
 
 
-@pytest.mark.parametrize("error_code", ("contains secret", "UPPERCASE", "unsafe-url"))
+@pytest.mark.parametrize(
+    "error_code",
+    ("contains secret", "UPPERCASE", "unsafe-url", "api_key_supersecret"),
+)
 def test_agent_run_state_rejects_unsafe_error_codes(error_code: str) -> None:
     with pytest.raises(ValidationError, match="安全错误码"):
-        AgentRunState(
-            analysis_id=ANALYSIS_ID,
-            symbol=ContractSymbol.BTCUSDT,
-            started_at=NOW,
-            error_codes=(error_code,),
+        AgentRunState.model_validate(
+            {
+                "analysis_id": ANALYSIS_ID,
+                "symbol": ContractSymbol.BTCUSDT,
+                "started_at": NOW,
+                "error_codes": (error_code,),
+            }
         )
 
 

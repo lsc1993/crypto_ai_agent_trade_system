@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import asyncio
-import re
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.market.contracts import ContractSymbol
-from app.news.contracts import NewsItemDraft
+from app.news.contracts import ALLOWED_NEWS_SOURCES, NewsItemDraft, NewsSourceDefinition
 
 
 class NewsSourceAdapter(Protocol):
+    @property
+    def source(self) -> NewsSourceDefinition: ...
+
     async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]: ...
 
 
@@ -29,14 +32,20 @@ class NewsCollection(BaseModel):
     source_count: int = Field(ge=0, le=30)
     successful_source_count: int = Field(ge=0, le=30)
     failed_source_count: int = Field(ge=0, le=30)
-    error_codes: tuple[str, ...] = Field(max_length=30)
+    error_codes: tuple[Literal["news_source_failed"], ...] = Field(max_length=30)
 
-    @field_validator("error_codes")
+    @field_validator("error_codes", mode="before")
     @classmethod
-    def require_safe_error_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(re.fullmatch(r"[a-z0-9_]+", item) is None for item in value):
+    def require_safe_error_codes(cls, value: object) -> object:
+        if not isinstance(value, (tuple, list)):
             raise ValueError("新闻采集结果只能包含最小安全错误码")
-        return value
+        values = cast(tuple[object, ...] | list[object], value)
+        if any(
+            item != "news_source_failed"
+            for item in values
+        ):
+            raise ValueError("新闻采集结果只能包含最小安全错误码")
+        return values
 
     @model_validator(mode="after")
     def require_consistent_counts(self) -> NewsCollection:
@@ -53,14 +62,29 @@ class NewsIngestionService:
     def __init__(
         self,
         *,
-        sources: tuple[NewsSourceAdapter, ...],
+        sources: Iterable[NewsSourceAdapter],
         repository: NewsRepository,
     ) -> None:
-        if not sources:
+        bounded_sources = tuple(sources)
+        if not bounded_sources:
             raise ValueError("至少需要一个获准新闻来源")
-        if len(sources) > 30:
+        if len(bounded_sources) > 30:
             raise ValueError("新闻来源数量不能超过 30")
-        self._sources = sources
+        source_ids: list[str] = []
+        for adapter in bounded_sources:
+            try:
+                definition = cast(object, adapter.source)
+            except AttributeError as error:
+                raise ValueError("新闻来源必须声明获准来源") from error
+            if (
+                not isinstance(definition, NewsSourceDefinition)
+                or ALLOWED_NEWS_SOURCES.get(definition.source_id) != definition
+            ):
+                raise ValueError("未获准的新闻来源")
+            source_ids.append(definition.source_id)
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("新闻来源不能重复")
+        self._sources = bounded_sources
         self._repository = repository
 
     async def collect(

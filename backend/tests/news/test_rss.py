@@ -41,6 +41,7 @@ async def test_rss_adapter_parses_only_registered_coindesk_feed_from_fixture() -
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
+        assert adapter.source is COINDESK_SOURCE
         items = await adapter.fetch_items(fetched_at=FETCHED_AT)
 
     assert len(requests) == 1

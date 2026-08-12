@@ -36,6 +36,10 @@ class RssNewsSourceAdapter:
         self._client = client
         self._timeout = httpx.Timeout(timeout_seconds)
 
+    @property
+    def source(self) -> NewsSourceDefinition:
+        return self._source
+
     async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]:
         if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
             raise ValueError("新闻抓取时间必须带时区")
