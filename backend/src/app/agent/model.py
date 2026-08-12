@@ -91,6 +91,17 @@ class AgentAnalysisProposal(_AgentModel):
             raise ValueError("模型限制不能为空")
         return normalized
 
+    @model_validator(mode="after")
+    def require_frozen_evidence_reference(self) -> AgentAnalysisProposal:
+        referenced_ids = {
+            evidence_id
+            for item in (*self.catalysts, *self.risks_and_invalidation)
+            for evidence_id in item.evidence_ids
+        }
+        if not referenced_ids:
+            raise ValueError("模型结论必须引用冻结证据")
+        return self
+
 
 class ModelOutputError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -118,12 +129,13 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
 
     async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal:
         api_key = self._api_key
-        if api_key is None:
+        secret_value = "" if api_key is None else api_key.get_secret_value().strip()
+        if not secret_value:
             raise ModelOutputError("model_not_configured", "DeepSeek 模型密钥未配置")
         try:
             response = await self._client.post(
                 _DEEPSEEK_COMPLETIONS_URL,
-                headers={"Authorization": f"Bearer {api_key.get_secret_value()}"},
+                headers={"Authorization": f"Bearer {secret_value}"},
                 json={
                     "model": self._model,
                     "messages": (

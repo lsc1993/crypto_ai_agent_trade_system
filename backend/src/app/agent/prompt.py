@@ -32,7 +32,7 @@ def research_user_message(request: ResearchModelRequest) -> str:
                 "observed_at": evidence.observed_at.isoformat().replace("+00:00", "Z"),
                 "content": (
                     "UNTRUSTED_NEWS_CONTENT\n"
-                    f"{evidence.content}\n"
+                    f"{_escape_news_boundary_markers(evidence.content)}\n"
                     "END_UNTRUSTED_NEWS_CONTENT"
                     if evidence.kind.value == "news"
                     else evidence.content
@@ -47,3 +47,7 @@ def research_user_message(request: ResearchModelRequest) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
+
+
+def _escape_news_boundary_markers(value: str) -> str:
+    return value.replace("UNTRUSTED_NEWS_CONTENT", "UNTRUSTED_NEWS\\u005fCONTENT")
