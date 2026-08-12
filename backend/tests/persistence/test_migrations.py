@@ -1,17 +1,22 @@
 import asyncio
+from argparse import Namespace
 from datetime import UTC, datetime
 from importlib import import_module
 from importlib.util import find_spec
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from alembic.config import Config
 from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from alembic import command
 from app.shared.config import AppSettings
 
 PAPER_TEST_NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
+AGENT_TEST_NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -138,6 +143,166 @@ def test_paper_trading_migration_enforces_active_account_and_immutable_records()
         asyncio.run(_assert_paper_immutable_records(test_database_url, schema))
     finally:
         asyncio.run(_drop_schema(test_database_url, schema))
+
+
+def test_agent_research_migration_adds_immutable_tables_without_rewriting_reports() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"agent_test_{uuid4().hex[:16]}"
+    report_id = uuid4()
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        _upgrade_to(test_database_url, schema, "0007_paper_account_valuations")
+        asyncio.run(_insert_existing_analysis_report(test_database_url, schema, report_id))
+        before = asyncio.run(_analysis_report_row(test_database_url, schema, report_id))
+
+        _upgrade_to(test_database_url, schema, "head")
+
+        assert asyncio.run(_analysis_report_row(test_database_url, schema, report_id)) == before
+        assert asyncio.run(_table_names(test_database_url, schema)) >= {
+            "news_items",
+            "agent_analysis_runs",
+            "agent_report_details",
+        }
+        asyncio.run(_assert_agent_tables_immutable(test_database_url, schema, report_id))
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
+def _upgrade_to(database_url: SecretStr, schema: str, revision: str) -> None:
+    configuration = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    configuration.set_main_option("sqlalchemy.url", database_url.get_secret_value())
+    configuration.cmd_opts = Namespace(x=[f"schema={schema}"])
+    command.upgrade(configuration, revision)
+
+
+async def _insert_existing_analysis_report(
+    database_url: SecretStr,
+    schema: str,
+    report_id: object,
+) -> None:
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO analysis_reports ("
+            "id, analysis_id, symbol, status, title, summary, facts, inferences, risks, "
+            "limitations, generated_at, data_cutoff_at"
+            ") VALUES ("
+            ":id, :id, 'BTCUSDT', 'degraded', 'existing', 'existing', "
+            "'[]'::jsonb, '[]'::jsonb, '[\"risk\"]'::jsonb, '[\"limit\"]'::jsonb, "
+            ":generated_at, NULL"
+            ")"
+        ),
+        {"id": report_id, "generated_at": AGENT_TEST_NOW},
+    )
+
+
+async def _analysis_report_row(
+    database_url: SecretStr,
+    schema: str,
+    report_id: object,
+) -> tuple[object, ...]:
+    engine = _database_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text(f'SET search_path TO "{schema}"'))
+            result = await connection.execute(
+                text(
+                    "SELECT id, analysis_id, symbol, status, title, summary, facts, "
+                    "inferences, risks, limitations, generated_at, data_cutoff_at, created_at "
+                    "FROM analysis_reports WHERE id = :id"
+                ),
+                {"id": report_id},
+            )
+            return tuple(result.one())
+    finally:
+        await engine.dispose()
+
+
+async def _table_names(database_url: SecretStr, schema: str) -> set[str]:
+    engine = _database_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            result = await connection.execute(
+                text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = :schema"
+                ),
+                {"schema": schema},
+            )
+            return set(result.scalars())
+    finally:
+        await engine.dispose()
+
+
+async def _assert_agent_tables_immutable(
+    database_url: SecretStr,
+    schema: str,
+    report_id: object,
+) -> None:
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO agent_analysis_runs ("
+            "id, analysis_id, symbol, status, started_at, completed_at, generator_kind"
+            ") VALUES ("
+            ":id, :report_id, 'BTCUSDT', 'degraded', :started_at, :completed_at, "
+            "'langgraph_deepseek'"
+            ")"
+        ),
+        {
+            "id": uuid4(),
+            "report_id": report_id,
+            "started_at": AGENT_TEST_NOW,
+            "completed_at": AGENT_TEST_NOW,
+        },
+    )
+    statements = {
+        "news_items": "DELETE FROM news_items",
+        "agent_analysis_runs": "UPDATE agent_analysis_runs SET status = status",
+        "agent_report_details": "DELETE FROM agent_report_details",
+    }
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO news_items ("
+            "id, deduplication_key, source_id, source_tier, published_at, fetched_at, "
+            "language, title, summary, related_symbols, event_category, content_hash"
+            ") VALUES ("
+            ":id, 'migration:item', 'coindesk', 'professional_media', :published_at, "
+            ":fetched_at, 'en', 'title', 'summary', '[\"BTCUSDT\"]'::jsonb, "
+            "'market', :content_hash"
+            ")"
+        ),
+        {
+            "id": uuid4(),
+            "published_at": AGENT_TEST_NOW,
+            "fetched_at": AGENT_TEST_NOW,
+            "content_hash": "a" * 64,
+        },
+    )
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO agent_report_details ("
+            "analysis_report_id, horizon, outlook, confidence, trend_alignment, "
+            "support_zones, resistance_zones, catalysts, risks_and_invalidation, "
+            "data_quality, limitations"
+            ") VALUES ("
+            ":report_id, '1_to_3_days', 'neutral', 'low', '{}'::jsonb, '[]'::jsonb, "
+            "'[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '[]'::jsonb"
+            ")"
+        ),
+        {"report_id": report_id},
+    )
+    for statement in statements.values():
+        with pytest.raises(DBAPIError, match="immutable"):
+            await _execute_in_schema(database_url, schema, text(statement), {})
 
 
 async def _create_schema(database_url: SecretStr, schema: str) -> None:

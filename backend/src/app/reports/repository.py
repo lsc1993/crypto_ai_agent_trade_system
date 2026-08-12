@@ -5,6 +5,7 @@ from uuid import UUID
 
 from app.market.contracts import ContractSymbol
 from app.reports.contracts import (
+    AgentReportCreation,
     AnalysisReportCreation,
     AnalysisReportStatus,
     PersistedAnalysisReport,
@@ -33,3 +34,12 @@ class AnalysisReportRepository(Protocol):
         symbol: ContractSymbol | None,
         status: AnalysisReportStatus | None,
     ) -> ReportPage: ...
+
+
+class AgentAnalysisReportRepository(AnalysisReportRepository, Protocol):
+    """Agent-capable extension that keeps deterministic repository fakes compatible."""
+
+    async def persist_agent(
+        self,
+        creation: AgentReportCreation,
+    ) -> PersistedAnalysisReport: ...
