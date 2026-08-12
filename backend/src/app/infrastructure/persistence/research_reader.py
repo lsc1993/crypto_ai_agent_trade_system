@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 from sqlalchemy import Select, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -20,6 +20,7 @@ from app.market.contracts import (
     MarketSummary,
     MarketTimeframe,
 )
+from app.market.repository import snapshot_payload_sha256
 from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
 
 _MAX_CANDLES = 200
@@ -91,6 +92,9 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
 
 def _to_snapshot(record: MarketSnapshotRecord) -> PersistedMarketSnapshot:
     try:
+        payload = cast(dict[str, JsonValue], record.payload)
+        if snapshot_payload_sha256(payload) != record.payload_sha256:
+            raise ValueError("快照载荷哈希不匹配")
         payload_summary = record.payload.get("summary")
         if not isinstance(payload_summary, Mapping):
             raise ValueError("快照摘要载荷无效")

@@ -4,11 +4,13 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Protocol, cast
+from uuid import uuid4
 
 import pytest
 from pydantic import JsonValue
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.infrastructure.persistence.models.market import MarketSnapshotRecord
 from app.infrastructure.persistence.repository import SqlAlchemyMarketRepository
 from app.infrastructure.persistence.research_reader import SqlAlchemyPersistedMarketReader
 from app.market.contracts import (
@@ -139,6 +141,91 @@ async def test_reader_rejects_a_snapshot_without_a_valid_summary_payload(
         await reader.load_latest_snapshot(ContractSymbol.BTCUSDT)
 
     assert error.value.code == "market_research_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_reader_rejects_a_requested_snapshot_with_a_tampered_payload_hash(
+    migrated_database: MigratedDatabase,
+) -> None:
+    batch = _market_capture_batch(
+        captured_at=NEWER_CAPTURED_AT,
+        price=Decimal("69000.00"),
+    )
+    summary = cast(dict[str, JsonValue], batch.snapshot.payload["summary"])
+    tampered_payload: dict[str, JsonValue] = {
+        "summary": {**summary, "price": "1.00"},
+    }
+    tampered_snapshot = batch.snapshot.model_copy(
+        update={"payload": tampered_payload},
+    )
+    await _persist_batch(
+        migrated_database,
+        batch.model_copy(update={"snapshot": tampered_snapshot}),
+    )
+    reader = SqlAlchemyPersistedMarketReader(migrated_database.session_factory)
+
+    with pytest.raises(MarketDataUnavailableError) as error:
+        await reader.load_snapshot(tampered_snapshot.id)
+
+    assert error.value.code == "market_research_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_conversion_rejects_a_valid_summary_with_a_tampered_payload_hash() -> None:
+    batch = _market_capture_batch(
+        captured_at=NEWER_CAPTURED_AT,
+        price=Decimal("69000.00"),
+    )
+    summary = cast(dict[str, JsonValue], batch.snapshot.payload["summary"])
+    record = MarketSnapshotRecord(
+        id=uuid4(),
+        symbol=ContractSymbol.BTCUSDT.value,
+        source="binance_usdm_public_rest",
+        captured_at=NEWER_CAPTURED_AT,
+        data_as_of=NEWER_CAPTURED_AT,
+        data_version="market-v1",
+        payload={"summary": {**summary, "price": "1.00"}},
+        payload_sha256=batch.snapshot.payload_sha256,
+    )
+    reader = SqlAlchemyPersistedMarketReader(
+        cast(async_sessionmaker[AsyncSession], _SingleSnapshotSessionFactory(record)),
+    )
+
+    with pytest.raises(MarketDataUnavailableError) as error:
+        await reader.load_snapshot(record.id)
+
+    assert error.value.code == "market_research_unavailable"
+
+
+class _SingleSnapshotResult:
+    def __init__(self, record: MarketSnapshotRecord) -> None:
+        self._record = record
+
+    def scalar_one_or_none(self) -> MarketSnapshotRecord:
+        return self._record
+
+
+class _SingleSnapshotSession:
+    def __init__(self, record: MarketSnapshotRecord) -> None:
+        self._record = record
+
+    async def __aenter__(self) -> _SingleSnapshotSession:
+        return self
+
+    async def __aexit__(self, *arguments: object) -> None:
+        del arguments
+
+    async def execute(self, statement: object) -> _SingleSnapshotResult:
+        del statement
+        return _SingleSnapshotResult(self._record)
+
+
+class _SingleSnapshotSessionFactory:
+    def __init__(self, record: MarketSnapshotRecord) -> None:
+        self._record = record
+
+    def __call__(self) -> _SingleSnapshotSession:
+        return _SingleSnapshotSession(self._record)
 
 
 async def _persist_batch(
