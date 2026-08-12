@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import cast
+from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -32,6 +33,11 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None:
+        statement = select(MarketSnapshotRecord).where(MarketSnapshotRecord.id == snapshot_id)
+        record = await self._load_snapshot_record(statement)
+        return None if record is None else _to_snapshot(record)
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,
@@ -42,27 +48,8 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
             .order_by(MarketSnapshotRecord.captured_at.desc())
             .limit(1)
         )
-        try:
-            async with self._session_factory() as session:
-                record = (await session.execute(statement)).scalar_one_or_none()
-        except SQLAlchemyError as error:
-            raise _unavailable() from error
-        if record is None:
-            return None
-
-        try:
-            payload_summary = record.payload.get("summary")
-            if not isinstance(payload_summary, Mapping):
-                raise ValueError("快照摘要载荷无效")
-            summary = MarketSummary.model_validate(
-                dict(cast(Mapping[str, object], payload_summary)),
-            )
-            return PersistedMarketSnapshot(
-                summary=summary,
-                captured_at=record.captured_at,
-            )
-        except (TypeError, ValidationError, ValueError) as error:
-            raise _unavailable() from error
+        record = await self._load_snapshot_record(statement)
+        return None if record is None else _to_snapshot(record)
 
     async def load_recent_candles(
         self,
@@ -90,6 +77,34 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
             )
         except (SQLAlchemyError, TypeError, ValueError) as error:
             raise _unavailable() from error
+
+    async def _load_snapshot_record(
+        self,
+        statement: Select[tuple[MarketSnapshotRecord]],
+    ) -> MarketSnapshotRecord | None:
+        try:
+            async with self._session_factory() as session:
+                return (await session.execute(statement)).scalar_one_or_none()
+        except SQLAlchemyError as error:
+            raise _unavailable() from error
+
+
+def _to_snapshot(record: MarketSnapshotRecord) -> PersistedMarketSnapshot:
+    try:
+        payload_summary = record.payload.get("summary")
+        if not isinstance(payload_summary, Mapping):
+            raise ValueError("快照摘要载荷无效")
+        summary = MarketSummary.model_validate(
+            dict(cast(Mapping[str, object], payload_summary)),
+        )
+        if summary.symbol.value != record.symbol:
+            raise ValueError("快照标的与摘要载荷不一致")
+        return PersistedMarketSnapshot(
+            summary=summary,
+            captured_at=record.captured_at,
+        )
+    except (TypeError, ValidationError, ValueError) as error:
+        raise _unavailable() from error
 
 
 def _to_candle(record: MarketCandleRecord) -> Candle:

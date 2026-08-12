@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.market.capture import MarketCaptureService
+from app.market.capture import CAPTURE_TIMEFRAMES, MarketCaptureService
 from app.market.contracts import (
     Candle,
     CandleSeries,
@@ -73,6 +73,16 @@ class FailingMarketGateway(FakeMarketGateway):
         return _market_detail(symbol, timeframes)
 
 
+class MismatchedMarketGateway(FakeMarketGateway):
+    async def get_market(
+        self,
+        symbol: ContractSymbol,
+        timeframes: tuple[MarketTimeframe, ...],
+    ) -> MarketDetail:
+        self.requests.append((symbol, timeframes))
+        return _market_detail(ContractSymbol.ETHUSDT, timeframes)
+
+
 @pytest.mark.asyncio
 async def test_capture_persists_two_symbol_batches_only_after_all_reads_succeed() -> None:
     from app.market.capture import (
@@ -124,6 +134,38 @@ async def test_capture_excludes_current_candles_before_persistence() -> None:
         for candle in batch.candles
     )
     assert [len(batch.candles) for batch in repository.persisted_batches] == [4, 4]
+
+
+@pytest.mark.asyncio
+async def test_capture_symbol_persists_only_one_requested_symbol_and_closed_candles() -> None:
+    gateway = FakeMarketGateway()
+    repository = RecordingRepository()
+    service = MarketCaptureService(gateway, repository)
+
+    snapshot_id = await service.capture_symbol(
+        ContractSymbol.BTCUSDT,
+        captured_at=CAPTURED_AT,
+    )
+
+    assert isinstance(snapshot_id, UUID)
+    assert gateway.requests == [(ContractSymbol.BTCUSDT, CAPTURE_TIMEFRAMES)]
+    assert len(repository.persisted_batches) == 1
+    assert repository.persisted_batches[0].symbol is ContractSymbol.BTCUSDT
+    assert all(
+        candle.close_at <= CAPTURED_AT
+        for candle in repository.persisted_batches[0].candles
+    )
+
+
+@pytest.mark.asyncio
+async def test_capture_symbol_rejects_a_gateway_detail_for_a_different_symbol() -> None:
+    repository = RecordingRepository()
+    service = MarketCaptureService(MismatchedMarketGateway(), repository)
+
+    with pytest.raises(MarketDataUnavailableError, match="标的不一致"):
+        await service.capture_symbol(ContractSymbol.BTCUSDT, captured_at=CAPTURED_AT)
+
+    assert repository.persisted_batches == ()
 
 
 @pytest.mark.asyncio

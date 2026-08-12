@@ -58,6 +58,28 @@ async def test_reader_uses_the_latest_snapshot_and_revalidates_its_summary(
 
 
 @pytest.mark.asyncio
+async def test_reader_loads_the_requested_snapshot_instead_of_the_latest_one(
+    migrated_database: MigratedDatabase,
+) -> None:
+    older_batch = _market_capture_batch(
+        captured_at=OLDER_CAPTURED_AT,
+        price=Decimal("68000.00"),
+    )
+    await _persist_batch(migrated_database, older_batch)
+    await _persist_batch(
+        migrated_database,
+        _market_capture_batch(captured_at=NEWER_CAPTURED_AT, price=Decimal("69000.00")),
+    )
+    reader = SqlAlchemyPersistedMarketReader(migrated_database.session_factory)
+
+    snapshot = await reader.load_snapshot(older_batch.snapshot.id)
+
+    assert snapshot is not None
+    assert snapshot.captured_at == OLDER_CAPTURED_AT
+    assert snapshot.summary.price == Decimal("68000.00")
+
+
+@pytest.mark.asyncio
 async def test_reader_limits_candles_to_200_and_returns_ascending_times(
     migrated_database: MigratedDatabase,
 ) -> None:

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import NoReturn, Protocol
+from uuid import UUID
 
 from app.market.contracts import (
     Candle,
@@ -32,6 +33,8 @@ class PersistedMarketSnapshot:
 
 
 class PersistedMarketReader(Protocol):
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None: ...
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,

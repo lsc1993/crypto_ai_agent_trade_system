@@ -48,17 +48,43 @@ class MarketCaptureService:
 
     async def capture(self, captured_at: datetime) -> tuple[UUID, ...]:
         _require_utc(captured_at)
-        details = await asyncio.gather(
+        batches = await asyncio.gather(
             *(
-                self._gateway.get_market(symbol, CAPTURE_TIMEFRAMES)
+                self._capture_symbol_batch(symbol, captured_at=captured_at)
                 for symbol in CAPTURE_SYMBOLS
             ),
         )
-        batches = tuple(
-            _capture_batch(detail, captured_at)
-            for detail in details
+        return await self._repository.persist_batches(tuple(batches))
+
+    async def capture_symbol(
+        self,
+        symbol: ContractSymbol,
+        *,
+        captured_at: datetime,
+    ) -> UUID:
+        _require_utc(captured_at)
+        if symbol not in CAPTURE_SYMBOLS:
+            raise ValueError("标的未获准进行公开行情采集")
+        snapshot_ids = await self._repository.persist_batches(
+            (await self._capture_symbol_batch(symbol, captured_at=captured_at),),
         )
-        return await self._repository.persist_batches(batches)
+        if len(snapshot_ids) != 1:
+            raise RuntimeError("单标的采集必须恰好持久化一个快照")
+        return snapshot_ids[0]
+
+    async def _capture_symbol_batch(
+        self,
+        symbol: ContractSymbol,
+        *,
+        captured_at: datetime,
+    ) -> MarketCaptureBatch:
+        detail = await self._gateway.get_market(symbol, CAPTURE_TIMEFRAMES)
+        if detail.summary.symbol is not symbol:
+            raise MarketDataUnavailableError(
+                "market_data_invalid",
+                "公开行情返回的标的不一致",
+            )
+        return _capture_batch(detail, captured_at)
 
 
 def _capture_batch(detail: MarketDetail, captured_at: datetime) -> MarketCaptureBatch:

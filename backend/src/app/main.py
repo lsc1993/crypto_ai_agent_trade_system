@@ -78,6 +78,10 @@ from app.trades.service import TradeService
 
 
 class _UnavailablePersistedMarketReader(PersistedMarketReader):
+    async def load_snapshot(self, snapshot_id: UUID) -> NoReturn:
+        del snapshot_id
+        _raise_market_research_unavailable()
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,
