@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol, TypeGuard, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +24,12 @@ class NewsRepository(Protocol):
         self,
         items: tuple[NewsItemDraft, ...],
     ) -> tuple[NewsItemDraft, ...]: ...
+
+
+@dataclass(frozen=True)
+class _ApprovedSourceAdapter:
+    adapter: NewsSourceAdapter
+    source: NewsSourceDefinition
 
 
 class NewsCollection(BaseModel):
@@ -70,6 +77,7 @@ class NewsIngestionService:
             raise ValueError("至少需要一个获准新闻来源")
         if len(bounded_sources) > 30:
             raise ValueError("新闻来源数量不能超过 30")
+        approved_sources: list[_ApprovedSourceAdapter] = []
         source_ids: list[str] = []
         for adapter in bounded_sources:
             try:
@@ -82,9 +90,12 @@ class NewsIngestionService:
             ):
                 raise ValueError("未获准的新闻来源")
             source_ids.append(definition.source_id)
+            approved_sources.append(
+                _ApprovedSourceAdapter(adapter=adapter, source=definition)
+            )
         if len(source_ids) != len(set(source_ids)):
             raise ValueError("新闻来源不能重复")
-        self._sources = bounded_sources
+        self._sources = tuple(approved_sources)
         self._repository = repository
 
     async def collect(
@@ -101,13 +112,23 @@ class NewsIngestionService:
 
         results = await asyncio.gather(
             *(
-                source.fetch_items(fetched_at=normalized_until)
+                source.adapter.fetch_items(fetched_at=normalized_until)
                 for source in self._sources
             ),
             return_exceptions=True,
         )
-        successful = tuple(result for result in results if not isinstance(result, BaseException))
-        failed_count = len(results) - len(successful)
+        successful: list[tuple[NewsItemDraft, ...]] = []
+        failed_count = 0
+        for source, result in zip(self._sources, results, strict=True):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, BaseException) or not _has_expected_attribution(
+                result,
+                source.source,
+            ):
+                failed_count += 1
+                continue
+            successful.append(result)
         candidates = tuple(
             item
             for items in successful
@@ -129,3 +150,18 @@ def _require_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("新闻采集窗口必须是 UTC 且带时区")
     return value.astimezone(UTC)
+
+
+def _has_expected_attribution(
+    value: object,
+    source: NewsSourceDefinition,
+) -> TypeGuard[tuple[NewsItemDraft, ...]]:
+    if not isinstance(value, tuple):
+        return False
+    values = cast(tuple[object, ...], value)
+    return all(
+        isinstance(item, NewsItemDraft)
+        and item.source_id == source.source_id
+        and item.source_tier is source.tier
+        for item in values
+    )

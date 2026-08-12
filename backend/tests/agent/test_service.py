@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -29,7 +30,7 @@ class StubNewsSource:
     def __init__(
         self,
         items: tuple[NewsItemDraft, ...] = (),
-        error: Exception | None = None,
+        error: BaseException | None = None,
         *,
         source: NewsSourceDefinition = COINDESK_SOURCE,
     ) -> None:
@@ -70,9 +71,14 @@ async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
     )
     too_old = _news_item(key="old", published_at=NOW - timedelta(days=4))
     repository = RecordingNewsRepository()
+    sec_duplicate = _news_item(
+        key="same",
+        published_at=NOW - timedelta(hours=1),
+        source=SEC_PRESS_RELEASES_SOURCE,
+    )
     sources = (
         StubNewsSource((duplicate, wrong_symbol, too_old)),
-        StubNewsSource((duplicate,), source=SEC_PRESS_RELEASES_SOURCE),
+        StubNewsSource((sec_duplicate,), source=SEC_PRESS_RELEASES_SOURCE),
     )
     service = NewsIngestionService(sources=sources, repository=repository)
 
@@ -89,13 +95,17 @@ async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
         failed_source_count=0,
         error_codes=(),
     )
-    assert repository.ingested == [(duplicate, duplicate)]
+    assert repository.ingested == [(duplicate, sec_duplicate)]
     assert [source.fetch_times for source in sources] == [[NOW], [NOW]]
 
 
 @pytest.mark.asyncio
 async def test_news_collection_isolates_a_source_failure() -> None:
-    item = _news_item(key="ok", published_at=NOW - timedelta(hours=1))
+    item = _news_item(
+        key="ok",
+        published_at=NOW - timedelta(hours=1),
+        source=SEC_PRESS_RELEASES_SOURCE,
+    )
     repository = RecordingNewsRepository()
     service = NewsIngestionService(
         sources=(
@@ -145,6 +155,47 @@ async def test_news_collection_reports_all_source_failures_without_persisting() 
         error_codes=("news_source_failed", "news_source_failed"),
     )
     assert repository.ingested == []
+
+
+@pytest.mark.asyncio
+async def test_news_collection_rejects_items_not_attributed_to_the_frozen_source() -> None:
+    repository = RecordingNewsRepository()
+    item = _news_item(key="wrong-source", published_at=NOW).model_copy(
+        update={
+            "source_id": "sec_press_releases",
+            "source_tier": NewsSourceTier.PRIMARY,
+        }
+    )
+    source = StubNewsSource((item,))
+    service = NewsIngestionService(sources=(source,), repository=repository)
+    source.source = SEC_PRESS_RELEASES_SOURCE
+
+    result = await service.collect(
+        ContractSymbol.BTCUSDT,
+        since=NOW - timedelta(days=1),
+        until=NOW,
+    )
+
+    assert result.items == ()
+    assert result.failed_source_count == 1
+    assert result.error_codes == ("news_source_failed",)
+    assert repository.ingested == []
+
+
+@pytest.mark.asyncio
+async def test_news_collection_propagates_cancellation() -> None:
+    repository = RecordingNewsRepository()
+    service = NewsIngestionService(
+        sources=(StubNewsSource(error=asyncio.CancelledError()),),
+        repository=repository,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.collect(
+            ContractSymbol.BTCUSDT,
+            since=NOW - timedelta(days=1),
+            until=NOW,
+        )
 
 
 def test_news_ingestion_rejects_unapproved_or_duplicate_source_definitions() -> None:
@@ -285,12 +336,13 @@ def _news_item(
     key: str,
     published_at: datetime,
     symbol: ContractSymbol = ContractSymbol.BTCUSDT,
+    source: NewsSourceDefinition = COINDESK_SOURCE,
 ) -> NewsItemDraft:
     return NewsItemDraft(
-        source_id="coindesk",
-        source_tier=NewsSourceTier.PROFESSIONAL_MEDIA,
+        source_id=source.source_id,
+        source_tier=source.tier,
         source_item_id=key,
-        canonical_url=parse_http_url(f"https://www.coindesk.com/markets/{key}"),
+        canonical_url=parse_http_url(f"https://example.com/markets/{key}"),
         published_at=published_at,
         fetched_at=NOW,
         language="en",
