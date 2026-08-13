@@ -11,6 +11,7 @@ dependencies = [
     "httpx",
     "langgraph>=1.2.10",
     "langgraph-checkpoint-postgres>=3.1.2",
+    "psycopg[binary]>=3.3.4",
     "pydantic-settings",
     "sqlalchemy",
     "structlog",

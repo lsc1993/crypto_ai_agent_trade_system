@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import NoReturn, cast
+from typing import NoReturn, Protocol, cast
 from uuid import UUID
 
 from pydantic import JsonValue
@@ -28,6 +28,10 @@ _TIMEFRAMES = (
 _CANDLE_LIMIT = 200
 _FRESHNESS_THRESHOLD = timedelta(minutes=2)
 _SOURCE_BASE_URL = "https://www.binance.com/en/futures/"
+
+
+class AnalysisReportService(Protocol):
+    async def generate(self, symbol: ContractSymbol) -> PersistedAnalysisReport: ...
 
 
 class DeterministicResearchReportService:
