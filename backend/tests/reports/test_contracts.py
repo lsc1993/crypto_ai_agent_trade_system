@@ -36,6 +36,25 @@ def test_report_draft_rejects_trading_instruction_language_after_normalization()
         _completed_report(summary="建议 立 即 买 入 BTCUSDT")
 
 
+def test_report_draft_rejects_english_trading_instruction_language() -> None:
+    with pytest.raises(ValidationError, match="交易指令"):
+        _completed_report(summary="The model says to buy BTC now.")
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    (
+        "Bitcoin may be worth buying in the next 1–3 days.",
+        "Consider buying BTC now.",
+        "We advise buying BTC.",
+        "Open a long position.",
+    ),
+)
+def test_report_draft_rejects_common_english_trade_advice(instruction: str) -> None:
+    with pytest.raises(ValidationError, match="交易指令"):
+        _completed_report(summary=instruction)
+
+
 def test_degraded_report_rejects_market_facts_or_inferences() -> None:
     with pytest.raises(ValidationError, match="降级报告"):
         AnalysisReportDraft(

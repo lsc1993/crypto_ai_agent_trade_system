@@ -6,7 +6,7 @@ import {
 import { newsItemSchema } from "../../domain/news";
 import {
   analysisReportSchema,
-  analysisReportSummarySchema,
+  toAnalysisReportSummary,
 } from "../../domain/report";
 import {
   tradeDraftSchema,
@@ -36,6 +36,7 @@ export const mockReports = [
     summary: "用于界面和 API 契约验证的确定性 Mock 报告。",
     createdAt: "2025-01-15T10:00:00Z",
     dataCutoffAt: "2025-01-15T09:55:00Z",
+    generatorKind: "deterministic",
     facts: ["示例价格和成交量来自固定 Mock 数据。"],
     inferences: ["该段落仅演示推断与事实分离。"],
     risks: ["固定样例不反映当前市场。"],
@@ -50,6 +51,7 @@ export const mockReports = [
         summary: "固定的离线证据摘要。",
       },
     ],
+    agentAnalysis: null,
   }),
   analysisReportSchema.parse({
     id: "report-eth-001",
@@ -60,6 +62,7 @@ export const mockReports = [
     summary: "演示数据缺失时的明确降级状态。",
     createdAt: "2025-01-15T11:00:00Z",
     dataCutoffAt: "2025-01-15T10:45:00Z",
+    generatorKind: "deterministic",
     facts: ["部分固定 Mock 指标被标记为过期。"],
     inferences: [],
     risks: ["不可根据缺失数据形成方向性结论。"],
@@ -74,11 +77,12 @@ export const mockReports = [
         summary: "固定的离线降级证据摘要。",
       },
     ],
+    agentAnalysis: null,
   }),
 ];
 
 export const mockReportSummaries = mockReports.map((report) =>
-  analysisReportSummarySchema.parse(report),
+  toAnalysisReportSummary(report),
 );
 
 export const mockMarketSummaries = [

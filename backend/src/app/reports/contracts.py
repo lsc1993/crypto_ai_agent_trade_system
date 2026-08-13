@@ -40,6 +40,17 @@ _PROHIBITED_PHRASES = (
     "保证收益",
     "自动交易",
 )
+_PROHIBITED_ENGLISH_PATTERNS = (
+    re.compile(
+        r"\b(?:buy|sell)\b.*\b(?:now|immediately|today|btc|eth|bitcoin|ethereum)\b"
+    ),
+    re.compile(r"\b(?:consider|recommend|advise|suggest)\s+(?:buying|selling|to\s+(?:buy|sell))\b"),
+    re.compile(r"\bworth\s+(?:buying|selling)\b"),
+    re.compile(r"\b(?:go|stay)\s+(?:long|short)\b"),
+    re.compile(r"\b(?:open|close)\s+(?:a\s+)?(?:long|short)?\s*position\b"),
+    re.compile(r"\b(?:take\s+profit|stop\s+loss|entry\s+price|exit\s+price|use\s+leverage)\b"),
+    re.compile(r"\b(?:recommend|advice)\s+(?:buying|selling|to\s+buy|to\s+sell)\b"),
+)
 
 
 class AnalysisReportStatus(StrEnum):
@@ -101,6 +112,16 @@ def _validate_display_text(value: str) -> str:
     )
     if prohibited is not None:
         raise ValueError(f"报告文本不能包含交易指令：{prohibited}")
+    english_prohibited = next(
+        (
+            pattern.pattern
+            for pattern in _PROHIBITED_ENGLISH_PATTERNS
+            if pattern.search(normalized.casefold()) is not None
+        ),
+        None,
+    )
+    if english_prohibited is not None:
+        raise ValueError(f"报告文本不能包含交易指令：{english_prohibited}")
     return normalized
 
 

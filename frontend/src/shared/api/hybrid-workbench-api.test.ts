@@ -51,6 +51,7 @@ const realReportSummary: AnalysisReportSummary = {
   summary: "来自本地 API 的持久化报告。",
   createdAt: "2026-07-31T08:00:00Z",
   dataCutoffAt: "2026-07-31T07:55:00Z",
+  generatorKind: "deterministic",
 };
 
 const realReport: AnalysisReport = {
@@ -60,6 +61,7 @@ const realReport: AnalysisReport = {
   risks: [],
   limitations: [],
   evidence: [],
+  agentAnalysis: null,
 };
 
 const realReportPage: Page<AnalysisReportSummary> = {

@@ -41,6 +41,7 @@ import {
   analysisReportSummarySchema,
   analysisStreamEventSchema,
   reportFiltersSchema,
+  toAnalysisReportSummary,
   type AnalysisReport,
   type AnalysisReportSummary,
   type AnalysisStreamEvent,
@@ -312,7 +313,7 @@ export class MockWorkbenchApi implements WorkbenchApi {
           parsedFilters.status === undefined ||
           report.status === parsedFilters.status,
       )
-      .map((report) => analysisReportSummarySchema.parse(report));
+      .map((report) => toAnalysisReportSummary(report));
     const start = (parsedFilters.page - 1) * parsedFilters.pageSize;
     return Promise.resolve(
       pageSchema(analysisReportSummarySchema).parse({

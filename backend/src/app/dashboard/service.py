@@ -8,7 +8,11 @@ from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator
 
 from app.market.contracts import ContractSymbol, MarketSummary, UtcDateTime
 from app.market.service import MarketQueryService
-from app.reports.contracts import AnalysisReportStatus, AnalysisReportSummary
+from app.reports.contracts import (
+    AnalysisReportStatus,
+    AnalysisReportSummary,
+    ReportGeneratorKind,
+)
 from app.reports.repository import AnalysisReportRepository
 
 
@@ -46,6 +50,7 @@ class DashboardReportSummary(_DashboardModel):
     summary: str
     created_at: UtcDateTime
     data_cutoff_at: UtcDateTime | None
+    generator_kind: ReportGeneratorKind
 
     @classmethod
     def from_report(cls, report: AnalysisReportSummary) -> "DashboardReportSummary":
@@ -58,6 +63,7 @@ class DashboardReportSummary(_DashboardModel):
             summary=report.summary,
             created_at=report.created_at,
             data_cutoff_at=report.data_cutoff_at,
+            generator_kind=report.generator_kind,
         )
 
 

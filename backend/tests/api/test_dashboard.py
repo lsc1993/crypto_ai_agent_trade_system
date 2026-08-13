@@ -53,6 +53,7 @@ async def test_dashboard_returns_public_markets_recent_reports_and_utc_time() ->
     ]
     assert payload["news"] == []
     assert payload["recentReports"][0]["id"] == str(REPORT_ID)
+    assert payload["recentReports"][0]["generatorKind"] == "deterministic"
     assert payload["generatedAt"] == "2026-08-09T10:30:00Z"
 
 

@@ -107,7 +107,7 @@ export function ReportGenerator({ symbol }: ReportGeneratorProps) {
       <div>
         <h2 id={`report-generator-${symbol}`}>生成研究报告</h2>
         <p>
-          为 {symbol} 创建新的只读分析任务。结果仅表达观察、推断、风险和限制。
+          为 {symbol} 按需抓取公开行情与受治理的英文新闻，并生成未来 1–3 天的只读研究。
         </p>
       </div>
       <button
@@ -119,7 +119,7 @@ export function ReportGenerator({ symbol }: ReportGeneratorProps) {
           startMutation.mutate(requestEpochRef.current);
         }}
       >
-        生成 AI 研究报告
+        抓取公开行情与英文新闻并分析
       </button>
       {startMutation.isPending ? (
         <p role="status">正在创建研究任务。</p>
