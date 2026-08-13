@@ -1,12 +1,23 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DataFreshnessBadge } from "../components/common/DataFreshnessBadge";
 import { PageState } from "../components/common/PageState";
 import { MockWorkbenchApi } from "../shared/api/mock-workbench-api";
 import { mockTradeDraft } from "../shared/mocks/fixtures";
 import App from "./App";
+
+vi.mock("lightweight-charts", () => ({
+  CandlestickSeries: "candlestick-series",
+  ColorType: { Solid: "solid" },
+  createChart: () => ({
+    addSeries: () => ({ setData: () => undefined }),
+    applyOptions: () => undefined,
+    remove: () => undefined,
+    timeScale: () => ({ fitContent: () => undefined }),
+  }),
+}));
 
 const observedAt = "2025-01-15T12:00:00Z";
 const fetchedAt = "2025-01-15T12:00:05Z";
@@ -27,6 +38,20 @@ function findDashboardHeading() {
 }
 
 describe("application shell routes", () => {
+  beforeAll(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+  });
+
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     window.history.replaceState({}, "", "/");
   });

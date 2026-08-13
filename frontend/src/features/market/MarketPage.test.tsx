@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Route, Routes, useLocation } from "react-router-dom";
 
 import { AppProviders } from "../../app/providers";
@@ -13,6 +13,17 @@ import { MockWorkbenchApi } from "../../shared/api/mock-workbench-api";
 import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { mockMarketDetails } from "../../shared/mocks/fixtures";
 import { MarketPage } from "./MarketPage";
+
+vi.mock("lightweight-charts", () => ({
+  CandlestickSeries: "candlestick-series",
+  ColorType: { Solid: "solid" },
+  createChart: () => ({
+    addSeries: () => ({ setData: () => undefined }),
+    applyOptions: () => undefined,
+    remove: () => undefined,
+    timeScale: () => ({ fitContent: () => undefined }),
+  }),
+}));
 
 const requiredTimeframes: Timeframe[] = ["15m", "1h", "4h", "1d"];
 
@@ -96,6 +107,40 @@ class EmptySectionsMarketApi extends RecordingMarketApi {
         ...btcMarketDetail(),
         series: [],
         news: [],
+      }),
+    );
+  }
+}
+
+class MultiTimeframeMarketApi extends RecordingMarketApi {
+  override getMarket(input: {
+    symbol: Symbol;
+    timeframes: Timeframe[];
+  }): Promise<MarketDetail> {
+    this.marketInputs.push({
+      symbol: input.symbol,
+      timeframes: [...input.timeframes],
+    });
+    const detail = btcMarketDetail();
+    const oneHourSeries = detail.series.find(
+      (series) => series.timeframe === "1h",
+    );
+    if (oneHourSeries === undefined) {
+      throw new Error("BTCUSDT 1h market fixture is missing");
+    }
+    return Promise.resolve(
+      marketDetailSchema.parse({
+        ...detail,
+        series: [
+          ...detail.series,
+          {
+            timeframe: "4h",
+            candles: oneHourSeries.candles.map((candle) => ({
+              ...candle,
+              timeframe: "4h",
+            })),
+          },
+        ],
       }),
     );
   }
@@ -205,6 +250,20 @@ function renderMarket(api: MockWorkbenchApi = new RecordingMarketApi()) {
 }
 
 describe("MarketPage", () => {
+  beforeAll(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+  });
+
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders the standard loading state while market data is pending", () => {
     renderMarket(new PendingMarketApi());
 
@@ -250,6 +309,7 @@ describe("MarketPage", () => {
     expect(
       screen.queryByText("当前标的暂无市场研究数据。"),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText(/查看 .* K 线文本数据/)).not.toBeInTheDocument();
   });
 
   it("labels the public provider and explains that no news source is enabled", async () => {
@@ -371,12 +431,36 @@ describe("MarketPage", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("img", {
-        name: "1h 收盘价走势，共 2 个数据点",
+        name: "1h K 线图，共 2 个数据点",
       }),
     ).toBeVisible();
     expect(
       screen.getByRole("table", { name: "1h K 线文本数据" }),
-    ).toBeVisible();
+    ).toBeInTheDocument();
+  });
+
+  it("keeps OHLC text data collapsed by default and synchronizes it with the selected timeframe", async () => {
+    const user = userEvent.setup();
+    renderMarket(new MultiTimeframeMarketApi());
+
+    const summary = await screen.findByText("查看 1h K 线文本数据");
+    const details = summary.closest("details");
+    if (details === null) {
+      throw new Error("K 线文本数据必须使用原生 details 折叠区");
+    }
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details).getByRole("table", { name: "1h K 线文本数据" })).toBeInTheDocument();
+    const newsPanel = screen.getByRole("region", { name: "市场资讯" });
+    expect(
+      newsPanel.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+
+    await user.click(summary);
+    expect(details).toHaveAttribute("open");
+
+    await user.click(screen.getByRole("tab", { name: "4h" }));
+    expect(await screen.findByText("查看 4h K 线文本数据")).toBeVisible();
+    expect(screen.getByRole("table", { name: "4h K 线文本数据" })).toBeInTheDocument();
   });
 
   it("renders untrusted news as plain text and secures its source link", async () => {

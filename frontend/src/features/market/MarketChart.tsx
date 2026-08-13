@@ -1,53 +1,37 @@
+import { CandlestickSeries, ColorType, createChart } from "lightweight-charts";
+import type { CandlestickData, UTCTimestamp } from "lightweight-charts";
+import { useEffect, useRef } from "react";
+
 import { PageState } from "../../components/common/PageState";
 import type { CandleSeries } from "../../domain/market";
 import type { Timeframe } from "../../domain/primitives";
-import {
-  formatMarketPrice,
-  formatMarketVolume,
-} from "../../shared/format";
 
-export interface ChartCandle {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+export type ChartCandle = CandlestickData<UTCTimestamp>;
+
+function toUtcTimestamp(value: string): UTCTimestamp {
+  return Math.floor(Date.parse(value) / 1_000) as UTCTimestamp;
 }
 
 // 必需的单向显示适配器与图表置于同一模块，限制数值转换仅用于显示。
 // eslint-disable-next-line react-refresh/only-export-components
 export function toChartSeries(series: CandleSeries): ChartCandle[] {
   return series.candles.map((candle) => ({
-    time: candle.openTime,
+    time: toUtcTimestamp(candle.openTime),
     open: Number(candle.open),
     high: Number(candle.high),
     low: Number(candle.low),
     close: Number(candle.close),
-    volume: Number(candle.volume),
   }));
 }
 
-function buildClosePolyline(points: ChartCandle[]): string {
-  if (points.length === 0) {
-    return "";
-  }
-  const closes = points.map((point) => point.close);
-  const minimum = Math.min(...closes);
-  const maximum = Math.max(...closes);
-  const range = maximum - minimum || 1;
-  const width = 600;
-  const height = 180;
-
-  return points
-    .map((point, index) => {
-      const x =
-        points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-      const y = height - ((point.close - minimum) / range) * height;
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
+const CANDLESTICK_COLORS = {
+  upColor: "#22c55e",
+  downColor: "#ef4444",
+  borderUpColor: "#22c55e",
+  borderDownColor: "#ef4444",
+  wickUpColor: "#22c55e",
+  wickDownColor: "#ef4444",
+};
 
 export interface MarketChartProps {
   series: CandleSeries | undefined;
@@ -58,6 +42,56 @@ export function MarketChart({
   series,
   timeframe,
 }: MarketChartProps) {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const chartContainer = chartContainerRef.current;
+    if (
+      chartContainer === null ||
+      series === undefined ||
+      series.candles.length === 0
+    ) {
+      return;
+    }
+
+    const chart = createChart(chartContainer, {
+      width: chartContainer.clientWidth,
+      height: 208,
+      layout: {
+        background: { type: ColorType.Solid, color: "#09141e" },
+        textColor: "#aebdcc",
+      },
+      grid: {
+        vertLines: { color: "rgb(41 65 87 / 28%)" },
+        horzLines: { color: "rgb(41 65 87 / 28%)" },
+      },
+      rightPriceScale: {
+        borderColor: "#294157",
+      },
+      timeScale: {
+        borderColor: "#294157",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+    const candleSeries = chart.addSeries(CandlestickSeries, CANDLESTICK_COLORS);
+    candleSeries.setData(toChartSeries(series));
+    chart.timeScale().fitContent();
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry !== undefined) {
+        chart.applyOptions({ width: Math.floor(entry.contentRect.width) });
+      }
+    });
+    resizeObserver.observe(chartContainer);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+    };
+  }, [series]);
+
   if (series === undefined || series.candles.length === 0) {
     return (
       <section
@@ -76,9 +110,6 @@ export function MarketChart({
     );
   }
 
-  const chartPoints = toChartSeries(series);
-  const polyline = buildClosePolyline(chartPoints);
-
   return (
     <section
       className="research-panel market-chart"
@@ -94,60 +125,16 @@ export function MarketChart({
         </div>
       </div>
       <figure className="market-chart__figure">
-        <svg
-          className="market-chart__visual"
+        <div
+          className="market-chart__canvas"
+          ref={chartContainerRef}
           role="img"
-          aria-label={`${series.timeframe} 收盘价走势，共 ${series.candles.length} 个数据点`}
-          viewBox="0 0 600 180"
-          preserveAspectRatio="none"
-        >
-          <polyline
-            points={polyline}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="5"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
+          aria-label={`${series.timeframe} K 线图，共 ${series.candles.length} 个数据点`}
+        />
         <figcaption>
-          图形仅将领域十进制字符串单向转换为浏览器显示数值；原始行情数据保持不变。
+          图表由公开行情 OHLC 数据渲染，仅作浏览器显示转换；原始行情数据保持不变。
         </figcaption>
       </figure>
-      <div className="table-scroll">
-        <table className="market-table">
-          <caption>{series.timeframe} K 线文本数据</caption>
-          <thead>
-            <tr>
-              <th scope="col">开盘时间</th>
-              <th scope="col">开盘</th>
-              <th scope="col">最高</th>
-              <th scope="col">最低</th>
-              <th scope="col">收盘</th>
-              <th scope="col">成交量</th>
-              <th scope="col">收盘时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {series.candles.map((candle) => (
-              <tr key={`${candle.timeframe}-${candle.openTime}`}>
-                <td>
-                  <time dateTime={candle.openTime}>{candle.openTime}</time>
-                </td>
-                <td>{formatMarketPrice(candle.open)}</td>
-                <td>{formatMarketPrice(candle.high)}</td>
-                <td>{formatMarketPrice(candle.low)}</td>
-                <td>{formatMarketPrice(candle.close)}</td>
-                <td>{formatMarketVolume(candle.volume)}</td>
-                <td>
-                  <time dateTime={candle.closeTime}>
-                    {candle.closeTime}
-                  </time>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </section>
   );
 }

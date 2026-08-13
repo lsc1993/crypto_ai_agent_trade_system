@@ -14,6 +14,7 @@ describe("toChartSeries", () => {
     const chartSeries = toChartSeries(source);
 
     expect(chartSeries[0]).toMatchObject({
+      time: 1736935200,
       open: 67000,
       high: 68000,
       low: 66800,

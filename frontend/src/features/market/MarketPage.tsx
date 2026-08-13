@@ -12,6 +12,7 @@ import {
   formatMarketVolume,
 } from "../../shared/format";
 import { DerivativePanel } from "./DerivativePanel";
+import { MarketCandleDataTable } from "./MarketCandleDataTable";
 import { MarketChart } from "./MarketChart";
 import { NewsTimeline } from "./NewsTimeline";
 import { TimeframeTabs } from "./TimeframeTabs";
@@ -186,9 +187,18 @@ export function MarketPage() {
         emptyMessage={
           market.summary.freshness.source === "binance_usdm_public_rest"
             ? "Binance 公开行情模式尚未配置新闻源。"
-            : undefined
+          : undefined
         }
       />
+      {selectedSeries !== undefined && selectedSeries.candles.length > 0 ? (
+        <details
+          className="market-candle-data"
+          aria-label={`${selectedSeries.timeframe} K 线文本数据`}
+        >
+          <summary>查看 {selectedSeries.timeframe} K 线文本数据</summary>
+          <MarketCandleDataTable series={selectedSeries} />
+        </details>
+      ) : null}
     </section>
   );
 }
