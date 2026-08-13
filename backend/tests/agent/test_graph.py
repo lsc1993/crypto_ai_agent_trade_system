@@ -49,8 +49,13 @@ SNAPSHOT_ID = UUID("00000000-0000-0000-0000-000000000701")
 
 
 class FakeMarketCapture:
-    def __init__(self, market: CapturedAgentMarket) -> None:
+    def __init__(
+        self,
+        market: CapturedAgentMarket,
+        error: BaseException | None = None,
+    ) -> None:
         self.market = market
+        self.error = error
         self.requests: list[tuple[ContractSymbol, datetime]] = []
 
     async def capture(
@@ -60,6 +65,8 @@ class FakeMarketCapture:
         captured_at: datetime,
     ) -> CapturedAgentMarket:
         self.requests.append((symbol, captured_at))
+        if self.error is not None:
+            raise self.error
         return self.market
 
 
@@ -82,7 +89,7 @@ class FakeNewsIngestion:
 class RecordingModel:
     def __init__(
         self,
-        outcomes: list[AgentAnalysisProposal | ModelOutputError] | None = None,
+        outcomes: list[AgentAnalysisProposal | BaseException] | None = None,
     ) -> None:
         self.outcomes = outcomes or []
         self.requests: list[ResearchModelRequest] = []
@@ -92,7 +99,7 @@ class RecordingModel:
         if not self.outcomes:
             return _proposal(request.evidences[0].id)
         outcome = self.outcomes.pop(0)
-        if isinstance(outcome, ModelOutputError):
+        if isinstance(outcome, BaseException):
             raise outcome
         return outcome
 
@@ -223,6 +230,29 @@ async def test_graph_persists_degraded_without_model_when_market_is_stale() -> N
 
 
 @pytest.mark.asyncio
+async def test_graph_persists_degraded_for_an_unexpected_market_failure() -> None:
+    repository = RecordingRepository()
+    market = FakeMarketCapture(_market(), error=RuntimeError("private upstream detail"))
+    model = RecordingModel()
+    service = AgentResearchService(
+        dependencies=AgentResearchDependencies(
+            market=market,
+            news=FakeNewsIngestion(_collection()),
+            model=model,
+            repository=repository,
+            clock=lambda: NOW,
+        )
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.DEGRADED
+    assert model.requests == []
+    assert repository.creations[0].error_code == "market_research_unavailable"
+    assert "private upstream detail" not in repr(repository.creations[0])
+
+
+@pytest.mark.asyncio
 async def test_graph_persists_degraded_when_the_model_is_not_configured() -> None:
     repository = RecordingRepository()
     service = _service(
@@ -236,6 +266,23 @@ async def test_graph_persists_degraded_when_the_model_is_not_configured() -> Non
 
     assert report.status is AnalysisReportStatus.DEGRADED
     assert repository.creations[0].error_code == "model_not_configured"
+
+
+@pytest.mark.asyncio
+async def test_graph_persists_degraded_for_an_unexpected_model_failure() -> None:
+    repository = RecordingRepository()
+    service = _service(
+        market=_market(),
+        news=_collection(),
+        model=RecordingModel([RuntimeError("secret model failure")]),
+        repository=repository,
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.DEGRADED
+    assert repository.creations[0].error_code == "model_upstream_error"
+    assert "secret model failure" not in repr(repository.creations[0])
 
 
 @pytest.mark.asyncio

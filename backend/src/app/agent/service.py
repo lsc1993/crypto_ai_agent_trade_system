@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -265,6 +266,10 @@ class _AgentResearchRun:
             code = _safe_error_code(error.code)
         except (TypeError, ValueError):
             code = AgentErrorCode.MARKET_DATA_INVALID
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            code = AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE
         self.degraded_error = code
         return self._update(state, node_name="collect_market", error_code=code)
 
@@ -385,6 +390,10 @@ class _AgentResearchRun:
                 self.proposal = proposal
         except ModelOutputError as error:
             self.degraded_error = _safe_error_code(error.code)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.degraded_error = AgentErrorCode.MODEL_UPSTREAM_ERROR
         if self.degraded_error is not None:
             return self._update(
                 state,
