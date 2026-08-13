@@ -46,6 +46,27 @@ async def test_backtest_routes_create_list_and_detail() -> None:
 
 
 @pytest.mark.asyncio
+async def test_backtest_routes_limit_response_decimal_fraction_to_frontend_contract() -> None:
+    repository = FakeBacktestRepository(high_precision_summary=True)
+    app = _app(repository)
+
+    created = await _request(app, "POST", "/api/v1/backtests", _payload())
+    listed = await _request(app, "GET", "/api/v1/backtests?page=1&page_size=20")
+    detail = await _request(app, "GET", f"/api/v1/backtests/{created.json()['id']}")
+
+    assert created.status_code == 201
+    assert listed.status_code == 200
+    assert detail.status_code == 200
+    for payload in (
+        created.json(),
+        listed.json()["items"][0],
+        detail.json(),
+    ):
+        assert payload["summary"]["maxDrawdownFraction"] == "0.090393119726157725"
+        assert payload["summary"]["profitFactor"] == "0.429692729143866704"
+
+
+@pytest.mark.asyncio
 async def test_backtest_routes_reject_invalid_scope_and_return_safe_not_found() -> None:
     app = _app(FakeBacktestRepository())
 
@@ -97,8 +118,9 @@ class FakeHistoricalGateway:
 
 
 class FakeBacktestRepository:
-    def __init__(self) -> None:
+    def __init__(self, *, high_precision_summary: bool = False) -> None:
         self._runs: dict[UUID, PersistedBacktestRun] = {}
+        self._high_precision_summary = high_precision_summary
 
     async def create_pending(
         self,
@@ -124,6 +146,21 @@ class FakeBacktestRepository:
         occurred_at: datetime,
     ) -> PersistedBacktestRun:
         del candles
+        if self._high_precision_summary:
+            result = result.model_copy(
+                update={
+                    "summary": result.summary.model_copy(
+                        update={
+                            "max_drawdown_fraction": Decimal(
+                                "0.09039311972615772470574350276"
+                            ),
+                            "profit_factor": Decimal(
+                                "0.4296927291438667043301680249"
+                            ),
+                        }
+                    )
+                }
+            )
         pending = self._runs[run_id]
         completed = pending.model_copy(
             update={

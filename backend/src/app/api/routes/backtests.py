@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    PlainSerializer,
+    StrictStr,
+    ValidationError,
+)
 
-from app.market.contracts import ContractSymbol, DecimalValue, MarketTimeframe, UtcDateTime
+from app.market.contracts import ContractSymbol, MarketTimeframe, UtcDateTime
 from app.research.backtests.contracts import (
     BacktestAuditEvent,
     BacktestClosedTrade,
@@ -21,6 +30,30 @@ from app.research.backtests.contracts import (
 from app.research.backtests.service import BacktestService
 
 router = APIRouter(prefix="/backtests", tags=["backtests"])
+
+_RESPONSE_DECIMAL_QUANTUM = Decimal("0.000000000000000001")
+
+
+def _serialize_backtest_decimal(value: Decimal) -> str:
+    with localcontext() as context:
+        context.prec = max(
+            context.prec,
+            len(value.as_tuple().digits),
+            value.adjusted() + 19,
+        )
+        normalized = value.quantize(
+            _RESPONSE_DECIMAL_QUANTUM,
+            rounding=ROUND_HALF_EVEN,
+        )
+    if normalized.is_zero():
+        return "0"
+    return format(normalized.normalize(), "f")
+
+
+BacktestDecimalValue = Annotated[
+    Decimal,
+    PlainSerializer(_serialize_backtest_decimal, return_type=str, when_used="json"),
+]
 
 
 class _ApiModel(BaseModel):
@@ -47,34 +80,34 @@ class BacktestCreateRequest(_ApiModel):
 
 
 class BacktestRiskConfigResponse(_ApiModel):
-    max_exposure_fraction: DecimalValue
-    stop_loss_fraction: DecimalValue
-    daily_loss_fraction: DecimalValue
-    max_drawdown_fraction: DecimalValue
+    max_exposure_fraction: BacktestDecimalValue
+    stop_loss_fraction: BacktestDecimalValue
+    daily_loss_fraction: BacktestDecimalValue
+    max_drawdown_fraction: BacktestDecimalValue
     cooldown_candles: int
-    quantity_increment: DecimalValue
+    quantity_increment: BacktestDecimalValue
 
 
 class BacktestExecutionConfigResponse(_ApiModel):
-    fee_rate: DecimalValue
-    slippage_rate: DecimalValue
-    fill_ratio: DecimalValue
+    fee_rate: BacktestDecimalValue
+    slippage_rate: BacktestDecimalValue
+    fill_ratio: BacktestDecimalValue
 
 
 class BacktestSummaryResponse(_ApiModel):
-    initial_cash: DecimalValue
-    final_equity: DecimalValue
-    net_pnl: DecimalValue
-    realized_pnl: DecimalValue
-    unrealized_pnl: DecimalValue
-    return_fraction: DecimalValue
-    max_drawdown_fraction: DecimalValue
-    win_rate: DecimalValue
-    profit_factor: DecimalValue | None
+    initial_cash: BacktestDecimalValue
+    final_equity: BacktestDecimalValue
+    net_pnl: BacktestDecimalValue
+    realized_pnl: BacktestDecimalValue
+    unrealized_pnl: BacktestDecimalValue
+    return_fraction: BacktestDecimalValue
+    max_drawdown_fraction: BacktestDecimalValue
+    win_rate: BacktestDecimalValue
+    profit_factor: BacktestDecimalValue | None
     closed_trade_count: int
     fill_count: int
     rejection_count: int
-    open_position_quantity: DecimalValue
+    open_position_quantity: BacktestDecimalValue
     candle_count: int
     snapshot_hash: str
 
@@ -82,8 +115,8 @@ class BacktestSummaryResponse(_ApiModel):
 class BacktestClosedTradeResponse(_ApiModel):
     opened_at: UtcDateTime
     closed_at: UtcDateTime
-    quantity: DecimalValue
-    net_pnl: DecimalValue
+    quantity: BacktestDecimalValue
+    net_pnl: BacktestDecimalValue
 
 
 class BacktestAuditEventResponse(_ApiModel):
@@ -102,7 +135,7 @@ class BacktestRunSummaryResponse(_ApiModel):
     timeframe: MarketTimeframe
     start_at: UtcDateTime
     end_at: UtcDateTime
-    initial_cash: DecimalValue
+    initial_cash: BacktestDecimalValue
     strategy_id: str
     strategy_version: str
     risk_config: BacktestRiskConfigResponse
