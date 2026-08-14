@@ -61,6 +61,21 @@ def fixture_handler(requests: list[httpx.Request]) -> Callable[[httpx.Request], 
                     "time": now_ms,
                 },
             )
+        if request.url.path == "/futures/data/basis":
+            return httpx.Response(
+                200,
+                json=[{"basisRate": "0.0004", "timestamp": now_ms}],
+            )
+        if request.url.path == "/futures/data/globalLongShortAccountRatio":
+            return httpx.Response(
+                200,
+                json=[{"longShortRatio": "1.2345", "timestamp": now_ms}],
+            )
+        if request.url.path == "/futures/data/takerlongshortRatio":
+            return httpx.Response(
+                200,
+                json=[{"buySellRatio": "0.8765", "timestamp": now_ms}],
+            )
         if request.url.path == "/fapi/v1/klines":
             return httpx.Response(
                 200,
@@ -142,3 +157,36 @@ async def test_gateway_maps_rate_limits_to_a_stable_unavailable_error() -> None:
             await gateway.get_summaries((ContractSymbol.BTCUSDT,))
 
     assert error.value.code == "market_data_rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_gateway_reads_only_allowlisted_public_derivatives_context() -> None:
+    requests: list[httpx.Request] = []
+    async with httpx.AsyncClient(
+        base_url=BINANCE_USDM_BASE_URL,
+        transport=httpx.MockTransport(fixture_handler(requests)),
+    ) as client:
+        gateway = BinanceUsdmPublicMarketGateway(
+            client=client,
+            clock=lambda: FIXED_NOW,
+            sleep=no_sleep,
+        )
+
+        metrics = await gateway.get_research_metrics(ContractSymbol.BTCUSDT)
+
+    assert metrics.basis_rate == Decimal("0.0004")
+    assert metrics.long_short_account_ratio == Decimal("1.2345")
+    assert metrics.taker_buy_sell_ratio == Decimal("0.8765")
+    context_requests = [
+        request
+        for request in requests
+        if request.url.path.startswith("/futures/data/")
+    ]
+    assert {request.url.path for request in context_requests} == {
+        "/futures/data/basis",
+        "/futures/data/globalLongShortAccountRatio",
+        "/futures/data/takerlongshortRatio",
+    }
+    assert all(request.url.params["period"] == "1h" for request in context_requests)
+    assert all(request.url.params["limit"] == "1" for request in context_requests)
+    assert all(request.headers.get("X-MBX-APIKEY") is None for request in context_requests)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import cast
@@ -29,6 +30,9 @@ ALLOWED_PATHS = frozenset(
         "/fapi/v1/klines",
         "/fapi/v1/openInterest",
         "/fapi/v1/premiumIndex",
+        "/futures/data/basis",
+        "/futures/data/globalLongShortAccountRatio",
+        "/futures/data/takerlongshortRatio",
     },
 )
 SUMMARY_TTL = timedelta(seconds=10)
@@ -37,6 +41,15 @@ MAX_ATTEMPTS = 2
 MAX_BACKTEST_CANDLES = 1049
 
 Sleep = Callable[[float], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class PublicDerivativesMetrics:
+    basis_rate: Decimal
+    long_short_account_ratio: Decimal
+    taker_buy_sell_ratio: Decimal
+    observed_at: datetime
+    fetched_at: datetime
 
 
 class BinanceUsdmPublicMarketGateway:
@@ -81,6 +94,40 @@ class BinanceUsdmPublicMarketGateway:
             *(self._get_candles(symbol, timeframe) for timeframe in timeframes),
         )
         return MarketDetail(summary=summary, series=tuple(series))
+
+    async def get_research_metrics(
+        self,
+        symbol: ContractSymbol,
+    ) -> PublicDerivativesMetrics:
+        basis, long_short, taker = await asyncio.gather(
+            self._get_public_json(
+                "/futures/data/basis",
+                {"symbol": symbol.value, "period": "1h", "limit": "1"},
+            ),
+            self._get_public_json(
+                "/futures/data/globalLongShortAccountRatio",
+                {"symbol": symbol.value, "period": "1h", "limit": "1"},
+            ),
+            self._get_public_json(
+                "/futures/data/takerlongshortRatio",
+                {"symbol": symbol.value, "period": "1h", "limit": "1"},
+            ),
+        )
+        basis_payload = _latest_metric_payload(basis)
+        long_short_payload = _latest_metric_payload(long_short)
+        taker_payload = _latest_metric_payload(taker)
+        fetched_at = self._now()
+        return PublicDerivativesMetrics(
+            basis_rate=_decimal(basis_payload, "basisRate"),
+            long_short_account_ratio=_decimal(long_short_payload, "longShortRatio"),
+            taker_buy_sell_ratio=_decimal(taker_payload, "buySellRatio"),
+            observed_at=min(
+                _timestamp(basis_payload, "timestamp"),
+                _timestamp(long_short_payload, "timestamp"),
+                _timestamp(taker_payload, "timestamp"),
+            ),
+            fetched_at=fetched_at,
+        )
 
     async def load_closed_candles(
         self,
@@ -328,6 +375,16 @@ def _list_payload(payload: object) -> list[object]:
             "公开 K 线响应格式无效",
         )
     return cast(list[object], payload)
+
+
+def _latest_metric_payload(payload: object) -> Mapping[str, object]:
+    rows = _list_payload(payload)
+    if not rows:
+        raise MarketDataUnavailableError(
+            "market_data_missing",
+            "公开衍生品指标响应为空",
+        )
+    return _mapping_payload(rows[-1])
 
 
 def _decimal(payload: Mapping[str, object], field: str) -> Decimal:

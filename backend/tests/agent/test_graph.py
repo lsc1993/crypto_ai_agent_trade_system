@@ -10,6 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 import app.agent.graph as agent_graph
 import app.agent.service as agent_service
+from app.agent.contracts import AgentErrorCode
 from app.agent.model import AgentAnalysisProposal, ModelOutputError, ResearchModelRequest
 from app.agent.service import (
     AgentResearchDependencies,
@@ -24,6 +25,7 @@ from app.market.contracts import (
     ContractSymbol,
     DataFreshness,
     FreshnessStatus,
+    MarketDataUnavailableError,
     MarketDetail,
     MarketSummary,
     MarketTimeframe,
@@ -32,6 +34,7 @@ from app.market.research import (
     PersistedMarketSnapshot,
     PersistedMarketSnapshotInput,
 )
+from app.market.research_context import PublicResearchContext
 from app.news.contracts import (
     NewsEventCategory,
     NewsItemDraft,
@@ -182,6 +185,20 @@ class RawCapture:
         return SNAPSHOT_ID
 
 
+class UnavailableResearchContextCollector:
+    async def collect(
+        self,
+        symbol: ContractSymbol,
+        *,
+        captured_at: datetime,
+    ) -> PublicResearchContext:
+        del symbol, captured_at
+        raise MarketDataUnavailableError(
+            "market_context_unavailable",
+            "upstream response must not be retained",
+        )
+
+
 class StaticMarketReader:
     def __init__(self, market: CapturedAgentMarket) -> None:
         self.market = market
@@ -305,6 +322,20 @@ async def test_persisted_market_capture_uses_immutable_snapshot_input_not_mutabl
     assert reader.recent_candle_calls == 0
     assert frozen.snapshot_input_sha256 == "b" * 64
     assert all(series.candles for series in frozen.detail.series)
+
+
+@pytest.mark.asyncio
+async def test_persisted_market_capture_keeps_snapshot_when_context_is_unavailable() -> None:
+    capture = PersistedAgentMarketCapture(
+        capture_service=cast(MarketCaptureService, RawCapture()),
+        reader=StaticMarketReader(_market()),
+        research_context=UnavailableResearchContextCollector(),
+    )
+
+    frozen = await capture.capture(ContractSymbol.BTCUSDT, captured_at=NOW)
+
+    assert frozen.research_context is None
+    assert frozen.research_context_error is AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE
 
 
 @pytest.mark.asyncio
@@ -456,6 +487,50 @@ async def test_graph_persists_market_only_completed_report_when_all_news_fail() 
     assert report.agent_analysis is not None
     assert report.agent_analysis.data_quality.source_coverage == "none"
     assert any("英文新闻" in item for item in report.limitations)
+
+
+@pytest.mark.asyncio
+async def test_graph_persists_public_context_as_separate_frozen_evidence() -> None:
+    repository = RecordingRepository()
+    model = RecordingModel()
+    report = await _service(
+        market=_market(research_context=_research_context()),
+        news=_collection(),
+        model=model,
+        repository=repository,
+    ).generate(ContractSymbol.BTCUSDT)
+
+    context_evidence = next(
+        evidence
+        for evidence in repository.creations[0].evidences
+        if evidence.source == "binance_usdm_public_context"
+    )
+
+    assert report.status is AnalysisReportStatus.COMPLETED
+    context_payload = cast(dict[str, object], context_evidence.payload["context"])
+    assert context_payload["fear_greed_value"] == 31
+    assert {evidence.source for evidence in model.requests[0].evidences} == {
+        "binance_usdm_public_context",
+        "binance_usdm_public_rest",
+    }
+
+
+@pytest.mark.asyncio
+async def test_graph_completes_with_a_visible_public_context_input_gap() -> None:
+    market = _market(
+        research_context_error=AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE,
+    )
+    report = await _service(
+        market=market,
+        news=_collection(),
+        model=RecordingModel(),
+        repository=RecordingRepository(),
+    ).generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.COMPLETED
+    assert report.agent_analysis is not None
+    assert "market_context_unavailable" in report.agent_analysis.data_quality.missing_inputs
+    assert any("市场上下文" in item for item in report.limitations)
 
 
 @pytest.mark.asyncio
@@ -674,6 +749,8 @@ def _market(
     *,
     captured_at: datetime = NOW,
     snapshot_input_sha256: str | None = None,
+    research_context: PublicResearchContext | None = None,
+    research_context_error: AgentErrorCode | None = None,
 ) -> CapturedAgentMarket:
     summary = MarketSummary(
         symbol=ContractSymbol.BTCUSDT,
@@ -697,6 +774,24 @@ def _market(
             series=tuple(_series(timeframe, captured_at) for timeframe in MarketTimeframe),
         ),
         snapshot_input_sha256=snapshot_input_sha256,
+        research_context=research_context,
+        research_context_error=research_context_error,
+    )
+
+
+def _research_context() -> PublicResearchContext:
+    return PublicResearchContext(
+        symbol=ContractSymbol.BTCUSDT,
+        basis_rate=Decimal("0.0004"),
+        long_short_account_ratio=Decimal("1.2345"),
+        taker_buy_sell_ratio=Decimal("0.8765"),
+        fear_greed_value=31,
+        fear_greed_classification="Fear",
+        fear_greed_change_7d=-8,
+        fear_greed_7d_start_at=NOW - timedelta(days=7),
+        freshness=FreshnessStatus.FRESH,
+        observed_at=NOW,
+        fetched_at=NOW,
     )
 
 

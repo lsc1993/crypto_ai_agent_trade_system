@@ -24,6 +24,7 @@ class AgentErrorCode(StrEnum):
     """Finite error identifiers that are safe to retain in a checkpoint."""
 
     NEWS_SOURCE_FAILED = "news_source_failed"
+    MARKET_CONTEXT_UNAVAILABLE = "market_context_unavailable"
     MARKET_RESEARCH_UNAVAILABLE = "market_research_unavailable"
     MARKET_DATA_INVALID = "market_data_invalid"
     MARKET_DATA_MISSING = "market_data_missing"

@@ -49,6 +49,11 @@ from app.market.research import (
     MarketResearchQueryService,
     PersistedMarketReader,
 )
+from app.market.research_context import (
+    ALTERNATIVE_ME_BASE_URL,
+    AlternativeMeFearGreedGateway,
+    PublicResearchContextCollector,
+)
 from app.market.service import MarketQueryService
 from app.news.contracts import COINDESK_SOURCE, SEC_PRESS_RELEASES_SOURCE
 from app.news.rss import RssNewsSourceAdapter
@@ -303,6 +308,25 @@ class _UnavailablePaperTradingRepository(PaperTradingRepository):
         _raise_paper_storage_unavailable()
 
 
+def build_public_research_context_collector(
+    *,
+    market_gateway: PublicMarketGateway,
+    alternative_client: httpx.AsyncClient,
+    clock: Callable[[], datetime],
+) -> PublicResearchContextCollector | None:
+    """Build the public-only context collector without replacing injected gateways."""
+
+    if not isinstance(market_gateway, BinanceUsdmPublicMarketGateway):
+        return None
+    return PublicResearchContextCollector(
+        derivatives=market_gateway,
+        fear_greed=AlternativeMeFearGreedGateway(
+            client=alternative_client,
+            clock=clock,
+        ),
+    )
+
+
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
@@ -387,6 +411,7 @@ def create_app(
         )
 
     news_client: httpx.AsyncClient | None = None
+    alternative_client: httpx.AsyncClient | None = None
     model_client: httpx.AsyncClient | None = None
     checkpoint_connection: str | None = None
     agent_service_factory: Callable[[AsyncPostgresSaver], AgentResearchService] | None = None
@@ -402,6 +427,12 @@ def create_app(
         and agent_report_repository is not None
     ):
         news_client = httpx.AsyncClient(headers={"Accept": "application/xml"})
+        if isinstance(market_gateway, BinanceUsdmPublicMarketGateway):
+            alternative_client = httpx.AsyncClient(
+                base_url=ALTERNATIVE_ME_BASE_URL,
+                headers={"Accept": "application/json"},
+                timeout=httpx.Timeout(settings.news_http_timeout_seconds),
+            )
         model_client = httpx.AsyncClient(
             timeout=httpx.Timeout(settings.agent_request_timeout_seconds),
         )
@@ -411,6 +442,15 @@ def create_app(
                 SqlAlchemyMarketRepository(session_factory),
             ),
             reader=cast(AgentSnapshotInputReader, market_research_reader),
+            research_context=(
+                None
+                if alternative_client is None
+                else build_public_research_context_collector(
+                    market_gateway=market_gateway,
+                    alternative_client=alternative_client,
+                    clock=lambda: datetime.now(UTC),
+                )
+            ),
         )
         news_ingestion = NewsIngestionService(
             sources=(
@@ -464,6 +504,8 @@ def create_app(
                 await model_client.aclose()
             if news_client is not None:
                 await news_client.aclose()
+            if alternative_client is not None:
+                await alternative_client.aclose()
             if market_client is not None:
                 await market_client.aclose()
             if research_engine is not None:

@@ -36,6 +36,7 @@ from app.market.research import (
     PersistedMarketSnapshot,
     PersistedMarketSnapshotInput,
 )
+from app.market.research_context import PublicResearchContext
 from app.news.contracts import ALLOWED_NEWS_SOURCES, NewsItemDraft
 from app.news.service import NewsCollection
 from app.reports.contracts import (
@@ -62,8 +63,9 @@ _TIMEFRAMES = (
 _CANDLE_LIMIT = 200
 _FRESHNESS_THRESHOLD = timedelta(minutes=2)
 _NEWS_WINDOW = timedelta(days=3)
-_MAX_NEWS_EVIDENCE = 29
+_MAX_NEWS_EVIDENCE = 28
 _MARKET_SOURCE_URL = "https://www.binance.com/en/futures/"
+_MARKET_CONTEXT_SOURCE_URL = "https://fapi.binance.com/"
 _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +78,8 @@ class CapturedAgentMarket:
     snapshot: PersistedMarketSnapshot
     detail: MarketDetail
     snapshot_input_sha256: str | None = None
+    research_context: PublicResearchContext | None = None
+    research_context_error: AgentErrorCode | None = None
 
 
 class AgentMarketCapture(Protocol):
@@ -106,6 +110,15 @@ class AgentNewsCollector(Protocol):
     ) -> NewsCollection: ...
 
 
+class AgentResearchContextCollector(Protocol):
+    async def collect(
+        self,
+        symbol: ContractSymbol,
+        *,
+        captured_at: datetime,
+    ) -> PublicResearchContext: ...
+
+
 class AgentReportPersister(Protocol):
     async def persist_agent(
         self,
@@ -121,9 +134,11 @@ class PersistedAgentMarketCapture:
         *,
         capture_service: MarketCaptureService,
         reader: AgentSnapshotInputReader,
+        research_context: AgentResearchContextCollector | None = None,
     ) -> None:
         self._capture_service = capture_service
         self._reader = reader
+        self._research_context = research_context
 
     async def capture(
         self,
@@ -159,11 +174,25 @@ class PersistedAgentMarketCapture:
                 for timeframe in _TIMEFRAMES
             ]
         )
+        context: PublicResearchContext | None = None
+        context_error: AgentErrorCode | None = None
+        if self._research_context is not None:
+            try:
+                context = await self._research_context.collect(
+                    symbol,
+                    captured_at=captured_at,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                context_error = AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE
         return CapturedAgentMarket(
             snapshot_id=snapshot_id,
             snapshot=snapshot,
             detail=MarketDetail(summary=snapshot.summary, series=series),
             snapshot_input_sha256=snapshot_input.payload_sha256,
+            research_context=context,
+            research_context_error=context_error,
         )
 
     def _closed_series(
@@ -309,6 +338,7 @@ class _AgentResearchRun:
     proposal: AgentAnalysisProposal | None = None
     degraded_error: AgentErrorCode | None = None
     market_evidence: _FrozenEvidence | None = None
+    market_context_evidence: _FrozenEvidence | None = None
     news_evidence: tuple[_FrozenEvidence, ...] = ()
     persisted_report: PersistedAnalysisReport | None = None
 
@@ -321,11 +351,17 @@ class _AgentResearchRun:
             self._validate_market(market, state.symbol)
             self.market = market
             self.market_evidence = _market_evidence(market)
+            self.market_context_evidence = (
+                None
+                if market.research_context is None
+                else _market_context_evidence(market.research_context)
+            )
             return self._update(
                 state,
                 node_name="collect_market",
                 snapshot_id=market.snapshot_id,
                 evidence_ids=self._evidence_ids(),
+                error_code=market.research_context_error,
             )
         except MarketDataUnavailableError as error:
             code = _safe_error_code(error.code)
@@ -547,12 +583,21 @@ class _AgentResearchRun:
         if (
             market.snapshot.summary.symbol is not symbol
             or market.detail.summary.symbol is not symbol
+            or (
+                market.research_context is not None
+                and market.research_context.symbol is not symbol
+            )
         ):
             raise ValueError("market symbol mismatch")
+        if market.research_context is not None and market.research_context_error is not None:
+            raise ValueError("market context state mismatch")
 
     def _evidences(self) -> tuple[_FrozenEvidence, ...]:
         market_evidence = () if self.market_evidence is None else (self.market_evidence,)
-        return market_evidence + self.news_evidence
+        context_evidence = (
+            () if self.market_context_evidence is None else (self.market_context_evidence,)
+        )
+        return market_evidence + context_evidence + self.news_evidence
 
     def _evidence_ids(self) -> tuple[UUID, ...]:
         return tuple(evidence.id for evidence in self._evidences())
@@ -630,6 +675,32 @@ def _news_evidences(items: tuple[NewsItemDraft, ...]) -> tuple[_FrozenEvidence, 
     return tuple(_news_evidence(item) for item in tuple(unique.values())[:_MAX_NEWS_EVIDENCE])
 
 
+def _market_context_evidence(context: PublicResearchContext) -> _FrozenEvidence:
+    payload: dict[str, JsonValue] = {
+        "context": context.model_dump(mode="json"),
+    }
+    return _FrozenEvidence(
+        id=uuid4(),
+        kind=ModelEvidenceKind.MARKET,
+        source="binance_usdm_public_context",
+        source_url=_MARKET_CONTEXT_SOURCE_URL,
+        observed_at=context.observed_at,
+        fetched_at=context.fetched_at,
+        summary="冻结的公开衍生品指标与市场情绪上下文。",
+        content=(
+            "Frozen public market context: "
+            f"basis_rate={context.basis_rate}, "
+            f"long_short_account_ratio={context.long_short_account_ratio}, "
+            f"taker_buy_sell_ratio={context.taker_buy_sell_ratio}, "
+            f"fear_greed_value={context.fear_greed_value}, "
+            f"fear_greed_classification={context.fear_greed_classification}, "
+            f"fear_greed_change_7d={context.fear_greed_change_7d}, "
+            f"fear_greed_7d_start_at={context.fear_greed_7d_start_at.isoformat()}."
+        ),
+        payload=payload,
+    )
+
+
 def _news_evidence(item: NewsItemDraft) -> _FrozenEvidence:
     source = ALLOWED_NEWS_SOURCES[item.source_id]
     source_url = str(item.canonical_url) if item.canonical_url is not None else str(source.feed_url)
@@ -694,7 +765,7 @@ def _completed_report(
 ) -> AnalysisReportDraft:
     if proposal is None or structure is None or market is None:
         raise RuntimeError("completed agent report requires frozen market and model proposal")
-    limitations = _limitations(news, proposal.limitations)
+    limitations = _limitations(news, proposal.limitations, market=market)
     return AnalysisReportDraft(
         id=report_id,
         analysis_id=analysis_id,
@@ -778,10 +849,10 @@ def _agent_analysis(
         risks_and_invalidation=proposal.risks_and_invalidation,
         data_quality=AgentDataQuality(
             freshness=freshness,
-            missing_inputs=() if _source_coverage(news) != "none" else ("english_news",),
+            missing_inputs=_missing_inputs(news, market),
             source_coverage=_source_coverage(news),
         ),
-        limitations=_limitations(news, proposal.limitations),
+        limitations=_limitations(news, proposal.limitations, market=market),
     )
 
 
@@ -823,16 +894,34 @@ def _source_coverage(news: NewsCollection | None) -> SourceCoverage:
 def _limitations(
     news: NewsCollection | None,
     proposal_limitations: tuple[str, ...],
+    *,
+    market: CapturedAgentMarket | None,
 ) -> tuple[str, ...]:
     limitations = list(dict.fromkeys(proposal_limitations))
-    source_coverage_limit: str | None = None
+    input_limits: list[str] = []
     if _source_coverage(news) == "none":
-        source_coverage_limit = "英文新闻来源暂不可用，报告仅基于冻结公开行情。"
+        input_limits.append("英文新闻来源暂不可用，报告仅基于冻结公开行情。")
     elif _source_coverage(news) == "partial":
-        source_coverage_limit = "部分英文新闻来源不可用，来源覆盖不完整。"
-    if source_coverage_limit is None:
-        return tuple(limitations[:12])
-    return tuple((*limitations[:11], source_coverage_limit))
+        input_limits.append("部分英文新闻来源不可用，来源覆盖不完整。")
+    if (
+        market is not None
+        and market.research_context_error is AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE
+    ):
+        input_limits.append("公开市场上下文暂不可用，未纳入衍生品与情绪指标。")
+    return tuple((*limitations[: 12 - len(input_limits)], *input_limits))
+
+
+def _missing_inputs(
+    news: NewsCollection | None,
+    market: CapturedAgentMarket | None,
+) -> tuple[str, ...]:
+    missing = [] if _source_coverage(news) != "none" else ["english_news"]
+    if (
+        market is not None
+        and market.research_context_error is AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE
+    ):
+        missing.append(AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE.value)
+    return tuple(missing)
 
 
 def _bounded_confidence(
