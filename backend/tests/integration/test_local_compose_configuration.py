@@ -94,7 +94,16 @@ def test_compose_declares_only_safe_local_services(tmp_path: Path) -> None:
     volumes = cast(dict[str, dict[str, str]], configuration["volumes"])
     assert set(volumes) == {"postgres_data"}
     assert volumes["postgres_data"]["name"] == "crypto_research_postgres_data"
-    assert postgres.get("ports") is None
+    postgres_ports = cast(list[dict[str, object]], postgres["ports"])
+    assert postgres_ports == [
+        {
+            "host_ip": "127.0.0.1",
+            "target": 5432,
+            "published": "5433",
+            "protocol": "tcp",
+            "mode": "ingress",
+        }
+    ]
     assert postgres["healthcheck"]
     assert api["healthcheck"]
     api_depends_on = cast(dict[str, dict[str, str]], api["depends_on"])
@@ -120,6 +129,12 @@ def test_compose_declares_only_safe_local_services(tmp_path: Path) -> None:
         "VITE_DATA_MODE": "api",
         "VITE_API_BASE_URL": "http://localhost:8080",
     }
+
+
+def test_compose_reserves_loopback_postgres_port_for_test_database() -> None:
+    compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+
+    assert 'ports: ["127.0.0.1:5433:5432"]' in compose
 
 
 def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
@@ -228,12 +243,16 @@ def test_environment_template_has_unique_synchronized_compose_values() -> None:
     assert "# Compose local deployment" in template
 
     database_url = urlsplit(values["DATABASE_URL"])
+    test_database_url = urlsplit(values["TEST_DATABASE_URL"])
     password = values["POSTGRES_PASSWORD"]
     assert quote(password, safe="") == password
     assert database_url.username == values["POSTGRES_USER"]
     assert database_url.password == password
     assert database_url.hostname == "postgres"
     assert database_url.path == f"/{values['POSTGRES_DB']}"
+    assert test_database_url.hostname == "127.0.0.1"
+    assert test_database_url.port == 5433
+    assert test_database_url.path == "/crypto_research_test"
 
 
 def test_dockerignore_excludes_local_configuration_and_generated_state() -> None:
