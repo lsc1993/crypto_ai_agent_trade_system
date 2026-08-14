@@ -112,18 +112,29 @@ async def test_analysis_post_and_detail_expose_only_validated_agent_detail() -> 
 
 
 @pytest.mark.asyncio
-async def test_analysis_detail_exposes_dual_horizon_narrative_in_camel_case() -> None:
+async def test_manual_report_returns_dual_horizon_chinese_narrative_and_partial_coverage() -> None:
     report = _dual_horizon_report()
+    service = FakeAgentService(report)
     app = create_app(
         market_research_reader=UnusedMarketReader(),
         analysis_report_repository=ReportReader(report),  # type: ignore[arg-type]
-        agent_research_service=FakeAgentService(report),
+        agent_research_service=service,
     )
 
-    detail = await _request(app, "GET", f"/api/v1/analysis-runs/{REPORT_ID}")
+    created = await _request(app, "POST", "/api/v1/analysis-runs", {"symbol": "BTCUSDT"})
+    detail = await _request(
+        app,
+        "GET",
+        f"/api/v1/analysis-runs/{created.json()['reportId']}",
+    )
 
+    assert created.status_code == 201
+    assert service.calls == [ContractSymbol.BTCUSDT]
     assert detail.status_code == 200
-    narrative = detail.json()["agentAnalysis"]["narrative"]
+    analysis = detail.json()["agentAnalysis"]
+    assert analysis["horizon"] == "dual_horizon"
+    assert analysis["dataQuality"]["sourceCoverage"] == "partial"
+    narrative = analysis["narrative"]
     assert narrative["marketOverview"]["headline"] == "流动性回暖但趋势尚未确认"
     assert narrative["shortTerm"]["horizon"] == "short_term"
     assert narrative["longTerm"]["drivers"][0]["evidenceIds"] == [str(EVIDENCE_ID)]

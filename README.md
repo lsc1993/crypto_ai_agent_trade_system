@@ -4,9 +4,11 @@
 
 ## 按需市场研究
 
-在“报告”页手动点击“抓取公开行情与英文新闻并分析”，可针对 BTCUSDT 或 ETHUSDT 生成未来 1–3 天的只读研究。输入只来自公开行情与已登记的英文 RSS 来源：SEC Press Releases、CFTC Press Releases、Federal Reserve Press Releases、U.S. Treasury Press Releases、CoinDesk、Decrypt、Blockworks、The Block；报告展示市场研判、关键支撑与阻力、潜在催化事件、风险与失效条件，并链接本次冻结的证据。
+在“报告”页手动点击“抓取公开行情与英文新闻并分析”，可针对 BTCUSDT 或 ETHUSDT 生成中文的只读市场研究。报告先给出市场概况，再分别呈现短期（数天至两周）与长期（数周至数月）观点、关键支撑与阻力、潜在催化事件及风险与失效条件；每项模型观点都链接至本次冻结的证据。
 
-DeepSeek 只在本机未跟踪运行时环境提供密钥后参与受限 JSON 格式化；没有密钥时会产生可审计的降级报告。系统不使用模型工具或私有交易所接口，也不提供投资建议、交易指令或真实下单。
+输入只使用公开、只读数据：Binance USDⓈ-M 的公开行情和衍生品指标、[Alternative.me Fear & Greed Index](https://alternative.me/crypto/fear-and-greed-index/)（报告中保留归因），以及已登记的英文 RSS 标题与摘要。RSS 来源固定为 SEC Press Releases、CFTC Press Releases、Federal Reserve Press Releases、U.S. Treasury Press Releases、CoinDesk、Decrypt、Blockworks 和 The Block。单一来源失败会明确显示为部分覆盖，不会用历史数据冒充本次输入。
+
+DeepSeek 只在本机未跟踪运行时环境提供密钥后参与受限 JSON 格式化；在根目录未跟踪的 `.env` 中设置自己的 `DEEPSEEK_API_KEY`，绝不将其复制到代码、日志或提交。没有密钥时会产生可审计的降级报告。系统不使用模型工具或私有交易所接口，也不提供投资建议、交易指令或真实下单。本地问题排查可参考[本地部署指南](docs/local-deployment.md)中的安全 DEBUG 步骤。
 
 ## 三步启动
 

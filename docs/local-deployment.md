@@ -17,7 +17,7 @@ docker compose ps
 
 浏览器访问 `http://localhost:8080`。健康检查分别为 API 的 `http://localhost:8000/healthz`，以及由前端代理的 `http://localhost:8080/healthz`。
 
-进入“报告”页后，选择 BTCUSDT 或 ETHUSDT 并点击“抓取公开行情与英文新闻并分析”。该操作按需抓取公开行情与许可英文来源，生成带冻结证据的未来 1–3 天研究；它不创建交易指令、不访问真实账户，也不会自动轮询或持续抓取。
+进入“报告”页后，选择 BTCUSDT 或 ETHUSDT 并点击“抓取公开行情与英文新闻并分析”。该操作按需抓取公开 Binance USDⓈ-M 行情、Alternative.me 情绪读数，以及八个受治理英文 RSS 来源的标题和摘要；它生成带冻结证据的中文短期（数天至两周）与长期（数周至数月）市场观点。单一来源失败会显示为部分覆盖，不会回退到旧数据；模型不可用或输出无效时会保存降级报告。该操作不创建交易指令、不访问真实账户，也不会自动轮询或持续抓取。
 
 ## 安全升级、停止与排障
 
@@ -32,3 +32,23 @@ docker compose down
 该操作保留命名的数据库 volume，便于后续继续使用本地数据。遇到启动或健康检查失败时，先执行 `docker compose ps`，再按需使用安全日志命令（例如 `docker compose logs api` 或 `docker compose logs frontend`）诊断；不要删除卷、编辑迁移记录或提供交易所凭据。
 
 Docker 仅按需启动这些本地服务，未引入后台行情采集器或其他后台进程。真实下单不支持。
+
+## 安全调试研究任务
+
+仅在本地排查一次任务时，临时将未跟踪根目录 `.env` 中的 `LOG_LEVEL` 改为 `DEBUG`，然后重建 API：
+
+```powershell
+docker compose up -d --build --force-recreate api
+```
+
+在页面手动发起一次研究后，查看生命周期日志：
+
+```powershell
+docker compose logs --tail=200 api
+```
+
+应只关注 JSON 日志中的 `agent_research_started`、`agent_research_completed` 或 `agent_research_failed`，以及 `analysis_id`、`symbol`、`report_id`、`status`、`phase`、`duration_ms` 和安全的 `error_type` 字段。日志不会包含密钥、完整 Prompt、模型原始响应、新闻全文或证据载荷；不要尝试打印环境变量值。排查结束后将同一未跟踪 `.env` 恢复为 `LOG_LEVEL=INFO`，再重建 API：
+
+```powershell
+docker compose up -d --build --force-recreate api
+```

@@ -389,7 +389,7 @@ class DualHorizonReportDetailApi extends ControlledReportDetailApi {
           dataQuality: {
             freshness: "fresh",
             missingInputs: [],
-            sourceCoverage: "complete",
+            sourceCoverage: "partial",
           },
           limitations: ["报告仅基于本次冻结的公开证据，不构成交易指令。"],
           narrative: {
@@ -906,7 +906,7 @@ describe("ReportDetailPage", () => {
     expect(catalysts).toHaveTextContent("公开英文新闻");
     expect(risks).toHaveTextContent("冻结市场结构");
     expect(
-      screen.getByText("来源覆盖：完整"),
+      screen.getByText("来源覆盖：部分覆盖"),
     ).toBeVisible();
     expect(screen.getByText("模型置信度：中等")).toBeVisible();
     for (const evidenceLink of within(shortTerm).getAllByRole("link", {

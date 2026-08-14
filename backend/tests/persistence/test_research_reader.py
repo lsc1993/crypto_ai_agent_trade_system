@@ -119,7 +119,8 @@ async def test_repository_persists_a_hash_verified_immutable_input_per_snapshot(
     migrated_database: MigratedDatabase,
 ) -> None:
     candles = tuple(
-        _candle(open_at=NEWER_CAPTURED_AT - timedelta(minutes=15 * index)) for index in range(3)
+        _candle(open_at=NEWER_CAPTURED_AT - timedelta(minutes=15 * (index + 1)))
+        for index in range(3)
     )
     batch = _market_capture_batch(
         captured_at=NEWER_CAPTURED_AT,
