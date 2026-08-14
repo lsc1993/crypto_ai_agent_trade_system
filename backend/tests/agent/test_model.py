@@ -10,6 +10,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+import app.agent.model as agent_model
 from app.agent.market_structure import MarketStructure
 from app.agent.model import (
     AgentAnalysisProposal,
@@ -19,7 +20,7 @@ from app.agent.model import (
     ModelOutputError,
     ResearchModelRequest,
 )
-from app.agent.prompt import research_user_message
+from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import ContractSymbol, MarketTimeframe
 from app.reports.contracts import (
     Catalyst,
@@ -32,6 +33,23 @@ from app.reports.contracts import (
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "agent"
 MARKET_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000001")
 NEWS_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000002")
+
+
+class RecordingLogger:
+    def __init__(self) -> None:
+        self.entries: list[dict[str, object]] = []
+
+    def info(self, event: str, **fields: object) -> None:
+        self.entries.append({"event": event, "log_level": "info", **fields})
+
+    def debug(self, event: str, **fields: object) -> None:
+        self.entries.append({"event": event, "log_level": "debug", **fields})
+
+
+def _record_model_logs(monkeypatch: pytest.MonkeyPatch) -> RecordingLogger:
+    logger = RecordingLogger()
+    monkeypatch.setattr(agent_model, "logger", logger)
+    return logger
 
 
 @pytest.mark.asyncio
@@ -65,6 +83,146 @@ async def test_deepseek_model_posts_one_json_request_without_tools() -> None:
     assert "JSON" in payload["messages"][0]["content"]
     assert "UNTRUSTED_NEWS_CONTENT" in payload["messages"][0]["content"]
     assert proposal.catalysts[0].evidence_ids == (MARKET_EVIDENCE_ID,)
+
+
+@pytest.mark.asyncio
+async def test_deepseek_model_explicitly_disables_thinking_for_json_formatting() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=_fixture("deepseek_completed.json"))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+
+        await model.generate(_request())
+
+    assert json.loads(requests[0].content)["thinking"] == {"type": "disabled"}
+
+
+def test_system_prompt_includes_a_complete_json_schema_example() -> None:
+    prompt = system_prompt()
+
+    assert '"horizon"' in prompt
+    assert '"1_to_3_days"' in prompt
+    assert '"outlook"' in prompt
+    assert '"neutral"' in prompt
+    assert '"risks_and_invalidation"' in prompt
+    assert '"evidence_ids"' in prompt
+
+
+@pytest.mark.asyncio
+async def test_deepseek_model_logs_safe_request_lifecycle_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_model_logs(monkeypatch)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=_fixture("deepseek_completed.json"))
+        ),
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+        await model.generate(_request(news_content="LEAKED_NEWS_BODY"))
+
+    logs = logger.entries
+    events = {entry["event"]: entry for entry in logs}
+    assert events["agent_model_request_started"] == {
+        "event": "agent_model_request_started",
+        "log_level": "info",
+        "model": "deepseek-v4-flash",
+    }
+    assert events["agent_model_request_completed"] == {
+        "event": "agent_model_request_completed",
+        "log_level": "info",
+        "model": "deepseek-v4-flash",
+    }
+    completed_details = next(
+        entry
+        for entry in logs
+        if entry["event"] == "agent_model_request_details" and entry["phase"] == "completed"
+    )
+    assert completed_details["evidence_count"] == 2
+    assert isinstance(completed_details["duration_ms"], int)
+    assert completed_details["duration_ms"] >= 0
+    serialized = repr(logs)
+    assert "test-key" not in serialized
+    assert "LEAKED_NEWS_BODY" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_deepseek_model_logs_only_safe_code_for_empty_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_model_logs(monkeypatch)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"choices": []})),
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+        with pytest.raises(ModelOutputError):
+            await model.generate(_request(news_content="LEAKED_NEWS_BODY"))
+
+    logs = logger.entries
+    failed = next(entry for entry in logs if entry["event"] == "agent_model_request_failed")
+    assert failed["log_level"] == "info"
+    assert failed["error_code"] == "model_empty_response"
+    failed_details = next(
+        entry
+        for entry in logs
+        if entry["event"] == "agent_model_request_details" and entry["phase"] == "failed"
+    )
+    assert failed_details["evidence_count"] == 2
+    assert isinstance(failed_details["duration_ms"], int)
+    assert "test-key" not in repr(logs)
+    assert "LEAKED_NEWS_BODY" not in repr(logs)
+
+
+@pytest.mark.asyncio
+async def test_deepseek_model_logs_started_and_safe_failure_when_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_model_logs(monkeypatch)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: pytest.fail("model must not be called")),
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=None,
+            model="deepseek-v4-flash",
+        )
+        with pytest.raises(ModelOutputError):
+            await model.generate(_request(news_content="LEAKED_NEWS_BODY"))
+
+    logs = logger.entries
+    started = logs[0]
+    assert started == {
+        "event": "agent_model_request_started",
+        "log_level": "info",
+        "model": "deepseek-v4-flash",
+    }
+    failure = next(entry for entry in logs if entry["event"] == "agent_model_request_failed")
+    assert failure["log_level"] == "info"
+    assert failure["error_code"] == "model_not_configured"
+    failed_details = next(
+        entry
+        for entry in logs
+        if entry["event"] == "agent_model_request_details" and entry["phase"] == "failed"
+    )
+    assert failed_details["evidence_count"] == 2
+    assert isinstance(failed_details["duration_ms"], int)
+    assert "LEAKED_NEWS_BODY" not in repr(logs)
 
 
 @pytest.mark.asyncio

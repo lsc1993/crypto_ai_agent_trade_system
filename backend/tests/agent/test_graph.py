@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
+import app.agent.graph as agent_graph
+import app.agent.service as agent_service
 from app.agent.model import AgentAnalysisProposal, ModelOutputError, ResearchModelRequest
 from app.agent.service import (
     AgentResearchDependencies,
@@ -49,6 +51,24 @@ from app.reports.contracts import (
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 SNAPSHOT_ID = UUID("00000000-0000-0000-0000-000000000701")
+
+
+class RecordingLogger:
+    def __init__(self) -> None:
+        self.entries: list[dict[str, object]] = []
+
+    def info(self, event: str, **fields: object) -> None:
+        self.entries.append({"event": event, "log_level": "info", **fields})
+
+    def debug(self, event: str, **fields: object) -> None:
+        self.entries.append({"event": event, "log_level": "debug", **fields})
+
+
+def _record_agent_logs(monkeypatch: pytest.MonkeyPatch) -> RecordingLogger:
+    logger = RecordingLogger()
+    monkeypatch.setattr(agent_graph, "logger", logger)
+    monkeypatch.setattr(agent_service, "logger", logger)
+    return logger
 
 
 class FakeMarketCapture:
@@ -144,6 +164,12 @@ class RecordingRepository:
         )
 
 
+class FailingRepository:
+    async def persist_agent(self, creation: AgentReportCreation) -> PersistedAnalysisReport:
+        del creation
+        raise RuntimeError("LEAKED_DATABASE_URL")
+
+
 class RawCapture:
     async def capture_symbol(
         self,
@@ -190,9 +216,7 @@ class StaticMarketReader:
         limit: int,
     ) -> tuple[Candle, ...]:
         del symbol, limit
-        series = next(
-            item for item in self.market.detail.series if item.timeframe is timeframe
-        )
+        series = next(item for item in self.market.detail.series if item.timeframe is timeframe)
         return series.candles
 
 
@@ -228,9 +252,7 @@ class ImmutableInputMarketReader(StaticMarketReader):
 @pytest.mark.asyncio
 async def test_persisted_market_capture_excludes_candles_after_run_start() -> None:
     market = _market()
-    h1 = next(
-        series for series in market.detail.series if series.timeframe is MarketTimeframe.H1
-    )
+    h1 = next(series for series in market.detail.series if series.timeframe is MarketTimeframe.H1)
     future = h1.candles[-1].model_copy(
         update={
             "open_at": NOW + timedelta(hours=1),
@@ -265,9 +287,7 @@ async def test_persisted_market_capture_excludes_candles_after_run_start() -> No
     frozen = await capture.capture(ContractSymbol.BTCUSDT, captured_at=NOW)
 
     assert all(
-        candle.close_at <= NOW
-        for series in frozen.detail.series
-        for candle in series.candles
+        candle.close_at <= NOW for series in frozen.detail.series for candle in series.candles
     )
 
 
@@ -284,10 +304,7 @@ async def test_persisted_market_capture_uses_immutable_snapshot_input_not_mutabl
 
     assert reader.recent_candle_calls == 0
     assert frozen.snapshot_input_sha256 == "b" * 64
-    assert all(
-        series.candles
-        for series in frozen.detail.series
-    )
+    assert all(series.candles for series in frozen.detail.series)
 
 
 @pytest.mark.asyncio
@@ -466,9 +483,7 @@ async def test_graph_bounds_model_limitations_before_adding_source_coverage_limi
     service = _service(
         market=market,
         news=_collection(failures=2),
-        model=LimitedProposalModel(
-            tuple(f"Model limitation {index}." for index in range(12))
-        ),
+        model=LimitedProposalModel(tuple(f"Model limitation {index}." for index in range(12))),
         repository=repository,
     )
 
@@ -482,7 +497,10 @@ async def test_graph_bounds_model_limitations_before_adding_source_coverage_limi
 
 
 @pytest.mark.asyncio
-async def test_graph_retries_empty_model_output_once_then_persists_degraded() -> None:
+async def test_graph_retries_empty_model_output_once_then_persists_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_agent_logs(monkeypatch)
     model = RecordingModel(
         [
             ModelOutputError("model_empty_response", "empty"),
@@ -498,8 +516,98 @@ async def test_graph_retries_empty_model_output_once_then_persists_degraded() ->
 
     report = await service.generate(ContractSymbol.BTCUSDT)
 
+    logs = logger.entries
     assert report.status is AnalysisReportStatus.DEGRADED
     assert len(model.requests) == 2
+    retry = next(entry for entry in logs if entry["event"] == "agent_model_empty_response_retry")
+    assert retry["log_level"] == "info"
+    assert retry["attempt"] == 2
+    assert retry["error_code"] == "model_empty_response"
+
+
+@pytest.mark.asyncio
+async def test_agent_run_logs_safe_lifecycle_and_node_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_agent_logs(monkeypatch)
+    service = _service(
+        market=_market(),
+        news=_collection(items=(_news_item("safe", "LEAKED_NEWS_BODY"),)),
+        model=RecordingModel(),
+        repository=RecordingRepository(),
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    logs = logger.entries
+    events = [entry["event"] for entry in logs]
+    assert events[0] == "agent_research_started"
+    assert "agent_research_completed" in events
+    assert events.count("agent_research_node_started") == 5
+    assert events.count("agent_research_node_completed") == 5
+    assert events.count("agent_research_node_details") == 5
+    completed = next(entry for entry in logs if entry["event"] == "agent_research_completed")
+    assert completed["analysis_id"] == str(report.analysis_id)
+    assert completed["symbol"] == "BTCUSDT"
+    assert completed["report_id"] == str(report.id)
+    assert completed["status"] == "completed"
+    run_details = next(
+        entry
+        for entry in logs
+        if entry["event"] == "agent_research_run_details" and entry["phase"] == "completed"
+    )
+    assert isinstance(run_details["duration_ms"], int)
+    assert run_details["duration_ms"] >= 0
+    node_details = [
+        entry
+        for entry in logs
+        if entry["event"] == "agent_research_node_details" and entry["phase"] == "completed"
+    ]
+    assert all(isinstance(entry["duration_ms"], int) for entry in node_details)
+    serialized = repr(logs)
+    assert "LEAKED_NEWS_BODY" not in serialized
+    assert "api_key" not in serialized.lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_run_logs_safe_node_and_run_failure_when_persistence_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_agent_logs(monkeypatch)
+    service = AgentResearchService(
+        dependencies=AgentResearchDependencies(
+            market=FakeMarketCapture(_market()),
+            news=FakeNewsIngestion(_collection()),
+            model=RecordingModel(),
+            repository=FailingRepository(),
+            clock=lambda: NOW,
+        )
+    )
+
+    with pytest.raises(RuntimeError):
+        await service.generate(ContractSymbol.BTCUSDT)
+
+    logs = logger.entries
+    node_failure = next(entry for entry in logs if entry["event"] == "agent_research_node_failed")
+    assert node_failure["log_level"] == "info"
+    assert node_failure["node_name"] == "validate_and_persist_report"
+    run_failure = next(entry for entry in logs if entry["event"] == "agent_research_failed")
+    assert run_failure["log_level"] == "info"
+    node_failure_details = next(
+        entry
+        for entry in logs
+        if entry["event"] == "agent_research_node_details" and entry["phase"] == "failed"
+    )
+    assert node_failure_details["error_type"] == "RuntimeError"
+    assert isinstance(node_failure_details["duration_ms"], int)
+    run_failure_details = next(
+        entry
+        for entry in logs
+        if entry["event"] == "agent_research_run_details" and entry["phase"] == "failed"
+    )
+    assert run_failure_details["error_type"] == "RuntimeError"
+    serialized = repr(logs)
+    assert "LEAKED_DATABASE_URL" not in serialized
 
 
 @pytest.mark.asyncio
@@ -530,9 +638,7 @@ async def test_checkpoint_state_and_metadata_do_not_include_research_payloads() 
     )
 
     report = await service.generate(ContractSymbol.BTCUSDT)
-    checkpoints = tuple(
-        checkpointer.list({"configurable": {"thread_id": str(report.analysis_id)}})
-    )
+    checkpoints = tuple(checkpointer.list({"configurable": {"thread_id": str(report.analysis_id)}}))
     serialized = repr(checkpoints).casefold()
 
     assert checkpoints

@@ -4,10 +4,12 @@ import json
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from time import perf_counter
 from typing import Literal, Protocol, cast
 from uuid import UUID
 
 import httpx
+import structlog
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -31,6 +33,7 @@ from app.reports.contracts import (
 _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 _MAX_TOKENS = 1_200
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
+logger = structlog.get_logger(__name__)
 
 
 class ModelEvidenceKind(StrEnum):
@@ -130,44 +133,104 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         self._model = model
 
     async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal:
+        started_at = perf_counter()
+        logger.info(
+            "agent_model_request_started",
+            model=self._model,
+        )
+        logger.debug(
+            "agent_model_request_details",
+            model=self._model,
+            phase="started",
+            evidence_count=len(request.evidences),
+        )
         api_key = self._api_key
         secret_value = "" if api_key is None else api_key.get_secret_value().strip()
         if not secret_value:
+            logger.info(
+                "agent_model_request_failed",
+                model=self._model,
+                error_code="model_not_configured",
+            )
+            logger.debug(
+                "agent_model_request_details",
+                model=self._model,
+                phase="failed",
+                evidence_count=len(request.evidences),
+                duration_ms=_duration_ms(started_at),
+            )
             raise ModelOutputError("model_not_configured", "DeepSeek 模型密钥未配置")
         try:
-            response = await self._client.post(
-                _DEEPSEEK_COMPLETIONS_URL,
-                headers={"Authorization": f"Bearer {secret_value}"},
-                json={
-                    "model": self._model,
-                    "messages": (
-                        {"role": "system", "content": system_prompt()},
-                        {"role": "user", "content": research_user_message(request)},
-                    ),
-                    "response_format": {"type": "json_object"},
-                    "max_tokens": _MAX_TOKENS,
-                },
+            try:
+                response = await self._client.post(
+                    _DEEPSEEK_COMPLETIONS_URL,
+                    headers={"Authorization": f"Bearer {secret_value}"},
+                    json={
+                        "model": self._model,
+                        "messages": (
+                            {"role": "system", "content": system_prompt()},
+                            {"role": "user", "content": research_user_message(request)},
+                        ),
+                        "response_format": {"type": "json_object"},
+                        "thinking": {"type": "disabled"},
+                        "max_tokens": _MAX_TOKENS,
+                    },
+                )
+                response.raise_for_status()
+            except httpx.TimeoutException as error:
+                raise ModelOutputError("model_timeout", "DeepSeek 研究请求超时") from error
+            except httpx.HTTPStatusError as error:
+                raise ModelOutputError("model_upstream_error", "DeepSeek 研究请求失败") from error
+            except httpx.HTTPError as error:
+                raise ModelOutputError("model_transport_error", "DeepSeek 研究连接失败") from error
+            logger.debug(
+                "agent_model_response_received",
+                model=self._model,
+                status_code=response.status_code,
+                duration_ms=_duration_ms(started_at),
             )
-            response.raise_for_status()
-        except httpx.TimeoutException as error:
-            raise ModelOutputError("model_timeout", "DeepSeek 研究请求超时") from error
-        except httpx.HTTPStatusError as error:
-            raise ModelOutputError("model_upstream_error", "DeepSeek 研究请求失败") from error
-        except httpx.HTTPError as error:
-            raise ModelOutputError("model_transport_error", "DeepSeek 研究连接失败") from error
+            content = _response_content(response)
+            try:
+                proposal = AgentAnalysisProposal.model_validate_json(content)
+            except (ValidationError, ValueError, json.JSONDecodeError) as error:
+                raise ModelOutputError(
+                    "model_invalid_response",
+                    "DeepSeek 返回了无效研究 JSON",
+                ) from error
+            if proposal.horizon != request.horizon:
+                raise ModelOutputError("model_invalid_response", "DeepSeek 返回了无效研究窗口")
+            _require_known_evidence_ids(proposal, request.evidences)
+        except ModelOutputError as error:
+            logger.info(
+                "agent_model_request_failed",
+                model=self._model,
+                error_code=error.code,
+            )
+            logger.debug(
+                "agent_model_request_details",
+                model=self._model,
+                phase="failed",
+                evidence_count=len(request.evidences),
+                duration_ms=_duration_ms(started_at),
+            )
+            raise
+        else:
+            logger.info(
+                "agent_model_request_completed",
+                model=self._model,
+            )
+            logger.debug(
+                "agent_model_request_details",
+                model=self._model,
+                phase="completed",
+                evidence_count=len(request.evidences),
+                duration_ms=_duration_ms(started_at),
+            )
+            return proposal
 
-        content = _response_content(response)
-        try:
-            proposal = AgentAnalysisProposal.model_validate_json(content)
-        except (ValidationError, ValueError, json.JSONDecodeError) as error:
-            raise ModelOutputError(
-                "model_invalid_response",
-                "DeepSeek 返回了无效研究 JSON",
-            ) from error
-        if proposal.horizon != request.horizon:
-            raise ModelOutputError("model_invalid_response", "DeepSeek 返回了无效研究窗口")
-        _require_known_evidence_ids(proposal, request.evidences)
-        return proposal
+
+def _duration_ms(started_at: float) -> int:
+    return max(0, round((perf_counter() - started_at) * 1_000))
 
 
 def _response_content(response: httpx.Response) -> str:

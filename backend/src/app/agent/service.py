@@ -4,9 +4,11 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 
+import structlog
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import JsonValue
 
@@ -63,6 +65,7 @@ _NEWS_WINDOW = timedelta(days=3)
 _MAX_NEWS_EVIDENCE = 29
 _MARKET_SOURCE_URL = "https://www.binance.com/en/futures/"
 _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -177,8 +180,7 @@ class PersistedAgentMarketCapture:
             if candle.symbol is symbol and candle.timeframe is timeframe
         )
         if any(
-            candle.symbol is not symbol or candle.timeframe is not timeframe
-            for candle in candles
+            candle.symbol is not symbol or candle.timeframe is not timeframe for candle in candles
         ):
             raise MarketDataUnavailableError(
                 AgentErrorCode.MARKET_DATA_INVALID.value,
@@ -233,16 +235,52 @@ class AgentResearchService:
             started_at=started_at,
         )
         graph = build_agent_graph(run, checkpointer=self._checkpointer)
-        await graph.ainvoke(
-            AgentRunState(
-                analysis_id=run.analysis_id,
-                symbol=symbol,
-                started_at=started_at,
-            ),
-            config={"configurable": {"thread_id": str(run.analysis_id)}},
+        run_started_at = perf_counter()
+        logger.info(
+            "agent_research_started",
+            analysis_id=str(run.analysis_id),
+            symbol=symbol.value,
         )
-        if run.persisted_report is None:
-            raise RuntimeError("Agent 图未持久化终态报告")
+        try:
+            await graph.ainvoke(
+                AgentRunState(
+                    analysis_id=run.analysis_id,
+                    symbol=symbol,
+                    started_at=started_at,
+                ),
+                config={"configurable": {"thread_id": str(run.analysis_id)}},
+            )
+            if run.persisted_report is None:
+                raise RuntimeError("Agent 图未持久化终态报告")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.info(
+                "agent_research_failed",
+                analysis_id=str(run.analysis_id),
+                symbol=symbol.value,
+            )
+            logger.debug(
+                "agent_research_run_details",
+                analysis_id=str(run.analysis_id),
+                phase="failed",
+                error_type=type(error).__name__,
+                duration_ms=_duration_ms(run_started_at),
+            )
+            raise
+        logger.info(
+            "agent_research_completed",
+            analysis_id=str(run.analysis_id),
+            symbol=symbol.value,
+            report_id=str(run.persisted_report.id),
+            status=run.persisted_report.status.value,
+        )
+        logger.debug(
+            "agent_research_run_details",
+            analysis_id=str(run.analysis_id),
+            phase="completed",
+            duration_ms=_duration_ms(run_started_at),
+        )
         return run.persisted_report
 
 
@@ -322,11 +360,7 @@ class _AgentResearchRun:
             )
 
         self.news_evidence = _news_evidences(self.news.items)
-        error_code = (
-            AgentErrorCode.NEWS_SOURCE_FAILED
-            if self.news.failed_source_count
-            else None
-        )
+        error_code = AgentErrorCode.NEWS_SOURCE_FAILED if self.news.failed_source_count else None
         return self._update(
             state,
             node_name="collect_news",
@@ -447,6 +481,13 @@ class _AgentResearchRun:
         except ModelOutputError as error:
             if error.code != AgentErrorCode.MODEL_EMPTY_RESPONSE.value:
                 raise
+        logger.info(
+            "agent_model_empty_response_retry",
+            analysis_id=str(self.analysis_id),
+            symbol=self.symbol.value,
+            attempt=2,
+            error_code=AgentErrorCode.MODEL_EMPTY_RESPONSE.value,
+        )
         return await model.generate(request)
 
     async def _persist(self, *, completed: bool) -> None:
@@ -510,9 +551,7 @@ class _AgentResearchRun:
             raise ValueError("market symbol mismatch")
 
     def _evidences(self) -> tuple[_FrozenEvidence, ...]:
-        market_evidence = (
-            () if self.market_evidence is None else (self.market_evidence,)
-        )
+        market_evidence = () if self.market_evidence is None else (self.market_evidence,)
         return market_evidence + self.news_evidence
 
     def _evidence_ids(self) -> tuple[UUID, ...]:
@@ -533,27 +572,30 @@ class _AgentResearchRun:
         errors = state.error_codes
         if error_code is not None and error_code not in errors:
             errors = (*errors, error_code)
+        resolved_snapshot_id = state.snapshot_id if snapshot_id is None else snapshot_id
+        resolved_evidence_ids = state.evidence_ids if evidence_ids is None else evidence_ids
+        resolved_news_source_count = (
+            state.news_source_count if news_source_count is None else news_source_count
+        )
+        resolved_news_success_count = (
+            state.news_success_count if news_success_count is None else news_success_count
+        )
+        resolved_news_failure_count = (
+            state.news_failure_count if news_failure_count is None else news_failure_count
+        )
         return {
-            "snapshot_id": state.snapshot_id if snapshot_id is None else snapshot_id,
-            "evidence_ids": state.evidence_ids if evidence_ids is None else evidence_ids,
-            "news_source_count": (
-                state.news_source_count
-                if news_source_count is None
-                else news_source_count
-            ),
-            "news_success_count": (
-                state.news_success_count
-                if news_success_count is None
-                else news_success_count
-            ),
-            "news_failure_count": (
-                state.news_failure_count
-                if news_failure_count is None
-                else news_failure_count
-            ),
+            "snapshot_id": resolved_snapshot_id,
+            "evidence_ids": resolved_evidence_ids,
+            "news_source_count": resolved_news_source_count,
+            "news_success_count": resolved_news_success_count,
+            "news_failure_count": resolved_news_failure_count,
             "node_name": node_name,
             "error_codes": errors,
         }
+
+
+def _duration_ms(started_at: float) -> int:
+    return max(0, round((perf_counter() - started_at) * 1_000))
 
 
 def _market_evidence(market: CapturedAgentMarket) -> _FrozenEvidence:
@@ -585,19 +627,12 @@ def _news_evidences(items: tuple[NewsItemDraft, ...]) -> tuple[_FrozenEvidence, 
     unique: dict[str, NewsItemDraft] = {}
     for item in items:
         unique.setdefault(item.deduplication_key, item)
-    return tuple(
-        _news_evidence(item)
-        for item in tuple(unique.values())[:_MAX_NEWS_EVIDENCE]
-    )
+    return tuple(_news_evidence(item) for item in tuple(unique.values())[:_MAX_NEWS_EVIDENCE])
 
 
 def _news_evidence(item: NewsItemDraft) -> _FrozenEvidence:
     source = ALLOWED_NEWS_SOURCES[item.source_id]
-    source_url = (
-        str(item.canonical_url)
-        if item.canonical_url is not None
-        else str(source.feed_url)
-    )
+    source_url = str(item.canonical_url) if item.canonical_url is not None else str(source.feed_url)
     payload: dict[str, JsonValue] = {
         "news": {
             "sourceId": item.source_id,
@@ -714,9 +749,7 @@ def _agent_analysis(
     error: AgentErrorCode | None,
 ) -> AgentAnalysis:
     freshness = (
-        FreshnessStatus.MISSING
-        if market is None
-        else market.snapshot.summary.freshness.status
+        FreshnessStatus.MISSING if market is None else market.snapshot.summary.freshness.status
     )
     if not completed or proposal is None or structure is None:
         return AgentAnalysis(
@@ -807,9 +840,7 @@ def _bounded_confidence(
     deterministic: Literal["low", "medium", "high"],
 ) -> Literal["low", "medium", "high"]:
     return (
-        proposed
-        if _CONFIDENCE_RANK[proposed] <= _CONFIDENCE_RANK[deterministic]
-        else deterministic
+        proposed if _CONFIDENCE_RANK[proposed] <= _CONFIDENCE_RANK[deterministic] else deterministic
     )
 
 
@@ -825,11 +856,7 @@ def _safe_error_code(value: str) -> AgentErrorCode:
 
 
 def _error_code_value(error: AgentErrorCode | None) -> str:
-    return (
-        AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE.value
-        if error is None
-        else error.value
-    )
+    return AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE.value if error is None else error.value
 
 
 def _degraded_risk(error: AgentErrorCode | None) -> str:
