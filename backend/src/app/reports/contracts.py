@@ -143,6 +143,21 @@ def validate_research_display_text(value: str) -> str:
     return _validate_display_text(value)
 
 
+def _validate_chinese_research_display_text(value: str) -> str:
+    normalized = _validate_display_text(value)
+    if re.search(r"[\u3400-\u9fff]", normalized) is None:
+        raise ValueError("中文市场研究章节必须包含中文文本")
+    return normalized
+
+
+def _require_evidence_ids(value: tuple[UUID, ...]) -> tuple[UUID, ...]:
+    if not 1 <= len(value) <= _MAX_LIST_ITEMS:
+        raise ValueError("研究结论必须引用一至十二条冻结证据")
+    if len(set(value)) != len(value):
+        raise ValueError("研究结论不能重复引用冻结证据")
+    return value
+
+
 def _validate_source_url(value: str) -> str:
     normalized = value.strip()
     if not normalized.startswith(("https://", "http://")):
@@ -314,9 +329,7 @@ class Catalyst(_ReportModel):
     @field_validator("evidence_ids")
     @classmethod
     def require_evidence(cls, value: tuple[UUID, ...]) -> tuple[UUID, ...]:
-        if not value:
-            raise ValueError("催化事件必须引用冻结证据")
-        return value
+        return _require_evidence_ids(value)
 
 
 class RiskAndInvalidation(_ReportModel):
@@ -332,9 +345,87 @@ class RiskAndInvalidation(_ReportModel):
     @field_validator("evidence_ids")
     @classmethod
     def require_evidence(cls, value: tuple[UUID, ...]) -> tuple[UUID, ...]:
-        if not value:
-            raise ValueError("风险与失效条件必须引用冻结证据")
+        return _require_evidence_ids(value)
+
+
+class EvidenceBackedClaim(_ReportModel):
+    label: str
+    detail: str
+    evidence_ids: tuple[UUID, ...]
+
+    @field_validator("label", "detail")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return _validate_chinese_research_display_text(value)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def require_evidence(cls, value: tuple[UUID, ...]) -> tuple[UUID, ...]:
+        return _require_evidence_ids(value)
+
+
+class MarketOverview(_ReportModel):
+    headline: str
+    summary: str
+    evidence_ids: tuple[UUID, ...]
+
+    @field_validator("headline", "summary")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return _validate_chinese_research_display_text(value)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def require_evidence(cls, value: tuple[UUID, ...]) -> tuple[UUID, ...]:
+        return _require_evidence_ids(value)
+
+
+class ResearchPerspective(_ReportModel):
+    horizon: Literal["short_term", "long_term"]
+    outlook: MarketOutlook
+    heading: str
+    thesis: str
+    drivers: tuple[EvidenceBackedClaim, ...]
+    invalidation: tuple[RiskAndInvalidation, ...]
+
+    @field_validator("heading", "thesis")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return _validate_chinese_research_display_text(value)
+
+    @field_validator("drivers")
+    @classmethod
+    def validate_drivers(
+        cls,
+        value: tuple[EvidenceBackedClaim, ...],
+    ) -> tuple[EvidenceBackedClaim, ...]:
+        if not 1 <= len(value) <= 4:
+            raise ValueError("市场观点必须包含一至四项驱动因素")
         return value
+
+    @field_validator("invalidation")
+    @classmethod
+    def validate_invalidation(
+        cls,
+        value: tuple[RiskAndInvalidation, ...],
+    ) -> tuple[RiskAndInvalidation, ...]:
+        if not 1 <= len(value) <= 4:
+            raise ValueError("市场观点必须包含一至四项失效条件")
+        return value
+
+
+class AgentResearchNarrative(_ReportModel):
+    market_overview: MarketOverview
+    short_term: ResearchPerspective
+    long_term: ResearchPerspective
+
+    @model_validator(mode="after")
+    def validate_perspective_horizons(self) -> AgentResearchNarrative:
+        if self.short_term.horizon != "short_term":
+            raise ValueError("短期市场观点必须使用 short_term 周期")
+        if self.long_term.horizon != "long_term":
+            raise ValueError("长期市场观点必须使用 long_term 周期")
+        return self
 
 
 class AgentDataQuality(_ReportModel):
@@ -344,7 +435,7 @@ class AgentDataQuality(_ReportModel):
 
 
 class AgentAnalysis(_ReportModel):
-    horizon: Literal["1_to_3_days"]
+    horizon: Literal["1_to_3_days", "dual_horizon"]
     outlook: MarketOutlook
     confidence: Literal["low", "medium", "high"]
     trend_alignment: dict[MarketTimeframe, TrendDirection] = Field(
@@ -356,6 +447,7 @@ class AgentAnalysis(_ReportModel):
     risks_and_invalidation: tuple[RiskAndInvalidation, ...]
     data_quality: AgentDataQuality
     limitations: tuple[str, ...] = ()
+    narrative: AgentResearchNarrative | None = None
 
     @field_validator("limitations")
     @classmethod
@@ -363,6 +455,19 @@ class AgentAnalysis(_ReportModel):
         if len(value) > _MAX_LIST_ITEMS:
             raise ValueError("报告限制不能超过 12 项")
         return tuple(_validate_display_text(item) for item in value)
+
+    @model_validator(mode="after")
+    def validate_narrative(self) -> AgentAnalysis:
+        if self.horizon == "1_to_3_days":
+            if self.narrative is not None:
+                raise ValueError("历史一至三天报告不能包含双层叙事")
+            return self
+        if self.narrative is None:
+            raise ValueError("双层市场报告必须包含中文叙事")
+        display_length = _narrative_display_length(self.narrative)
+        if not 1_500 <= display_length <= 2_500:
+            raise ValueError("双层市场报告正文必须为 1500 至 2500 个字符")
+        return self
 
 
 class AgentReportCreation(AnalysisReportCreation):
@@ -407,17 +512,48 @@ class AgentReportCreation(AnalysisReportCreation):
         if self.completed_at < self.started_at:
             raise ValueError("Agent 完成时间不能早于开始时间")
         evidence_ids = {evidence.id for evidence in self.evidences}
-        referenced_ids = {
-            evidence_id
-            for item in (
-                *self.agent_analysis.catalysts,
-                *self.agent_analysis.risks_and_invalidation,
-            )
-            for evidence_id in item.evidence_ids
-        }
+        referenced_ids = _agent_analysis_evidence_ids(self.agent_analysis)
         if not referenced_ids <= evidence_ids:
             raise ValueError("Agent 结论只能引用本报告的冻结证据")
         return self
+
+
+def _narrative_display_length(narrative: AgentResearchNarrative) -> int:
+    return len(
+        "".join(
+            (
+                narrative.market_overview.headline,
+                narrative.market_overview.summary,
+                narrative.short_term.thesis,
+                narrative.long_term.thesis,
+                *(driver.detail for driver in narrative.short_term.drivers),
+                *(driver.detail for driver in narrative.long_term.drivers),
+            )
+        )
+    )
+
+
+def _agent_analysis_evidence_ids(analysis: AgentAnalysis) -> set[UUID]:
+    referenced_ids = {
+        evidence_id
+        for item in (
+            *analysis.catalysts,
+            *analysis.risks_and_invalidation,
+        )
+        for evidence_id in item.evidence_ids
+    }
+    if analysis.narrative is None:
+        return referenced_ids
+    narrative = analysis.narrative
+    for item in (
+        narrative.market_overview,
+        *narrative.short_term.drivers,
+        *narrative.short_term.invalidation,
+        *narrative.long_term.drivers,
+        *narrative.long_term.invalidation,
+    ):
+        referenced_ids.update(item.evidence_ids)
+    return referenced_ids
 
 
 class PersistedAnalysisEvidence(AnalysisEvidenceDraft):

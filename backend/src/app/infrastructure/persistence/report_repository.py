@@ -61,6 +61,11 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
     ) -> PersistedAnalysisReport:
         report = creation.report
         analysis_payload = creation.agent_analysis.model_dump(mode="json")
+        narrative_payload = (
+            None
+            if creation.agent_analysis.narrative is None
+            else cast(dict[str, object], analysis_payload["narrative"])
+        )
         try:
             async with self._session_factory() as session:
                 async with session.begin():
@@ -104,6 +109,30 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
                                 dict[str, object], analysis_payload["data_quality"]
                             ),
                             limitations=cast(list[str], analysis_payload["limitations"]),
+                            market_overview=(
+                                None
+                                if narrative_payload is None
+                                else cast(
+                                    dict[str, object],
+                                    narrative_payload["market_overview"],
+                                )
+                            ),
+                            short_term_view=(
+                                None
+                                if narrative_payload is None
+                                else cast(
+                                    dict[str, object],
+                                    narrative_payload["short_term"],
+                                )
+                            ),
+                            long_term_view=(
+                                None
+                                if narrative_payload is None
+                                else cast(
+                                    dict[str, object],
+                                    narrative_payload["long_term"],
+                                )
+                            ),
                         )
                     )
         except SQLAlchemyError as error:
@@ -295,6 +324,19 @@ def _to_summary(
 
 
 def _to_agent_analysis(record: AgentReportDetailRecord) -> AgentAnalysis:
+    narrative = (
+        None
+        if (
+            record.market_overview is None
+            or record.short_term_view is None
+            or record.long_term_view is None
+        )
+        else {
+            "market_overview": record.market_overview,
+            "short_term": record.short_term_view,
+            "long_term": record.long_term_view,
+        }
+    )
     return AgentAnalysis.model_validate(
         {
             "horizon": record.horizon,
@@ -307,6 +349,7 @@ def _to_agent_analysis(record: AgentReportDetailRecord) -> AgentAnalysis:
             "risks_and_invalidation": record.risks_and_invalidation,
             "data_quality": record.data_quality,
             "limitations": record.limitations,
+            "narrative": narrative,
         }
     )
 

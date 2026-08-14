@@ -167,6 +167,17 @@ def test_agent_research_migration_adds_immutable_tables_without_rewriting_report
             "agent_report_details",
             "market_snapshot_inputs",
         }
+        detail_columns = asyncio.run(
+            _table_column_types(test_database_url, schema, "agent_report_details")
+        )
+        assert {
+            name: detail_columns[name]
+            for name in ("market_overview", "short_term_view", "long_term_view")
+        } == {
+            "market_overview": "jsonb",
+            "short_term_view": "jsonb",
+            "long_term_view": "jsonb",
+        }
         asyncio.run(_assert_agent_tables_immutable(test_database_url, schema, report_id))
         asyncio.run(_assert_market_snapshot_inputs_immutable(test_database_url, schema))
     finally:
@@ -203,6 +214,22 @@ def test_market_snapshot_input_migration_downgrade_fails_before_schema_mutation(
         migration.downgrade()
 
 
+def test_report_narrative_migration_is_forward_only_and_nullable() -> None:
+    migration = _load_report_narrative_migration()
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "0010_expand_agent_report_narrative.py"
+    ).read_text(encoding="utf-8")
+
+    assert migration.revision == "0010_agent_report_narrative"
+    assert migration.down_revision == "0009_market_snapshot_inputs"
+    assert "UPDATE" not in source.upper()
+    assert "DELETE" not in source.upper()
+    assert "server_default" not in source
+
+
 def test_all_migration_revisions_fit_the_default_alembic_version_column() -> None:
     migrations_directory = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 
@@ -219,6 +246,13 @@ def _load_market_snapshot_input_migration() -> ModuleType:
     return _load_migration(
         "0009_create_immutable_market_snapshot_inputs.py",
         "market_snapshot_input_migration",
+    )
+
+
+def _load_report_narrative_migration() -> ModuleType:
+    return _load_migration(
+        "0010_expand_agent_report_narrative.py",
+        "report_narrative_migration",
     )
 
 

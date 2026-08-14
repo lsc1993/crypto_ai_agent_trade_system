@@ -104,10 +104,29 @@ async def test_analysis_post_and_detail_expose_only_validated_agent_detail() -> 
     payload = detail.json()
     assert payload["generatorKind"] == "langgraph_deepseek"
     assert payload["agentAnalysis"]["horizon"] == "1_to_3_days"
+    assert payload["agentAnalysis"]["narrative"] is None
     assert payload["agentAnalysis"]["supportZones"][0]["lower"] == "67000.10"
     assert payload["agentAnalysis"]["catalysts"][0]["evidenceIds"] == [str(EVIDENCE_ID)]
     assert "api_key" not in detail.text.lower()
     assert "authorization" not in detail.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_analysis_detail_exposes_dual_horizon_narrative_in_camel_case() -> None:
+    report = _dual_horizon_report()
+    app = create_app(
+        market_research_reader=UnusedMarketReader(),
+        analysis_report_repository=ReportReader(report),  # type: ignore[arg-type]
+        agent_research_service=FakeAgentService(report),
+    )
+
+    detail = await _request(app, "GET", f"/api/v1/analysis-runs/{REPORT_ID}")
+
+    assert detail.status_code == 200
+    narrative = detail.json()["agentAnalysis"]["narrative"]
+    assert narrative["marketOverview"]["headline"] == "流动性回暖但趋势尚未确认"
+    assert narrative["shortTerm"]["horizon"] == "short_term"
+    assert narrative["longTerm"]["drivers"][0]["evidenceIds"] == [str(EVIDENCE_ID)]
 
 
 async def _request(
@@ -196,3 +215,53 @@ def _report() -> PersistedAnalysisReport:
         evidence=(evidence,),
         agent_analysis=analysis,
     )
+
+
+def _dual_horizon_report() -> PersistedAnalysisReport:
+    report = _report()
+    analysis = AgentAnalysis.model_validate(
+        {
+            **report.agent_analysis.model_dump(mode="python"),  # type: ignore[union-attr]
+            "horizon": "dual_horizon",
+            "narrative": {
+                "market_overview": {
+                    "headline": "流动性回暖但趋势尚未确认",
+                    "summary": _research_text("市场概况", 330),
+                    "evidence_ids": (EVIDENCE_ID,),
+                },
+                "short_term": {
+                    "horizon": "short_term",
+                    "outlook": MarketOutlook.NEUTRAL,
+                    "heading": "短期结构仍在关键区间内消化",
+                    "thesis": _research_text("短期观点", 460),
+                    "drivers": (
+                        {
+                            "label": "短期流动性",
+                            "detail": _research_text("短期驱动", 350),
+                            "evidence_ids": (EVIDENCE_ID,),
+                        },
+                    ),
+                    "invalidation": report.agent_analysis.risks_and_invalidation,  # type: ignore[union-attr]
+                },
+                "long_term": {
+                    "horizon": "long_term",
+                    "outlook": MarketOutlook.NEUTRAL,
+                    "heading": "长期方向等待更多公开证据确认",
+                    "thesis": _research_text("长期观点", 460),
+                    "drivers": (
+                        {
+                            "label": "长期结构",
+                            "detail": _research_text("长期驱动", 350),
+                            "evidence_ids": (EVIDENCE_ID,),
+                        },
+                    ),
+                    "invalidation": report.agent_analysis.risks_and_invalidation,  # type: ignore[union-attr]
+                },
+            },
+        }
+    )
+    return report.model_copy(update={"agent_analysis": analysis})
+
+
+def _research_text(prefix: str, length: int) -> str:
+    return (prefix * ((length // len(prefix)) + 1))[:length]

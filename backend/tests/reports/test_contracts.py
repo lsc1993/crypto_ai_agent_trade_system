@@ -152,6 +152,16 @@ def test_agent_creation_json_round_trip_preserves_referenced_evidence_ids() -> N
     assert restored.agent_analysis.catalysts[0].evidence_ids == (evidence.id,)
 
 
+def test_dual_horizon_narrative_requires_chinese_evidence_backed_sections() -> None:
+    evidence_id = uuid4()
+
+    analysis = AgentAnalysis.model_validate(_dual_horizon_analysis_payload(evidence_id))
+
+    assert analysis.narrative is not None
+    assert analysis.narrative.short_term.horizon == "short_term"
+    assert analysis.narrative.long_term.horizon == "long_term"
+
+
 def test_catalyst_rejects_a_category_empty_after_normalization() -> None:
     with pytest.raises(ValidationError, match="类别不能为空"):
         Catalyst(
@@ -290,3 +300,86 @@ def _valid_evidence(*, report_id: UUID) -> AnalysisEvidenceDraft:
         payload=payload,
         payload_sha256=report_payload_sha256(payload),
     )
+
+
+def _dual_horizon_analysis_payload(evidence_id: UUID) -> dict[str, object]:
+    return {
+        "horizon": "dual_horizon",
+        "outlook": MarketOutlook.NEUTRAL,
+        "confidence": "medium",
+        "support_zones": (),
+        "resistance_zones": (),
+        "catalysts": (
+            {
+                "category": "macro",
+                "direction": MarketOutlook.NEUTRAL,
+                "claim": "冻结证据显示宏观流动性信号仍需持续观察。",
+                "evidence_ids": (evidence_id,),
+                "timing": "本次研究周期内",
+            },
+        ),
+        "risks_and_invalidation": (
+            {
+                "condition": "冻结证据对应的市场结构出现显著变化。",
+                "impact": "当前研究观点需要重新评估。",
+                "evidence_ids": (evidence_id,),
+            },
+        ),
+        "data_quality": {
+            "freshness": FreshnessStatus.FRESH,
+            "missing_inputs": (),
+            "source_coverage": "complete",
+        },
+        "limitations": ("本报告只解释冻结的公开证据，不构成交易建议。",),
+        "narrative": {
+            "market_overview": {
+                "headline": "流动性回暖但趋势尚未确认",
+                "summary": _research_text("市场概况", 330),
+                "evidence_ids": (evidence_id,),
+            },
+            "short_term": {
+                "horizon": "short_term",
+                "outlook": MarketOutlook.NEUTRAL,
+                "heading": "短期结构仍在关键区间内消化",
+                "thesis": _research_text("短期观点", 460),
+                "drivers": (
+                    {
+                        "label": "短期流动性",
+                        "detail": _research_text("短期驱动", 350),
+                        "evidence_ids": (evidence_id,),
+                    },
+                ),
+                "invalidation": (
+                    {
+                        "condition": "短期冻结数据的关键区间被新的已验证证据否定。",
+                        "impact": "短期观点需要重新评估。",
+                        "evidence_ids": (evidence_id,),
+                    },
+                ),
+            },
+            "long_term": {
+                "horizon": "long_term",
+                "outlook": MarketOutlook.NEUTRAL,
+                "heading": "长期方向等待更多公开证据确认",
+                "thesis": _research_text("长期观点", 460),
+                "drivers": (
+                    {
+                        "label": "长期结构",
+                        "detail": _research_text("长期驱动", 350),
+                        "evidence_ids": (evidence_id,),
+                    },
+                ),
+                "invalidation": (
+                    {
+                        "condition": "长期冻结证据的基本假设出现明显变化。",
+                        "impact": "长期观点需要重新评估。",
+                        "evidence_ids": (evidence_id,),
+                    },
+                ),
+            },
+        },
+    }
+
+
+def _research_text(prefix: str, length: int) -> str:
+    return (prefix * ((length // len(prefix)) + 1))[:length]

@@ -11,15 +11,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.market.contracts import ContractSymbol, UtcDateTime
 from app.reports.contracts import (
     AgentAnalysis,
+    AgentResearchNarrative,
     AnalysisReportStatus,
     AnalysisReportSummary,
     Catalyst,
+    EvidenceBackedClaim,
     MarketOutlook,
+    MarketOverview,
     PersistedAnalysisEvidence,
     PersistedAnalysisReport,
     PriceZone,
     ReportGeneratorKind,
     ReportPage,
+    ResearchPerspective,
     RiskAndInvalidation,
     TrendDirection,
 )
@@ -100,6 +104,33 @@ class AgentDataQualityResponse(_ApiModel):
     source_coverage: str
 
 
+class EvidenceBackedClaimResponse(_ApiModel):
+    label: str
+    detail: str
+    evidence_ids: tuple[UUID, ...]
+
+
+class MarketOverviewResponse(_ApiModel):
+    headline: str
+    summary: str
+    evidence_ids: tuple[UUID, ...]
+
+
+class ResearchPerspectiveResponse(_ApiModel):
+    horizon: str
+    outlook: MarketOutlook
+    heading: str
+    thesis: str
+    drivers: tuple[EvidenceBackedClaimResponse, ...]
+    invalidation: tuple[RiskAndInvalidationResponse, ...]
+
+
+class AgentResearchNarrativeResponse(_ApiModel):
+    market_overview: MarketOverviewResponse
+    short_term: ResearchPerspectiveResponse
+    long_term: ResearchPerspectiveResponse
+
+
 class AgentAnalysisResponse(_ApiModel):
     horizon: str
     outlook: MarketOutlook
@@ -111,6 +142,7 @@ class AgentAnalysisResponse(_ApiModel):
     risks_and_invalidation: tuple[RiskAndInvalidationResponse, ...]
     data_quality: AgentDataQualityResponse
     limitations: tuple[str, ...]
+    narrative: AgentResearchNarrativeResponse | None
 
 
 class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
@@ -342,6 +374,52 @@ def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisRespons
             source_coverage=analysis.data_quality.source_coverage,
         ),
         limitations=analysis.limitations,
+        narrative=(
+            None
+            if analysis.narrative is None
+            else _to_narrative_response(analysis.narrative)
+        ),
+    )
+
+
+def _to_narrative_response(
+    narrative: AgentResearchNarrative,
+) -> AgentResearchNarrativeResponse:
+    return AgentResearchNarrativeResponse(
+        market_overview=_to_market_overview_response(narrative.market_overview),
+        short_term=_to_perspective_response(narrative.short_term),
+        long_term=_to_perspective_response(narrative.long_term),
+    )
+
+
+def _to_market_overview_response(overview: MarketOverview) -> MarketOverviewResponse:
+    return MarketOverviewResponse(
+        headline=overview.headline,
+        summary=overview.summary,
+        evidence_ids=overview.evidence_ids,
+    )
+
+
+def _to_perspective_response(
+    perspective: ResearchPerspective,
+) -> ResearchPerspectiveResponse:
+    return ResearchPerspectiveResponse(
+        horizon=perspective.horizon,
+        outlook=perspective.outlook,
+        heading=perspective.heading,
+        thesis=perspective.thesis,
+        drivers=tuple(_to_claim_response(driver) for driver in perspective.drivers),
+        invalidation=tuple(
+            _to_risk_response(item) for item in perspective.invalidation
+        ),
+    )
+
+
+def _to_claim_response(claim: EvidenceBackedClaim) -> EvidenceBackedClaimResponse:
+    return EvidenceBackedClaimResponse(
+        label=claim.label,
+        detail=claim.detail,
+        evidence_ids=claim.evidence_ids,
     )
 
 

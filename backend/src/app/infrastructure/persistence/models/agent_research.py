@@ -53,6 +53,9 @@ class AgentReportDetailRecord(Base):
     )
     data_quality: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     limitations: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    market_overview: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    short_term_view: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    long_term_view: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

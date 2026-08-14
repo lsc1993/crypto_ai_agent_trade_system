@@ -94,6 +94,21 @@ async def test_agent_repository_persists_run_frozen_evidence_and_immutable_detai
 
 
 @pytest.mark.asyncio
+async def test_agent_repository_round_trips_dual_horizon_narrative(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+
+    persisted = await repository.persist_agent(_dual_horizon_agent_creation())
+
+    assert persisted.agent_analysis is not None
+    assert persisted.agent_analysis.narrative is not None
+    assert persisted.agent_analysis.narrative.market_overview.headline == (
+        "流动性回暖但趋势尚未确认"
+    )
+
+
+@pytest.mark.asyncio
 async def test_deterministic_reports_remain_backward_compatible_without_agent_detail(
     migrated_database: MigratedDatabase,
 ) -> None:
@@ -212,3 +227,53 @@ def _deterministic_creation() -> AnalysisReportCreation:
         ),
         evidences=(),
     )
+
+
+def _dual_horizon_agent_creation() -> AgentReportCreation:
+    creation = _agent_creation()
+    analysis = AgentAnalysis.model_validate(
+        {
+            **creation.agent_analysis.model_dump(mode="python"),
+            "horizon": "dual_horizon",
+            "narrative": {
+                "market_overview": {
+                    "headline": "流动性回暖但趋势尚未确认",
+                    "summary": _research_text("市场概况", 330),
+                    "evidence_ids": (EVIDENCE_ID,),
+                },
+                "short_term": {
+                    "horizon": "short_term",
+                    "outlook": MarketOutlook.NEUTRAL,
+                    "heading": "短期结构仍在关键区间内消化",
+                    "thesis": _research_text("短期观点", 460),
+                    "drivers": (
+                        {
+                            "label": "短期流动性",
+                            "detail": _research_text("短期驱动", 350),
+                            "evidence_ids": (EVIDENCE_ID,),
+                        },
+                    ),
+                    "invalidation": creation.agent_analysis.risks_and_invalidation,
+                },
+                "long_term": {
+                    "horizon": "long_term",
+                    "outlook": MarketOutlook.NEUTRAL,
+                    "heading": "长期方向等待更多公开证据确认",
+                    "thesis": _research_text("长期观点", 460),
+                    "drivers": (
+                        {
+                            "label": "长期结构",
+                            "detail": _research_text("长期驱动", 350),
+                            "evidence_ids": (EVIDENCE_ID,),
+                        },
+                    ),
+                    "invalidation": creation.agent_analysis.risks_and_invalidation,
+                },
+            },
+        }
+    )
+    return creation.model_copy(update={"agent_analysis": analysis})
+
+
+def _research_text(prefix: str, length: int) -> str:
+    return (prefix * ((length // len(prefix)) + 1))[:length]
