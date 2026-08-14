@@ -32,6 +32,7 @@ const reportWire = {
   agentAnalysis: {
     horizon: "1_to_3_days",
     narrative: null,
+    marketMetrics: null,
     outlook: "neutral",
     confidence: "medium",
     trendAlignment: { "1h": "neutral" },

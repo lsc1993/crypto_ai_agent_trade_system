@@ -16,6 +16,7 @@ from app.reports.contracts import (
     AnalysisReportSummary,
     Catalyst,
     EvidenceBackedClaim,
+    FrozenMarketMetrics,
     MarketOutlook,
     MarketOverview,
     PersistedAnalysisEvidence,
@@ -131,6 +132,17 @@ class AgentResearchNarrativeResponse(_ApiModel):
     long_term: ResearchPerspectiveResponse
 
 
+class FrozenMarketMetricsResponse(_ApiModel):
+    price: str
+    change_24h: str
+    volume_24h: str
+    funding_rate: str
+    open_interest: str
+    fear_greed_value: int | None
+    fear_greed_classification: str | None
+    fear_greed_change_7d: int | None
+
+
 class AgentAnalysisResponse(_ApiModel):
     horizon: str
     outlook: MarketOutlook
@@ -143,6 +155,7 @@ class AgentAnalysisResponse(_ApiModel):
     data_quality: AgentDataQualityResponse
     limitations: tuple[str, ...]
     narrative: AgentResearchNarrativeResponse | None
+    market_metrics: FrozenMarketMetricsResponse | None
 
 
 class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
@@ -379,6 +392,11 @@ def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisRespons
             if analysis.narrative is None
             else _to_narrative_response(analysis.narrative)
         ),
+        market_metrics=(
+            None
+            if analysis.market_metrics is None
+            else _to_market_metrics_response(analysis.market_metrics)
+        ),
     )
 
 
@@ -389,6 +407,21 @@ def _to_narrative_response(
         market_overview=_to_market_overview_response(narrative.market_overview),
         short_term=_to_perspective_response(narrative.short_term),
         long_term=_to_perspective_response(narrative.long_term),
+    )
+
+
+def _to_market_metrics_response(
+    metrics: FrozenMarketMetrics,
+) -> FrozenMarketMetricsResponse:
+    return FrozenMarketMetricsResponse(
+        price=str(metrics.price),
+        change_24h=str(metrics.change_24h),
+        volume_24h=str(metrics.volume_24h),
+        funding_rate=str(metrics.funding_rate),
+        open_interest=str(metrics.open_interest),
+        fear_greed_value=metrics.fear_greed_value,
+        fear_greed_classification=metrics.fear_greed_classification,
+        fear_greed_change_7d=metrics.fear_greed_change_7d,
     )
 
 

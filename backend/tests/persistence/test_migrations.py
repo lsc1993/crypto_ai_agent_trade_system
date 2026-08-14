@@ -172,11 +172,17 @@ def test_agent_research_migration_adds_immutable_tables_without_rewriting_report
         )
         assert {
             name: detail_columns[name]
-            for name in ("market_overview", "short_term_view", "long_term_view")
+            for name in (
+                "market_overview",
+                "short_term_view",
+                "long_term_view",
+                "market_metrics",
+            )
         } == {
             "market_overview": "jsonb",
             "short_term_view": "jsonb",
             "long_term_view": "jsonb",
+            "market_metrics": "jsonb",
         }
         asyncio.run(_assert_agent_tables_immutable(test_database_url, schema, report_id))
         asyncio.run(_assert_market_snapshot_inputs_immutable(test_database_url, schema))
@@ -230,6 +236,22 @@ def test_report_narrative_migration_is_forward_only_and_nullable() -> None:
     assert "server_default" not in source
 
 
+def test_report_market_metrics_migration_is_forward_only_and_nullable() -> None:
+    migration = _load_report_market_metrics_migration()
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "0011_add_agent_report_market_metrics.py"
+    ).read_text(encoding="utf-8")
+
+    assert migration.revision == "0011_agent_report_metrics"
+    assert migration.down_revision == "0010_agent_report_narrative"
+    assert "UPDATE" not in source.upper()
+    assert "DELETE" not in source.upper()
+    assert "server_default" not in source
+
+
 def test_all_migration_revisions_fit_the_default_alembic_version_column() -> None:
     migrations_directory = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 
@@ -253,6 +275,13 @@ def _load_report_narrative_migration() -> ModuleType:
     return _load_migration(
         "0010_expand_agent_report_narrative.py",
         "report_narrative_migration",
+    )
+
+
+def _load_report_market_metrics_migration() -> ModuleType:
+    return _load_migration(
+        "0011_add_agent_report_market_metrics.py",
+        "report_market_metrics_migration",
     )
 
 

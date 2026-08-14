@@ -106,6 +106,8 @@ async def test_agent_repository_round_trips_dual_horizon_narrative(
     assert persisted.agent_analysis.narrative.market_overview.headline == (
         "流动性回暖但趋势尚未确认"
     )
+    assert persisted.agent_analysis.market_metrics is not None
+    assert persisted.agent_analysis.market_metrics.price == Decimal("68000.12")
 
 
 @pytest.mark.asyncio
@@ -235,6 +237,16 @@ def _dual_horizon_agent_creation() -> AgentReportCreation:
         {
             **creation.agent_analysis.model_dump(mode="python"),
             "horizon": "dual_horizon",
+            "market_metrics": {
+                "price": "68000.12",
+                "change_24h": "-2.50",
+                "volume_24h": "123456789.01",
+                "funding_rate": "0.0001",
+                "open_interest": "456789012.34",
+                "fear_greed_value": 23,
+                "fear_greed_classification": "Extreme Fear",
+                "fear_greed_change_7d": -11,
+            },
             "narrative": {
                 "market_overview": {
                     "headline": "流动性回暖但趋势尚未确认",

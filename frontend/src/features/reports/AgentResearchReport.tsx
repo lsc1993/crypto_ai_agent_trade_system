@@ -1,4 +1,11 @@
 import type { AnalysisReport } from "../../domain/report";
+import {
+  formatDailyChange,
+  formatFundingRate,
+  formatMarketPrice,
+  formatMarketVolume,
+  formatOpenInterest,
+} from "../../shared/format";
 import "./research-report.css";
 
 type DualHorizonAnalysis = Extract<
@@ -43,18 +50,10 @@ const statusLabels = {
   failed: "失败",
 } as const;
 
-const unavailableMetrics = [
-  "价格",
-  "24 小时变化",
-  "24 小时成交额",
-  "情绪",
-  "资金费率",
-  "未平仓量",
-] as const;
-
 export function AgentResearchReport({ report }: { report: DualHorizonReport }) {
   const analysis = report.agentAnalysis;
   const narrative = analysis.narrative;
+  const metrics = marketMetricCards(analysis);
 
   return (
     <article className="research-report" aria-label="双周期市场研究报告">
@@ -104,11 +103,11 @@ export function AgentResearchReport({ report }: { report: DualHorizonReport }) {
           <h2 id="research-report-metrics-title">关键指标</h2>
         </div>
         <div className="research-report__metric-grid">
-          {unavailableMetrics.map((label) => (
-            <article className="research-report__metric-card" key={label}>
-              <h3>{label}</h3>
-              <p>本次未取得</p>
-              <span>安全报告接口尚未提供结构化数值</span>
+          {metrics.map((metric) => (
+            <article className="research-report__metric-card" key={metric.label}>
+              <h3>{metric.label}</h3>
+              <p>{metric.value}</p>
+              <span>{metric.annotation}</span>
             </article>
           ))}
         </div>
@@ -183,6 +182,54 @@ export function AgentResearchReport({ report }: { report: DualHorizonReport }) {
       </section>
     </article>
   );
+}
+
+function marketMetricCards(analysis: DualHorizonAnalysis) {
+  const metrics = analysis.marketMetrics;
+  const hasSentiment = metrics.fearGreedValue !== null;
+  return [
+    {
+      label: "价格",
+      value: formatMarketPrice(metrics.price),
+      annotation: "本次冻结公开市场数据",
+    },
+    {
+      label: "24 小时变化",
+      value: formatDailyChange(metrics.change24h),
+      annotation: "本次冻结公开市场数据",
+    },
+    {
+      label: "24 小时成交额",
+      value: formatMarketVolume(metrics.volume24h),
+      annotation: "本次冻结公开市场数据",
+    },
+    {
+      label: "情绪",
+      value: hasSentiment
+        ? `${metrics.fearGreedValue} · ${metrics.fearGreedClassification}`
+        : "本次未取得",
+      annotation: hasSentiment
+        ? `7 日变化 ${formatSignedInteger(metrics.fearGreedChange7d)}`
+        : "公开情绪数据未取得",
+    },
+    {
+      label: "资金费率",
+      value: formatFundingRate(metrics.fundingRate),
+      annotation: "本次冻结公开市场数据",
+    },
+    {
+      label: "未平仓量",
+      value: formatOpenInterest(metrics.openInterest),
+      annotation: "本次冻结公开市场数据",
+    },
+  ];
+}
+
+function formatSignedInteger(value: number | null): string {
+  if (value === null) {
+    return "本次未取得";
+  }
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function PerspectiveSection({

@@ -512,6 +512,12 @@ async def test_graph_persists_public_context_as_separate_frozen_evidence() -> No
     assert report.status is AnalysisReportStatus.COMPLETED
     context_payload = cast(dict[str, object], context_evidence.payload["context"])
     assert context_payload["fear_greed_value"] == 31
+    assert report.agent_analysis is not None
+    assert report.agent_analysis.market_metrics is not None
+    assert report.agent_analysis.market_metrics.price == Decimal("68000")
+    assert report.agent_analysis.market_metrics.fear_greed_value == 31
+    assert report.agent_analysis.market_metrics.fear_greed_classification == "Fear"
+    assert report.agent_analysis.market_metrics.fear_greed_change_7d == -8
     assert {evidence.source for evidence in model.requests[0].evidences} == {
         "binance_usdm_public_context",
         "binance_usdm_public_rest",
@@ -534,6 +540,11 @@ async def test_graph_completes_with_a_visible_public_context_input_gap() -> None
     assert report.agent_analysis is not None
     assert "market_context_unavailable" in report.agent_analysis.data_quality.missing_inputs
     assert any("市场上下文" in item for item in report.limitations)
+    assert report.agent_analysis.market_metrics is not None
+    assert report.agent_analysis.market_metrics.price == Decimal("68000")
+    assert report.agent_analysis.market_metrics.fear_greed_value is None
+    assert report.agent_analysis.market_metrics.fear_greed_classification is None
+    assert report.agent_analysis.market_metrics.fear_greed_change_7d is None
 
 
 @pytest.mark.asyncio

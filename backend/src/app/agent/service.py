@@ -46,6 +46,7 @@ from app.reports.contracts import (
     AnalysisEvidenceDraft,
     AnalysisReportDraft,
     AnalysisReportStatus,
+    FrozenMarketMetrics,
     MarketOutlook,
     PersistedAnalysisReport,
     ReportGeneratorKind,
@@ -823,7 +824,7 @@ def _agent_analysis(
     freshness = (
         FreshnessStatus.MISSING if market is None else market.snapshot.summary.freshness.status
     )
-    if not completed or proposal is None or structure is None:
+    if not completed or proposal is None or structure is None or market is None:
         return AgentAnalysis(
             horizon="1_to_3_days",
             outlook=MarketOutlook.NEUTRAL,
@@ -855,6 +856,26 @@ def _agent_analysis(
         ),
         limitations=_limitations(news, proposal.limitations, market=market),
         narrative=proposal.narrative,
+        market_metrics=_frozen_market_metrics(market),
+    )
+
+
+def _frozen_market_metrics(market: CapturedAgentMarket) -> FrozenMarketMetrics:
+    summary = market.snapshot.summary
+    context = market.research_context
+    return FrozenMarketMetrics(
+        price=summary.price,
+        change_24h=summary.change_24h,
+        volume_24h=summary.volume_24h,
+        funding_rate=summary.funding_rate,
+        open_interest=summary.open_interest,
+        fear_greed_value=None if context is None else context.fear_greed_value,
+        fear_greed_classification=(
+            None if context is None else context.fear_greed_classification
+        ),
+        fear_greed_change_7d=(
+            None if context is None else context.fear_greed_change_7d
+        ),
     )
 
 

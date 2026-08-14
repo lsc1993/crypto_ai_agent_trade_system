@@ -66,6 +66,11 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
             if creation.agent_analysis.narrative is None
             else cast(dict[str, object], analysis_payload["narrative"])
         )
+        metrics_payload = (
+            None
+            if creation.agent_analysis.market_metrics is None
+            else cast(dict[str, object], analysis_payload["market_metrics"])
+        )
         try:
             async with self._session_factory() as session:
                 async with session.begin():
@@ -133,6 +138,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
                                     narrative_payload["long_term"],
                                 )
                             ),
+                            market_metrics=metrics_payload,
                         )
                     )
         except SQLAlchemyError as error:
@@ -350,6 +356,7 @@ def _to_agent_analysis(record: AgentReportDetailRecord) -> AgentAnalysis:
             "data_quality": record.data_quality,
             "limitations": record.limitations,
             "narrative": narrative,
+            "market_metrics": record.market_metrics,
         }
     )
 
