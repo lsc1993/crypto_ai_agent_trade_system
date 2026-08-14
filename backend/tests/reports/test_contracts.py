@@ -155,11 +155,49 @@ def test_agent_creation_json_round_trip_preserves_referenced_evidence_ids() -> N
 def test_dual_horizon_narrative_requires_chinese_evidence_backed_sections() -> None:
     evidence_id = uuid4()
 
-    analysis = AgentAnalysis.model_validate(_dual_horizon_analysis_payload(evidence_id))
+    analysis = AgentAnalysis.model_validate(
+        {
+            **_dual_horizon_analysis_payload(evidence_id),
+            "market_metrics": _market_metrics_payload(),
+        }
+    )
 
     assert analysis.narrative is not None
     assert analysis.narrative.short_term.horizon == "short_term"
     assert analysis.narrative.long_term.horizon == "long_term"
+    assert analysis.market_metrics is not None
+    assert str(analysis.market_metrics.price) == "68000.12"
+
+
+def test_dual_horizon_analysis_requires_frozen_market_metrics() -> None:
+    with pytest.raises(ValidationError, match="冻结市场指标"):
+        AgentAnalysis.model_validate(_dual_horizon_analysis_payload(uuid4()))
+
+
+def test_frozen_market_metrics_require_a_complete_sentiment_group() -> None:
+    with pytest.raises(ValidationError, match="情绪"):
+        AgentAnalysis.model_validate(
+            {
+                **_dual_horizon_analysis_payload(uuid4()),
+                "market_metrics": {
+                    **_market_metrics_payload(),
+                    "fear_greed_classification": None,
+                },
+            }
+        )
+
+
+def test_frozen_market_metrics_reject_non_finite_decimal_values() -> None:
+    with pytest.raises(ValidationError, match="有限"):
+        AgentAnalysis.model_validate(
+            {
+                **_dual_horizon_analysis_payload(uuid4()),
+                "market_metrics": {
+                    **_market_metrics_payload(),
+                    "funding_rate": "NaN",
+                },
+            }
+        )
 
 
 def test_catalyst_rejects_a_category_empty_after_normalization() -> None:
@@ -378,6 +416,19 @@ def _dual_horizon_analysis_payload(evidence_id: UUID) -> dict[str, object]:
                 ),
             },
         },
+    }
+
+
+def _market_metrics_payload() -> dict[str, object]:
+    return {
+        "price": "68000.12",
+        "change_24h": "-2.50",
+        "volume_24h": "123456789.01",
+        "funding_rate": "0.0001",
+        "open_interest": "456789012.34",
+        "fear_greed_value": 23,
+        "fear_greed_classification": "Extreme Fear",
+        "fear_greed_change_7d": -11,
     }
 
 

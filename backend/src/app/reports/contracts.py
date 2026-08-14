@@ -434,6 +434,66 @@ class AgentDataQuality(_ReportModel):
     source_coverage: Literal["none", "partial", "complete"]
 
 
+class FrozenMarketMetrics(_ReportModel):
+    """只读报告展示用的冻结公开市场指标。"""
+
+    price: DecimalValue
+    change_24h: DecimalValue
+    volume_24h: DecimalValue
+    funding_rate: DecimalValue
+    open_interest: DecimalValue
+    fear_greed_value: int | None = Field(default=None, ge=0, le=100)
+    fear_greed_classification: Annotated[str | None, Field(max_length=100)] = None
+    fear_greed_change_7d: int | None = Field(default=None, ge=-100, le=100)
+
+    @field_validator(
+        "price",
+        "change_24h",
+        "volume_24h",
+        "funding_rate",
+        "open_interest",
+        mode="before",
+    )
+    @classmethod
+    def parse_decimal_value(cls, value: object) -> Decimal:
+        if isinstance(value, bool) or not isinstance(value, (Decimal, str)):
+            raise ValueError("冻结市场指标必须是 Decimal 或十进制字符串")
+        try:
+            parsed = Decimal(value)
+        except (InvalidOperation, ValueError) as error:
+            raise ValueError("冻结市场指标必须是有效十进制数") from error
+        if not parsed.is_finite():
+            raise ValueError("冻结市场指标必须是有限十进制数")
+        return parsed
+
+    @field_validator("fear_greed_classification")
+    @classmethod
+    def normalize_fear_greed_classification(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("冻结情绪分类不能为空")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_market_metrics(self) -> FrozenMarketMetrics:
+        if self.price <= 0:
+            raise ValueError("冻结市场价格必须为正数")
+        if self.volume_24h < 0 or self.open_interest < 0:
+            raise ValueError("冻结市场成交额和未平仓量不能为负数")
+        sentiment = (
+            self.fear_greed_value,
+            self.fear_greed_classification,
+            self.fear_greed_change_7d,
+        )
+        if any(value is None for value in sentiment) and any(
+            value is not None for value in sentiment
+        ):
+            raise ValueError("冻结情绪指标必须完整提供或全部缺失")
+        return self
+
+
 class AgentAnalysis(_ReportModel):
     horizon: Literal["1_to_3_days", "dual_horizon"]
     outlook: MarketOutlook
@@ -448,6 +508,7 @@ class AgentAnalysis(_ReportModel):
     data_quality: AgentDataQuality
     limitations: tuple[str, ...] = ()
     narrative: AgentResearchNarrative | None = None
+    market_metrics: FrozenMarketMetrics | None = None
 
     @field_validator("limitations")
     @classmethod
@@ -461,9 +522,13 @@ class AgentAnalysis(_ReportModel):
         if self.horizon == "1_to_3_days":
             if self.narrative is not None:
                 raise ValueError("历史一至三天报告不能包含双层叙事")
+            if self.market_metrics is not None:
+                raise ValueError("历史一至三天报告不能包含冻结市场指标")
             return self
         if self.narrative is None:
             raise ValueError("双层市场报告必须包含中文叙事")
+        if self.market_metrics is None:
+            raise ValueError("双层市场报告必须包含冻结市场指标")
         display_length = _narrative_display_length(self.narrative)
         if not 1_500 <= display_length <= 2_500:
             raise ValueError("双层市场报告正文必须为 1500 至 2500 个字符")

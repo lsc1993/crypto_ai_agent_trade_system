@@ -30,6 +30,7 @@ const agentReport = {
   agentAnalysis: {
     horizon: "1_to_3_days",
     narrative: null,
+    marketMetrics: null,
     outlook: "neutral",
     confidence: "medium",
     trendAlignment: { "1h": "neutral" },
@@ -118,6 +119,16 @@ const dualHorizonAgentReport = {
   agentAnalysis: {
     ...agentReport.agentAnalysis,
     horizon: "dual_horizon",
+    marketMetrics: {
+      price: "68000.12",
+      change24h: "-2.50",
+      volume24h: "123456789.01",
+      fundingRate: "0.0001",
+      openInterest: "456789012.34",
+      fearGreedValue: 23,
+      fearGreedClassification: "Extreme Fear",
+      fearGreedChange7d: -11,
+    },
     narrative: {
       marketOverview: {
         headline: "流动性回暖但趋势尚未确认",

@@ -291,6 +291,7 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
         agentAnalysis: {
           horizon: "1_to_3_days",
           narrative: null,
+          marketMetrics: null,
           outlook: "neutral",
           confidence: "medium",
           trendAlignment: { "1h": "neutral", "4h": "bullish" },
@@ -392,6 +393,16 @@ class DualHorizonReportDetailApi extends ControlledReportDetailApi {
             sourceCoverage: "partial",
           },
           limitations: ["报告仅基于本次冻结的公开证据，不构成交易指令。"],
+          marketMetrics: {
+            price: "68000.12",
+            change24h: "-2.50",
+            volume24h: "123456789.01",
+            fundingRate: "0.0001",
+            openInterest: "456789012.34",
+            fearGreedValue: 23,
+            fearGreedClassification: "Extreme Fear",
+            fearGreedChange7d: -11,
+          },
           narrative: {
             marketOverview: {
               headline: "流动性回暖但趋势尚未确认",
@@ -442,6 +453,28 @@ class DualHorizonReportDetailApi extends ControlledReportDetailApi {
         },
       }),
     );
+  }
+}
+
+class MissingSentimentReportDetailApi extends DualHorizonReportDetailApi {
+  override async getReport(): Promise<AnalysisReport> {
+    const report = await super.getReport();
+    const analysis = report.agentAnalysis;
+    if (analysis === null || analysis.horizon !== "dual_horizon") {
+      throw new Error("Expected a dual-horizon report fixture");
+    }
+    return analysisReportSchema.parse({
+      ...report,
+      agentAnalysis: {
+        ...analysis,
+        marketMetrics: {
+          ...analysis.marketMetrics,
+          fearGreedValue: null,
+          fearGreedClassification: null,
+          fearGreedChange7d: null,
+        },
+      },
+    });
   }
 }
 
@@ -899,7 +932,13 @@ describe("ReportDetailPage", () => {
 
     expect(overview).toHaveTextContent("本次冻结证据");
     expect(metrics).toHaveTextContent("价格");
-    expect(within(metrics).getAllByText("本次未取得")).toHaveLength(6);
+    expect(metrics).toHaveTextContent("68,000.12");
+    expect(metrics).toHaveTextContent("-2.50%");
+    expect(metrics).toHaveTextContent("123,456,789.01");
+    expect(metrics).toHaveTextContent("23 · Extreme Fear");
+    expect(metrics).toHaveTextContent("+0.0100%");
+    expect(metrics).toHaveTextContent("456,789,012.34");
+    expect(within(metrics).queryByText("本次未取得")).not.toBeInTheDocument();
     expect(metrics).toHaveClass("research-report__metrics");
     expect(shortTerm).toHaveTextContent("数天至两周");
     expect(longTerm).toHaveTextContent("数周至数月");
@@ -926,6 +965,21 @@ describe("ReportDetailPage", () => {
     expect(
       screen.queryByRole("region", { name: "未来 1–3 天市场研判" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("marks only sentiment unavailable when the frozen public context is absent", async () => {
+    renderReportDetail(new MissingSentimentReportDetailApi());
+
+    const metrics = await screen.findByRole("region", { name: "关键指标" });
+    const sentimentHeading = within(metrics).getByRole("heading", {
+      name: "情绪",
+    });
+    const sentimentCard = sentimentHeading.closest("article");
+    expect(sentimentCard).not.toBeNull();
+    expect(sentimentCard).toHaveTextContent("本次未取得");
+    expect(sentimentCard).toHaveTextContent("公开情绪数据未取得");
+    expect(within(metrics).getAllByText("本次未取得")).toHaveLength(1);
+    expect(metrics).toHaveTextContent("68,000.12");
   });
 
   it("retries the original report with a fresh analysis lifecycle", async () => {

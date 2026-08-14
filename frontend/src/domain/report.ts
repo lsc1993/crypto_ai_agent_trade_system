@@ -2,6 +2,8 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 
 import {
+  decimalStringSchema,
+  nonNegativeDecimalStringSchema,
   positiveDecimalStringSchema,
   httpUrlSchema,
   identifierSchema,
@@ -151,6 +153,35 @@ const agentResearchNarrativeSchema = z
     }
   });
 
+const marketMetricsSchema = z
+  .object({
+    price: positiveDecimalStringSchema,
+    change24h: decimalStringSchema,
+    volume24h: nonNegativeDecimalStringSchema,
+    fundingRate: decimalStringSchema,
+    openInterest: nonNegativeDecimalStringSchema,
+    fearGreedValue: z.number().int().min(0).max(100).nullable(),
+    fearGreedClassification: z.string().trim().min(1).max(100).nullable(),
+    fearGreedChange7d: z.number().int().min(-100).max(100).nullable(),
+  })
+  .strict()
+  .superRefine((metrics, context) => {
+    const sentiment = [
+      metrics.fearGreedValue,
+      metrics.fearGreedClassification,
+      metrics.fearGreedChange7d,
+    ];
+    if (
+      sentiment.some((value) => value === null) &&
+      sentiment.some((value) => value !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Fear and greed metrics must be complete or unavailable",
+      });
+    }
+  });
+
 const agentAnalysisBaseSchema = z
   .object({
     outlook: marketOutlookSchema,
@@ -175,10 +206,12 @@ const agentAnalysisSchema = z.discriminatedUnion("horizon", [
   agentAnalysisBaseSchema.extend({
     horizon: z.literal("1_to_3_days"),
     narrative: z.null(),
+    marketMetrics: z.null(),
   }),
   agentAnalysisBaseSchema.extend({
     horizon: z.literal("dual_horizon"),
     narrative: agentResearchNarrativeSchema,
+    marketMetrics: marketMetricsSchema,
   }),
 ]);
 

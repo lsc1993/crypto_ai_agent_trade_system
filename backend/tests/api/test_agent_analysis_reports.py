@@ -134,6 +134,17 @@ async def test_manual_report_returns_dual_horizon_chinese_narrative_and_partial_
     analysis = detail.json()["agentAnalysis"]
     assert analysis["horizon"] == "dual_horizon"
     assert analysis["dataQuality"]["sourceCoverage"] == "partial"
+    assert analysis["marketMetrics"] == {
+        "price": "68000.12",
+        "change24h": "-2.50",
+        "volume24h": "123456789.01",
+        "fundingRate": "0.0001",
+        "openInterest": "456789012.34",
+        "fearGreedValue": 23,
+        "fearGreedClassification": "Extreme Fear",
+        "fearGreedChange7d": -11,
+    }
+    assert "payload" not in str(analysis).lower()
     narrative = analysis["narrative"]
     assert narrative["marketOverview"]["headline"] == "流动性回暖但趋势尚未确认"
     assert narrative["shortTerm"]["horizon"] == "short_term"
@@ -234,6 +245,16 @@ def _dual_horizon_report() -> PersistedAnalysisReport:
         {
             **report.agent_analysis.model_dump(mode="python"),  # type: ignore[union-attr]
             "horizon": "dual_horizon",
+            "market_metrics": {
+                "price": "68000.12",
+                "change_24h": "-2.50",
+                "volume_24h": "123456789.01",
+                "funding_rate": "0.0001",
+                "open_interest": "456789012.34",
+                "fear_greed_value": 23,
+                "fear_greed_classification": "Extreme Fear",
+                "fear_greed_change_7d": -11,
+            },
             "narrative": {
                 "market_overview": {
                     "headline": "流动性回暖但趋势尚未确认",
