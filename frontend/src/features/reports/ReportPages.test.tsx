@@ -290,6 +290,7 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
         generatorKind: "langgraph_deepseek",
         agentAnalysis: {
           horizon: "1_to_3_days",
+          narrative: null,
           outlook: "neutral",
           confidence: "medium",
           trendAlignment: { "1h": "neutral", "4h": "bullish" },
@@ -331,6 +332,113 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
             sourceCoverage: "partial",
           },
           limitations: ["Not trading advice."],
+        },
+      }),
+    );
+  }
+}
+
+const detailedChineseNarrativeText =
+  "本次冻结证据显示价格、流动性与情绪信号仍需交叉验证，市场结论只描述可观察条件而不构成交易指令。";
+
+class DualHorizonReportDetailApi extends ControlledReportDetailApi {
+  override getReport(): Promise<AnalysisReport> {
+    return Promise.resolve(
+      analysisReportSchema.parse({
+        ...seedReport(),
+        generatorKind: "langgraph_deepseek",
+        title: "BTCUSDT 流动性回暖但趋势尚未确认",
+        summary: "本次冻结证据支持短期与长期市场观点的分层展示。",
+        agentAnalysis: {
+          horizon: "dual_horizon",
+          outlook: "neutral",
+          confidence: "medium",
+          trendAlignment: { "1h": "neutral", "4h": "bullish" },
+          supportZones: [
+            {
+              lower: "67000.10",
+              upper: "67100.20",
+              timeframe: "1h",
+              rationale: "收盘结构仍在关键支撑附近反复确认。",
+            },
+          ],
+          resistanceZones: [
+            {
+              lower: "69000.10",
+              upper: "69100.20",
+              timeframe: "4h",
+              rationale: "上方成交密集区仍需要新的冻结证据验证。",
+            },
+          ],
+          catalysts: [
+            {
+              category: "宏观与市场结构",
+              direction: "neutral",
+              claim: "公开英文新闻的影响仍需结合后续市场结构确认。",
+              evidenceIds: ["evidence-btc-001"],
+              timing: "后续公开信息发布后重新评估。",
+            },
+          ],
+          risksAndInvalidation: [
+            {
+              condition: "冻结市场结构与情绪读数同步发生显著变化。",
+              impact: "本次市场观点需要以新的冻结证据重新评估。",
+              evidenceIds: ["evidence-btc-001"],
+            },
+          ],
+          dataQuality: {
+            freshness: "fresh",
+            missingInputs: [],
+            sourceCoverage: "complete",
+          },
+          limitations: ["报告仅基于本次冻结的公开证据，不构成交易指令。"],
+          narrative: {
+            marketOverview: {
+              headline: "流动性回暖但趋势尚未确认",
+              summary: detailedChineseNarrativeText.repeat(8),
+              evidenceIds: ["evidence-btc-001"],
+            },
+            shortTerm: {
+              horizon: "short_term",
+              outlook: "neutral",
+              heading: "短期观察等待关键价位确认",
+              thesis: detailedChineseNarrativeText.repeat(10),
+              drivers: [
+                {
+                  label: "冻结市场快照",
+                  detail: detailedChineseNarrativeText.repeat(5),
+                  evidenceIds: ["evidence-btc-001"],
+                },
+              ],
+              invalidation: [
+                {
+                  condition: "关键价位附近的收盘结构出现持续变化。",
+                  impact: "短期观点需要基于新的冻结证据重新评估。",
+                  evidenceIds: ["evidence-btc-001"],
+                },
+              ],
+            },
+            longTerm: {
+              horizon: "long_term",
+              outlook: "neutral",
+              heading: "长期趋势仍取决于流动性条件",
+              thesis: detailedChineseNarrativeText.repeat(10),
+              drivers: [
+                {
+                  label: "公开新闻与情绪",
+                  detail: detailedChineseNarrativeText.repeat(5),
+                  evidenceIds: ["evidence-btc-001"],
+                },
+              ],
+              invalidation: [
+                {
+                  condition: "宏观流动性与公开市场结构同步转弱。",
+                  impact: "长期观点需要基于新的冻结证据重新评估。",
+                  evidenceIds: ["evidence-btc-001"],
+                },
+              ],
+            },
+          },
         },
       }),
     );
@@ -768,6 +876,55 @@ describe("ReportDetailPage", () => {
     expect(screen.queryByText("BTCUSDT 离线研究样例")).not.toBeInTheDocument();
     expect(
       screen.queryByText("用于界面和 API 契约验证的确定性 Mock 报告。"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a Chinese conclusion-first dual-horizon report with evidence-linked views", async () => {
+    renderReportDetail(new DualHorizonReportDetailApi());
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "流动性回暖但趋势尚未确认",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "报告详情" }),
+    ).not.toBeInTheDocument();
+    const overview = screen.getByRole("region", { name: "市场概况" });
+    const metrics = screen.getByRole("region", { name: "关键指标" });
+    const shortTerm = screen.getByRole("region", { name: "短期市场观点" });
+    const longTerm = screen.getByRole("region", { name: "长期市场观点" });
+    const catalysts = screen.getByRole("region", { name: "潜在催化事件" });
+    const risks = screen.getByRole("region", { name: "风险与失效条件" });
+
+    expect(overview).toHaveTextContent("本次冻结证据");
+    expect(metrics).toHaveTextContent("价格");
+    expect(within(metrics).getAllByText("本次未取得")).toHaveLength(6);
+    expect(metrics).toHaveClass("research-report__metrics");
+    expect(shortTerm).toHaveTextContent("数天至两周");
+    expect(longTerm).toHaveTextContent("数周至数月");
+    expect(catalysts).toHaveTextContent("公开英文新闻");
+    expect(risks).toHaveTextContent("冻结市场结构");
+    expect(
+      screen.getByText("来源覆盖：完整"),
+    ).toBeVisible();
+    expect(screen.getByText("模型置信度：中等")).toBeVisible();
+    for (const evidenceLink of within(shortTerm).getAllByRole("link", {
+      name: "查看证据 evidence-btc-001",
+    })) {
+      expect(evidenceLink).toHaveAttribute(
+        "href",
+        "#evidence-evidence-btc-001",
+      );
+    }
+    expect(
+      within(catalysts).getByRole("link", {
+        name: "查看证据 evidence-btc-001",
+      }),
+    ).toHaveAttribute("href", "#evidence-evidence-btc-001");
+    expect(screen.getByText("固定的离线证据摘要。")).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: "未来 1–3 天市场研判" }),
     ).not.toBeInTheDocument();
   });
 

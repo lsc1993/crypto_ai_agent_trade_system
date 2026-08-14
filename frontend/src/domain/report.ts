@@ -43,7 +43,18 @@ const trendDirectionSchema = z.enum([
   "unknown",
 ]);
 const agentTextSchema = z.string().trim().min(1).max(1000);
-const evidenceIdsSchema = z.array(identifierSchema).min(1).max(12);
+const chineseAgentTextSchema = agentTextSchema.refine(
+  (value) => /[\u3400-\u9fff]/.test(value),
+  "Detailed research text must contain Chinese characters",
+);
+const evidenceIdsSchema = z
+  .array(identifierSchema)
+  .min(1)
+  .max(12)
+  .refine(
+    (evidenceIds) => new Set(evidenceIds).size === evidenceIds.length,
+    "Evidence references must not repeat",
+  );
 
 const priceZoneSchema = z
   .object({
@@ -75,9 +86,73 @@ const riskAndInvalidationSchema = z
   })
   .strict();
 
-const agentAnalysisSchema = z
+const evidenceBackedClaimSchema = z
   .object({
-    horizon: z.literal("1_to_3_days"),
+    label: chineseAgentTextSchema,
+    detail: chineseAgentTextSchema,
+    evidenceIds: evidenceIdsSchema,
+  })
+  .strict();
+
+const marketOverviewSchema = z
+  .object({
+    headline: chineseAgentTextSchema,
+    summary: chineseAgentTextSchema,
+    evidenceIds: evidenceIdsSchema,
+  })
+  .strict();
+
+const researchPerspectiveSchema = z
+  .object({
+    horizon: z.enum(["short_term", "long_term"]),
+    outlook: marketOutlookSchema,
+    heading: chineseAgentTextSchema,
+    thesis: chineseAgentTextSchema,
+    drivers: z.array(evidenceBackedClaimSchema).min(1).max(4),
+    invalidation: z.array(riskAndInvalidationSchema).min(1).max(4),
+  })
+  .strict();
+
+const agentResearchNarrativeSchema = z
+  .object({
+    marketOverview: marketOverviewSchema,
+    shortTerm: researchPerspectiveSchema,
+    longTerm: researchPerspectiveSchema,
+  })
+  .strict()
+  .superRefine((narrative, context) => {
+    if (narrative.shortTerm.horizon !== "short_term") {
+      context.addIssue({
+        code: "custom",
+        message: "The short-term perspective must use the short_term horizon",
+        path: ["shortTerm", "horizon"],
+      });
+    }
+    if (narrative.longTerm.horizon !== "long_term") {
+      context.addIssue({
+        code: "custom",
+        message: "The long-term perspective must use the long_term horizon",
+        path: ["longTerm", "horizon"],
+      });
+    }
+    const displayLength = [
+      narrative.marketOverview.headline,
+      narrative.marketOverview.summary,
+      narrative.shortTerm.thesis,
+      narrative.longTerm.thesis,
+      ...narrative.shortTerm.drivers.map((driver) => driver.detail),
+      ...narrative.longTerm.drivers.map((driver) => driver.detail),
+    ].join("").length;
+    if (displayLength < 1500 || displayLength > 2500) {
+      context.addIssue({
+        code: "custom",
+        message: "Detailed research narrative must contain 1,500 to 2,500 display characters",
+      });
+    }
+  });
+
+const agentAnalysisBaseSchema = z
+  .object({
     outlook: marketOutlookSchema,
     confidence: z.enum(["low", "medium", "high"]),
     trendAlignment: z.partialRecord(timeframeSchema, trendDirectionSchema),
@@ -95,6 +170,17 @@ const agentAnalysisSchema = z
     limitations: z.array(agentTextSchema).max(12),
   })
   .strict();
+
+const agentAnalysisSchema = z.discriminatedUnion("horizon", [
+  agentAnalysisBaseSchema.extend({
+    horizon: z.literal("1_to_3_days"),
+    narrative: z.null(),
+  }),
+  agentAnalysisBaseSchema.extend({
+    horizon: z.literal("dual_horizon"),
+    narrative: agentResearchNarrativeSchema,
+  }),
+]);
 
 export const analysisReportSummarySchema = z
   .object({
@@ -147,6 +233,72 @@ export const analysisReportSchema = analysisReportSummarySchema
         path: ["agentAnalysis", "risksAndInvalidation", index, "evidenceIds"],
         evidenceIds: item.evidenceIds,
       })),
+      ...(report.agentAnalysis.narrative === null
+        ? []
+        : [
+            {
+              path: [
+                "agentAnalysis",
+                "narrative",
+                "marketOverview",
+                "evidenceIds",
+              ],
+              evidenceIds: report.agentAnalysis.narrative.marketOverview
+                .evidenceIds,
+            },
+            ...report.agentAnalysis.narrative.shortTerm.drivers.map(
+              (item, index) => ({
+                path: [
+                  "agentAnalysis",
+                  "narrative",
+                  "shortTerm",
+                  "drivers",
+                  index,
+                  "evidenceIds",
+                ],
+                evidenceIds: item.evidenceIds,
+              }),
+            ),
+            ...report.agentAnalysis.narrative.shortTerm.invalidation.map(
+              (item, index) => ({
+                path: [
+                  "agentAnalysis",
+                  "narrative",
+                  "shortTerm",
+                  "invalidation",
+                  index,
+                  "evidenceIds",
+                ],
+                evidenceIds: item.evidenceIds,
+              }),
+            ),
+            ...report.agentAnalysis.narrative.longTerm.drivers.map(
+              (item, index) => ({
+                path: [
+                  "agentAnalysis",
+                  "narrative",
+                  "longTerm",
+                  "drivers",
+                  index,
+                  "evidenceIds",
+                ],
+                evidenceIds: item.evidenceIds,
+              }),
+            ),
+            ...report.agentAnalysis.narrative.longTerm.invalidation.map(
+              (item, index) => ({
+                path: [
+                  "agentAnalysis",
+                  "narrative",
+                  "longTerm",
+                  "invalidation",
+                  index,
+                  "evidenceIds",
+                ],
+                evidenceIds: item.evidenceIds,
+              }),
+            ),
+          ]),
     ];
     for (const group of referenceGroups) {
       for (const [index, evidenceId] of group.evidenceIds.entries()) {

@@ -14,6 +14,10 @@ import type {
   AnalysisStreamEvent,
   ReportStatus,
 } from "../../domain/report";
+import {
+  AgentResearchReport,
+  type DualHorizonReport,
+} from "./AgentResearchReport";
 import { EvidenceList } from "./EvidenceList";
 import { RiskFlags } from "./RiskFlags";
 
@@ -31,6 +35,12 @@ function isTerminalStatus(status: ReportStatus): boolean {
     status === "degraded" ||
     status === "failed"
   );
+}
+
+function isDualHorizonReport(
+  report: AnalysisReport,
+): report is DualHorizonReport {
+  return report.agentAnalysis?.horizon === "dual_horizon";
 }
 
 function ObservationSection({
@@ -309,23 +319,26 @@ function ReportDetailContent({ reportId }: { reportId: string }) {
     linkedAnalysisReportId: report.id,
   }).toString();
   const isAgentReport = report.generatorKind === "langgraph_deepseek";
+  const isDualHorizonAgentReport = isDualHorizonReport(report);
 
   return (
     <article className="research-page report-detail">
-      <header className="research-page__heading">
-        <div>
-          <p className="route-page__kicker">
-            {report.symbol} · {statusLabels[report.status]}
-          </p>
-          <h1>报告详情</h1>
-          {isAgentReport ? null : (
-            <>
-              <h2 className="report-detail__title">{report.title}</h2>
-              <p>{report.summary}</p>
-            </>
-          )}
-        </div>
-      </header>
+      {isDualHorizonAgentReport ? null : (
+        <header className="research-page__heading">
+          <div>
+            <p className="route-page__kicker">
+              {report.symbol} · {statusLabels[report.status]}
+            </p>
+            <h1>报告详情</h1>
+            {isAgentReport ? null : (
+              <>
+                <h2 className="report-detail__title">{report.title}</h2>
+                <p>{report.summary}</p>
+              </>
+            )}
+          </div>
+        </header>
+      )}
 
       <section
         className="report-audit-panel"
@@ -362,7 +375,9 @@ function ReportDetailContent({ reportId }: { reportId: string }) {
         </dl>
       </section>
 
-      {isAgentReport ? (
+      {isDualHorizonAgentReport ? (
+        <AgentResearchReport report={report} />
+      ) : isAgentReport ? (
         <AgentResearchPanels report={report} />
       ) : (
         <>

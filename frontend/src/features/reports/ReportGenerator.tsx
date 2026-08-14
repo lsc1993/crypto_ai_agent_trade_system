@@ -107,7 +107,7 @@ export function ReportGenerator({ symbol }: ReportGeneratorProps) {
       <div>
         <h2 id={`report-generator-${symbol}`}>生成研究报告</h2>
         <p>
-          为 {symbol} 按需抓取公开行情与受治理的英文新闻，并生成未来 1–3 天的只读研究。
+          为 {symbol} 按需抓取公开行情与受治理的英文新闻，并生成短期与长期市场观点的只读研究。
         </p>
       </div>
       <button

@@ -41,7 +41,7 @@ export function ReportListPage() {
           <p className="route-page__kicker">可审计研究记录</p>
           <h1>分析报告</h1>
           <p>
-            报告区分事实、推断、风险与限制，表达观察和不确定性，不构成交易指令。
+            报告提供短期与长期市场观点，并区分事实、推断、风险与限制；不构成交易指令。
           </p>
         </div>
       </header>
