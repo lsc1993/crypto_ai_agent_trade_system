@@ -20,7 +20,16 @@ def test_agent_sources_are_allowlisted_and_cannot_enable_social_or_full_page_fet
     news_source = _application_source("news")
 
     assert "ALLOWED_NEWS_SOURCES" in source
-    assert set(ALLOWED_NEWS_SOURCES) == {"coindesk", "sec_press_releases"}
+    assert set(ALLOWED_NEWS_SOURCES) == {
+        "sec_press_releases",
+        "cftc_press_releases",
+        "federal_reserve_press_releases",
+        "us_treasury_press_releases",
+        "coindesk",
+        "decrypt",
+        "blockworks",
+        "the_block",
+    }
     assert all(str(item.feed_url).startswith("https://") for item in ALLOWED_NEWS_SOURCES.values())
     assert "telegram" not in news_source.lower()
     assert "discord" not in news_source.lower()
@@ -60,10 +69,20 @@ def test_operation_docs_keep_the_manual_research_and_secret_boundary() -> None:
 
     assert "手动" in boundaries
     assert "DeepSeek" in boundaries
+    assert "Alternative.me" in boundaries
     assert "非投资或交易指令" in boundaries
     assert "未跟踪" in deployment
     assert "缺失" in deployment and "降级" in deployment
     assert "抓取公开行情与英文新闻并分析" in readme
+    for source_name in (
+        "CFTC Press Releases",
+        "Federal Reserve Press Releases",
+        "U.S. Treasury Press Releases",
+        "Decrypt",
+        "Blockworks",
+        "The Block",
+    ):
+        assert source_name in boundaries
 
 
 def test_compose_passes_optional_deepseek_configuration_without_a_secret_value() -> None:

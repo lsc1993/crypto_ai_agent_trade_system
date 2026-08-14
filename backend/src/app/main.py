@@ -55,7 +55,7 @@ from app.market.research_context import (
     PublicResearchContextCollector,
 )
 from app.market.service import MarketQueryService
-from app.news.contracts import COINDESK_SOURCE, SEC_PRESS_RELEASES_SOURCE
+from app.news.contracts import ALLOWED_NEWS_SOURCES
 from app.news.rss import RssNewsSourceAdapter
 from app.news.service import NewsIngestionService
 from app.paper_trading.contracts import (
@@ -327,6 +327,23 @@ def build_public_research_context_collector(
     )
 
 
+def build_news_sources(
+    *,
+    client: httpx.AsyncClient,
+    timeout_seconds: int,
+) -> tuple[RssNewsSourceAdapter, ...]:
+    """Construct the complete, registered RSS source set in registry order."""
+
+    return tuple(
+        RssNewsSourceAdapter(
+            source=source,
+            client=client,
+            timeout_seconds=timeout_seconds,
+        )
+        for source in ALLOWED_NEWS_SOURCES.values()
+    )
+
+
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
@@ -453,17 +470,9 @@ def create_app(
             ),
         )
         news_ingestion = NewsIngestionService(
-            sources=(
-                RssNewsSourceAdapter(
-                    source=COINDESK_SOURCE,
-                    client=news_client,
-                    timeout_seconds=settings.news_http_timeout_seconds,
-                ),
-                RssNewsSourceAdapter(
-                    source=SEC_PRESS_RELEASES_SOURCE,
-                    client=news_client,
-                    timeout_seconds=settings.news_http_timeout_seconds,
-                ),
+            sources=build_news_sources(
+                client=news_client,
+                timeout_seconds=settings.news_http_timeout_seconds,
             ),
             repository=SqlAlchemyNewsRepository(session_factory),
         )

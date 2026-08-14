@@ -5,12 +5,38 @@ from pathlib import Path
 import httpx
 import pytest
 
+import app.main as application
 from app.market.contracts import ContractSymbol
-from app.news.contracts import COINDESK_SOURCE, SEC_PRESS_RELEASES_SOURCE, NewsSourceDefinition
+from app.news.contracts import (
+    ALLOWED_NEWS_SOURCES,
+    COINDESK_SOURCE,
+    SEC_PRESS_RELEASES_SOURCE,
+    NewsSourceDefinition,
+)
 from app.news.rss import RssNewsSourceAdapter
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "news"
 FETCHED_AT = datetime(2026, 8, 10, 9, tzinfo=UTC)
+EXPECTED_SOURCE_IDS = {
+    "sec_press_releases",
+    "cftc_press_releases",
+    "federal_reserve_press_releases",
+    "us_treasury_press_releases",
+    "coindesk",
+    "decrypt",
+    "blockworks",
+    "the_block",
+}
+SOURCE_FIXTURES = {
+    "sec_press_releases": "sec_press_releases.xml",
+    "cftc_press_releases": "cftc_press_releases.xml",
+    "federal_reserve_press_releases": "federal_reserve_press_releases.xml",
+    "us_treasury_press_releases": "us_treasury_press_releases.xml",
+    "coindesk": "coindesk.xml",
+    "decrypt": "decrypt.xml",
+    "blockworks": "blockworks.xml",
+    "the_block": "the_block.xml",
+}
 
 
 class _TrackedAsyncByteStream(httpx.AsyncByteStream):
@@ -26,6 +52,54 @@ class _TrackedAsyncByteStream(httpx.AsyncByteStream):
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+def test_allowed_news_sources_are_exactly_the_governed_eight() -> None:
+    assert set(ALLOWED_NEWS_SOURCES) == EXPECTED_SOURCE_IDS
+    assert all(
+        str(source.feed_url).startswith("https://")
+        for source in ALLOWED_NEWS_SOURCES.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_production_news_ingestion_registers_every_allowed_source() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        sources = application.build_news_sources(client=client, timeout_seconds=5)
+
+    assert {source.source.source_id for source in sources} == EXPECTED_SOURCE_IDS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("source_id", "fixture_name"), tuple(SOURCE_FIXTURES.items()))
+async def test_rss_adapter_reads_each_registered_source_from_its_fixture(
+    source_id: str,
+    fixture_name: str,
+) -> None:
+    source = ALLOWED_NEWS_SOURCES[source_id]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            stream=_TrackedAsyncByteStream(((FIXTURES / fixture_name).read_bytes(),)),
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        items = await RssNewsSourceAdapter(
+            source=source,
+            client=client,
+            timeout_seconds=8,
+        ).fetch_items(fetched_at=FETCHED_AT)
+
+    assert str(requests[0].url) == str(source.feed_url)
+    assert len(items) == 1
+    assert items[0].source_id == source_id
+    assert items[0].source_tier is source.tier
 
 
 @pytest.mark.asyncio

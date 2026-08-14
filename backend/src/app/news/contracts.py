@@ -35,7 +35,16 @@ class _NewsModel(BaseModel):
 
 
 class NewsSourceDefinition(_NewsModel):
-    source_id: Literal["coindesk", "sec_press_releases"]
+    source_id: Literal[
+        "sec_press_releases",
+        "cftc_press_releases",
+        "federal_reserve_press_releases",
+        "us_treasury_press_releases",
+        "coindesk",
+        "decrypt",
+        "blockworks",
+        "the_block",
+    ]
     source_name: str = Field(min_length=1, max_length=120)
     tier: NewsSourceTier
     feed_url: AnyHttpUrl
@@ -56,8 +65,60 @@ SEC_PRESS_RELEASES_SOURCE = NewsSourceDefinition(
     feed_url=parse_http_url("https://www.sec.gov/news/pressreleases.rss"),
     max_items_per_run=20,
 )
+CFTC_PRESS_RELEASES_SOURCE = NewsSourceDefinition(
+    source_id="cftc_press_releases",
+    source_name="U.S. Commodity Futures Trading Commission",
+    tier=NewsSourceTier.PRIMARY,
+    feed_url=parse_http_url("https://www.cftc.gov/RSS/RSSGP/rssgp.xml"),
+    max_items_per_run=20,
+)
+FEDERAL_RESERVE_PRESS_RELEASES_SOURCE = NewsSourceDefinition(
+    source_id="federal_reserve_press_releases",
+    source_name="Federal Reserve Press Releases",
+    tier=NewsSourceTier.PRIMARY,
+    feed_url=parse_http_url("https://www.federalreserve.gov/feeds/press_all.xml"),
+    max_items_per_run=20,
+)
+US_TREASURY_PRESS_RELEASES_SOURCE = NewsSourceDefinition(
+    source_id="us_treasury_press_releases",
+    source_name="U.S. Treasury Press Releases",
+    tier=NewsSourceTier.PRIMARY,
+    feed_url=parse_http_url("https://home.treasury.gov/rss/press-releases.xml"),
+    max_items_per_run=20,
+)
+DECRYPT_SOURCE = NewsSourceDefinition(
+    source_id="decrypt",
+    source_name="Decrypt",
+    tier=NewsSourceTier.PROFESSIONAL_MEDIA,
+    feed_url=parse_http_url("https://decrypt.co/feed"),
+    max_items_per_run=20,
+)
+BLOCKWORKS_SOURCE = NewsSourceDefinition(
+    source_id="blockworks",
+    source_name="Blockworks",
+    tier=NewsSourceTier.PROFESSIONAL_MEDIA,
+    feed_url=parse_http_url("https://blockworks.com/feed"),
+    max_items_per_run=20,
+)
+THE_BLOCK_SOURCE = NewsSourceDefinition(
+    source_id="the_block",
+    source_name="The Block",
+    tier=NewsSourceTier.PROFESSIONAL_MEDIA,
+    feed_url=parse_http_url("https://www.theblock.co/rss.xml"),
+    max_items_per_run=20,
+)
 ALLOWED_NEWS_SOURCES: dict[str, NewsSourceDefinition] = {
-    source.source_id: source for source in (COINDESK_SOURCE, SEC_PRESS_RELEASES_SOURCE)
+    source.source_id: source
+    for source in (
+        SEC_PRESS_RELEASES_SOURCE,
+        CFTC_PRESS_RELEASES_SOURCE,
+        FEDERAL_RESERVE_PRESS_RELEASES_SOURCE,
+        US_TREASURY_PRESS_RELEASES_SOURCE,
+        COINDESK_SOURCE,
+        DECRYPT_SOURCE,
+        BLOCKWORKS_SOURCE,
+        THE_BLOCK_SOURCE,
+    )
 }
 
 
