@@ -170,6 +170,10 @@ def test_catalyst_rejects_a_category_empty_after_normalization() -> None:
         ("catalyst_claim", "Short BTC immediately."),
         ("risk_condition", "Buy ETH now."),
         ("limitation", "Increase your exposure before the close."),
+        ("catalyst_category", "做多 BTC"),
+        ("catalyst_claim", "建仓 ETH"),
+        ("risk_condition", "Invest in BTC now."),
+        ("limitation", "Purchase ETH today."),
     ),
 )
 def test_agent_analysis_rejects_direct_trading_imperatives(

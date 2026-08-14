@@ -188,14 +188,40 @@ def test_agent_research_migration_downgrade_fails_before_schema_mutation(
         migration.downgrade()
 
 
+def test_market_snapshot_input_migration_downgrade_fails_before_schema_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = _load_market_snapshot_input_migration()
+
+    class NoSchemaMutation:
+        def execute(self, _: str) -> None:
+            raise AssertionError("downgrade must not mutate the schema")
+
+    monkeypatch.setattr(migration, "op", NoSchemaMutation())
+
+    with pytest.raises(NotImplementedError, match="不可逆"):
+        migration.downgrade()
+
+
 def _load_agent_research_migration() -> ModuleType:
+    return _load_migration("0008_create_agent_research.py", "agent_research_migration")
+
+
+def _load_market_snapshot_input_migration() -> ModuleType:
+    return _load_migration(
+        "0009_create_immutable_market_snapshot_inputs.py",
+        "market_snapshot_input_migration",
+    )
+
+
+def _load_migration(filename: str, module_name: str) -> ModuleType:
     path = (
         Path(__file__).resolve().parents[2]
         / "alembic"
         / "versions"
-        / "0008_create_agent_research.py"
+        / filename
     )
-    spec = spec_from_file_location("agent_research_migration", path)
+    spec = spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise AssertionError("unable to load agent research migration")
     migration = module_from_spec(spec)

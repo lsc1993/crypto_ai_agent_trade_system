@@ -57,6 +57,21 @@ _ENGLISH_SIGNAL_WORDS = frozenset(
         "update",
         "report",
         "reports",
+        "context",
+        "moves",
+        "price",
+        "prices",
+        "rally",
+        "falls",
+        "rise",
+        "drops",
+        "demand",
+        "policy",
+        "sec",
+        "digital",
+        "asset",
+        "enforcement",
+        "action",
         "announces",
         "announced",
     }
@@ -128,7 +143,11 @@ def _contains_non_latin_letter(value: str) -> bool:
 def _is_english_text(value: str) -> bool:
     if _contains_non_latin_letter(value):
         return False
-    return bool(set(_LATIN_WORD.findall(value.casefold())) & _ENGLISH_SIGNAL_WORDS)
+    words = _LATIN_WORD.findall(value.casefold())
+    # Sources are an allowlist of English publishers. This is an additional
+    # conservative mixed-language guard, not a general-purpose language model.
+    english_signal_count = sum(word in _ENGLISH_SIGNAL_WORDS for word in words)
+    return english_signal_count >= 2
 
 
 def _canonicalize_url(value: str):

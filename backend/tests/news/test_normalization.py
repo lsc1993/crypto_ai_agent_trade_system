@@ -127,6 +127,20 @@ def test_normalize_news_item_rejects_non_english_latin_script_content(
         )
 
 
+def test_normalize_news_item_rejects_mixed_language_text_with_an_english_signal() -> None:
+    with pytest.raises(ValueError, match="仅支持英文"):
+        normalize_news_item(
+            ExternalNewsItem(
+                title="Le bitcoin baisse and les marchés suivent.",
+                summary="La liquidité reste faible.",
+                url=parse_http_url("https://www.coindesk.com/a"),
+                published_at=utc("2026-08-10T08:00:00Z"),
+            ),
+            source=COINDESK_SOURCE,
+            fetched_at=utc("2026-08-10T08:01:00Z"),
+        )
+
+
 @pytest.mark.parametrize(
     "non_english_text",
     (

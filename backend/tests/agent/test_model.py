@@ -12,6 +12,7 @@ from pydantic import SecretStr
 
 from app.agent.market_structure import MarketStructure
 from app.agent.model import (
+    AgentAnalysisProposal,
     DeepSeekResearchLanguageModel,
     ModelEvidence,
     ModelEvidenceKind,
@@ -20,7 +21,13 @@ from app.agent.model import (
 )
 from app.agent.prompt import research_user_message
 from app.market.contracts import ContractSymbol, MarketTimeframe
-from app.reports.contracts import PriceZone, TrendDirection
+from app.reports.contracts import (
+    Catalyst,
+    MarketOutlook,
+    PriceZone,
+    RiskAndInvalidation,
+    TrendDirection,
+)
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "agent"
 MARKET_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -102,6 +109,35 @@ async def test_deepseek_model_does_not_send_a_request_with_a_blank_api_key() -> 
 
     assert error.value.code == "model_not_configured"
     assert requests == []
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    ("做多 BTC", "建仓 ETH", "Invest in BTC now.", "Purchase ETH today."),
+)
+def test_agent_analysis_proposal_rejects_direct_trading_imperatives(instruction: str) -> None:
+    with pytest.raises(ValueError, match="交易指令"):
+        AgentAnalysisProposal(
+            outlook=MarketOutlook.NEUTRAL,
+            confidence="low",
+            catalysts=(
+                Catalyst(
+                    category="market",
+                    direction=MarketOutlook.NEUTRAL,
+                    claim="Frozen evidence is mixed.",
+                    evidence_ids=(MARKET_EVIDENCE_ID,),
+                    timing="Within one to three days.",
+                ),
+            ),
+            risks_and_invalidation=(
+                RiskAndInvalidation(
+                    condition="Liquidity materially changes.",
+                    impact="The outlook requires reassessment.",
+                    evidence_ids=(MARKET_EVIDENCE_ID,),
+                ),
+            ),
+            limitations=(instruction,),
+        )
 
 
 def test_news_content_cannot_close_its_untrusted_content_boundary() -> None:

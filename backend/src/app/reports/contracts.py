@@ -32,7 +32,10 @@ _MAX_PAYLOAD_BYTES = 64 * 1024
 _PROHIBITED_PHRASES = (
     "买入",
     "卖出",
+    "做多",
+    "做空",
     "开仓",
+    "建仓",
     "平仓",
     "仓位",
     "杠杆",
@@ -54,6 +57,12 @@ _PROHIBITED_ENGLISH_PATTERNS = (
     re.compile(r"\b(?:increase|reduce)\s+(?:your\s+)?(?:crypto\s+)?exposure\b"),
     re.compile(r"\b(?:add\s+to|trim)\s+(?:your\s+)?(?:position|exposure)\b"),
     re.compile(r"\b(?:enter|place|execute)\s+(?:a\s+)?(?:trade|order)\b"),
+    re.compile(
+        r"\b(?:invest|purchase|accumulate)\s+(?:in\s+)?(?:btc|eth|bitcoin|ethereum)(?:usdt)?\b"
+    ),
+    re.compile(
+        r"\b(?:invest|purchase|accumulate)\b.*\b(?:now|immediately|today|btc|eth|bitcoin|ethereum)\b"
+    ),
 )
 
 
