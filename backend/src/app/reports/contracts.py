@@ -41,6 +41,7 @@ _PROHIBITED_PHRASES = (
     "自动交易",
 )
 _PROHIBITED_ENGLISH_PATTERNS = (
+    re.compile(r"\b(?:buy|sell|long|short)\s+(?:btc|eth|bitcoin|ethereum)(?:usdt)?\b"),
     re.compile(
         r"\b(?:buy|sell)\b.*\b(?:now|immediately|today|btc|eth|bitcoin|ethereum)\b"
     ),
@@ -50,6 +51,9 @@ _PROHIBITED_ENGLISH_PATTERNS = (
     re.compile(r"\b(?:open|close)\s+(?:a\s+)?(?:long|short)?\s*position\b"),
     re.compile(r"\b(?:take\s+profit|stop\s+loss|entry\s+price|exit\s+price|use\s+leverage)\b"),
     re.compile(r"\b(?:recommend|advice)\s+(?:buying|selling|to\s+buy|to\s+sell)\b"),
+    re.compile(r"\b(?:increase|reduce)\s+(?:your\s+)?(?:crypto\s+)?exposure\b"),
+    re.compile(r"\b(?:add\s+to|trim)\s+(?:your\s+)?(?:position|exposure)\b"),
+    re.compile(r"\b(?:enter|place|execute)\s+(?:a\s+)?(?:trade|order)\b"),
 )
 
 
@@ -123,6 +127,11 @@ def _validate_display_text(value: str) -> str:
     if english_prohibited is not None:
         raise ValueError(f"报告文本不能包含交易指令：{english_prohibited}")
     return normalized
+
+
+def validate_research_display_text(value: str) -> str:
+    """Validate text that may be returned by the constrained research model."""
+    return _validate_display_text(value)
 
 
 def _validate_source_url(value: str) -> str:
@@ -286,7 +295,7 @@ class Catalyst(_ReportModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("催化事件类别不能为空")
-        return normalized
+        return _validate_display_text(normalized)
 
     @field_validator("claim", "timing")
     @classmethod

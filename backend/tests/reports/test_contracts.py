@@ -163,6 +163,96 @@ def test_catalyst_rejects_a_category_empty_after_normalization() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "instruction"),
+    (
+        ("catalyst_category", "Buy BTC now"),
+        ("catalyst_claim", "Short BTC immediately."),
+        ("risk_condition", "Buy ETH now."),
+        ("limitation", "Increase your exposure before the close."),
+    ),
+)
+def test_agent_analysis_rejects_direct_trading_imperatives(
+    field: str,
+    instruction: str,
+) -> None:
+    evidence_id = uuid4()
+    payload: dict[str, object] = {
+        "horizon": "1_to_3_days",
+        "outlook": MarketOutlook.NEUTRAL,
+        "confidence": "low",
+        "support_zones": (),
+        "resistance_zones": (),
+        "catalysts": (
+            {
+                "category": instruction if field == "catalyst_category" else "market",
+                "direction": MarketOutlook.NEUTRAL,
+                "claim": instruction
+                if field == "catalyst_claim"
+                else "Frozen evidence is mixed.",
+                "evidence_ids": (evidence_id,),
+                "timing": "Within one to three days.",
+            },
+        ),
+        "risks_and_invalidation": (
+            {
+                "condition": instruction
+                if field == "risk_condition"
+                else "Liquidity materially changes.",
+                "impact": "The outlook requires reassessment.",
+                "evidence_ids": (evidence_id,),
+            },
+        ),
+        "data_quality": AgentDataQuality(
+            freshness=FreshnessStatus.FRESH,
+            missing_inputs=(),
+            source_coverage="partial",
+        ),
+        "limitations": (
+            instruction if field == "limitation" else "Research-only evidence.",
+        ),
+    }
+
+    with pytest.raises(ValidationError, match="交易指令"):
+        AgentAnalysis.model_validate(payload)
+
+
+def test_agent_analysis_allows_neutral_short_positioning_context() -> None:
+    evidence_id = uuid4()
+
+    analysis = AgentAnalysis(
+        horizon="1_to_3_days",
+        outlook=MarketOutlook.NEUTRAL,
+        confidence="low",
+        support_zones=(),
+        resistance_zones=(),
+        catalysts=(
+            Catalyst(
+                category="market",
+                direction=MarketOutlook.NEUTRAL,
+                claim="Short positioning has increased in the cited market context.",
+                evidence_ids=(evidence_id,),
+                timing="Within one to three days.",
+            ),
+        ),
+        risks_and_invalidation=(
+            RiskAndInvalidation(
+                condition="The cited positioning data materially changes.",
+                impact="The outlook requires reassessment.",
+                evidence_ids=(evidence_id,),
+            ),
+        ),
+        data_quality=AgentDataQuality(
+            freshness=FreshnessStatus.FRESH,
+            missing_inputs=(),
+            source_coverage="partial",
+        ),
+        limitations=("Research-only evidence.",),
+    )
+
+    assert analysis.catalysts[0].claim.startswith("Short positioning")
+
+
 def _completed_report(
     *,
     summary: str = "本报告只陈述已冻结的公开市场观察。",

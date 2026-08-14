@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import NoReturn
+from typing import NoReturn, cast
 from uuid import UUID
 
 import httpx
@@ -14,6 +14,7 @@ from app.agent.model import DeepSeekResearchLanguageModel
 from app.agent.service import (
     AgentResearchDependencies,
     AgentResearchService,
+    AgentSnapshotInputReader,
     PersistedAgentMarketCapture,
 )
 from app.api.errors import install_exception_handlers
@@ -409,7 +410,7 @@ def create_app(
                 market_gateway,
                 SqlAlchemyMarketRepository(session_factory),
             ),
-            reader=market_research_reader,
+            reader=cast(AgentSnapshotInputReader, market_research_reader),
         )
         news_ingestion = NewsIngestionService(
             sources=(

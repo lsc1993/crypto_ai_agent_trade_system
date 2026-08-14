@@ -10,6 +10,7 @@ const agentReport = {
   title: "BTCUSDT research",
   summary: "Frozen public evidence research.",
   createdAt: "2026-08-10T12:00:00Z",
+  generatedAt: "2026-08-10T12:00:01Z",
   dataCutoffAt: "2026-08-10T12:00:00Z",
   generatorKind: "langgraph_deepseek",
   facts: [],

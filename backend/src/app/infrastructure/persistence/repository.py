@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import cast
 from uuid import UUID, uuid4
 
+from pydantic import JsonValue
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -11,10 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.infrastructure.persistence.models.market import (
     DerivativeObservationRecord,
     MarketCandleRecord,
+    MarketSnapshotInputRecord,
     MarketSnapshotRecord,
 )
-from app.market.contracts import Candle
-from app.market.repository import DerivativeObservation, MarketCaptureBatch, MarketRepository
+from app.market.contracts import Candle, MarketTimeframe
+from app.market.repository import (
+    DerivativeObservation,
+    MarketCaptureBatch,
+    MarketRepository,
+    snapshot_payload_sha256,
+)
 
 
 class SqlAlchemyMarketRepository(MarketRepository):
@@ -38,6 +45,7 @@ class SqlAlchemyMarketRepository(MarketRepository):
                     await session.execute(_insert_observations(batch.observations))
                     snapshot_id = uuid4()
                     await session.execute(_insert_snapshot(batch, snapshot_id))
+                    await session.execute(_insert_snapshot_input(batch, snapshot_id))
                     snapshot_ids.append(snapshot_id)
         return tuple(snapshot_ids)
 
@@ -111,4 +119,30 @@ def _insert_snapshot(batch: MarketCaptureBatch, snapshot_id: UUID):
         data_version=snapshot.data_version,
         payload=cast(dict[str, object], snapshot.payload),
         payload_sha256=snapshot.payload_sha256,
+    )
+
+
+def _insert_snapshot_input(batch: MarketCaptureBatch, snapshot_id: UUID):
+    candles = _snapshot_input_candles(batch)
+    payload = cast(
+        dict[str, JsonValue],
+        {"candles": [candle.model_dump(mode="json") for candle in candles]},
+    )
+    return insert(MarketSnapshotInputRecord).values(
+        snapshot_id=snapshot_id,
+        symbol=batch.symbol.value,
+        payload=cast(dict[str, object], payload),
+        payload_sha256=snapshot_payload_sha256(payload),
+        candle_count=len(candles),
+    )
+
+
+def _snapshot_input_candles(batch: MarketCaptureBatch) -> tuple[Candle, ...]:
+    return tuple(
+        candle
+        for timeframe in MarketTimeframe
+        for candle in sorted(
+            (item for item in batch.candles if item.timeframe is timeframe),
+            key=lambda item: item.open_at,
+        )[-200:]
     )

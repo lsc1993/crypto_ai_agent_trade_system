@@ -30,7 +30,10 @@ from app.market.contracts import (
     MarketDetail,
     MarketTimeframe,
 )
-from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
+from app.market.research import (
+    PersistedMarketSnapshot,
+    PersistedMarketSnapshotInput,
+)
 from app.news.contracts import ALLOWED_NEWS_SOURCES, NewsItemDraft
 from app.news.service import NewsCollection
 from app.reports.contracts import (
@@ -59,6 +62,7 @@ _FRESHNESS_THRESHOLD = timedelta(minutes=2)
 _NEWS_WINDOW = timedelta(days=3)
 _MAX_NEWS_EVIDENCE = 29
 _MARKET_SOURCE_URL = "https://www.binance.com/en/futures/"
+_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,7 @@ class CapturedAgentMarket:
     snapshot_id: UUID
     snapshot: PersistedMarketSnapshot
     detail: MarketDetail
+    snapshot_input_sha256: str | None = None
 
 
 class AgentMarketCapture(Protocol):
@@ -77,6 +82,15 @@ class AgentMarketCapture(Protocol):
         *,
         captured_at: datetime,
     ) -> CapturedAgentMarket: ...
+
+
+class AgentSnapshotInputReader(Protocol):
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None: ...
+
+    async def load_snapshot_input(
+        self,
+        snapshot_id: UUID,
+    ) -> PersistedMarketSnapshotInput | None: ...
 
 
 class AgentNewsCollector(Protocol):
@@ -103,7 +117,7 @@ class PersistedAgentMarketCapture:
         self,
         *,
         capture_service: MarketCaptureService,
-        reader: PersistedMarketReader,
+        reader: AgentSnapshotInputReader,
     ) -> None:
         self._capture_service = capture_service
         self._reader = reader
@@ -125,9 +139,20 @@ class PersistedAgentMarketCapture:
                 AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE.value,
                 "冻结市场快照不可用",
             )
+        snapshot_input = await self._reader.load_snapshot_input(snapshot_id)
+        if snapshot_input is None:
+            raise MarketDataUnavailableError(
+                AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE.value,
+                "冻结市场 K 线输入不可用",
+            )
         series = tuple(
             [
-                await self._closed_series(symbol, timeframe, captured_at=captured_at)
+                self._closed_series(
+                    snapshot_input,
+                    symbol,
+                    timeframe,
+                    captured_at=captured_at,
+                )
                 for timeframe in _TIMEFRAMES
             ]
         )
@@ -135,19 +160,21 @@ class PersistedAgentMarketCapture:
             snapshot_id=snapshot_id,
             snapshot=snapshot,
             detail=MarketDetail(summary=snapshot.summary, series=series),
+            snapshot_input_sha256=snapshot_input.payload_sha256,
         )
 
-    async def _closed_series(
+    def _closed_series(
         self,
+        snapshot_input: PersistedMarketSnapshotInput,
         symbol: ContractSymbol,
         timeframe: MarketTimeframe,
         *,
         captured_at: datetime,
     ) -> CandleSeries:
-        candles = await self._reader.load_recent_candles(
-            symbol,
-            timeframe,
-            _CANDLE_LIMIT,
+        candles = tuple(
+            candle
+            for candle in snapshot_input.candles
+            if candle.symbol is symbol and candle.timeframe is timeframe
         )
         if any(
             candle.symbol is not symbol or candle.timeframe is not timeframe
@@ -535,6 +562,8 @@ def _market_evidence(market: CapturedAgentMarket) -> _FrozenEvidence:
         "summary": summary.model_dump(mode="json"),
         "capturedAt": market.snapshot.captured_at.isoformat(),
     }
+    if market.snapshot_input_sha256 is not None:
+        payload["snapshotInputSha256"] = market.snapshot_input_sha256
     return _FrozenEvidence(
         id=uuid4(),
         kind=ModelEvidenceKind.MARKET,
@@ -708,7 +737,7 @@ def _agent_analysis(
     return AgentAnalysis(
         horizon=proposal.horizon,
         outlook=proposal.outlook,
-        confidence=proposal.confidence,
+        confidence=_bounded_confidence(proposal.confidence, structure.confidence),
         trend_alignment=structure.trend_alignment,
         support_zones=structure.support_zones,
         resistance_zones=structure.resistance_zones,
@@ -762,12 +791,26 @@ def _limitations(
     news: NewsCollection | None,
     proposal_limitations: tuple[str, ...],
 ) -> tuple[str, ...]:
-    limitations = list(proposal_limitations)
+    limitations = list(dict.fromkeys(proposal_limitations))
+    source_coverage_limit: str | None = None
     if _source_coverage(news) == "none":
-        limitations.append("英文新闻来源暂不可用，报告仅基于冻结公开行情。")
+        source_coverage_limit = "英文新闻来源暂不可用，报告仅基于冻结公开行情。"
     elif _source_coverage(news) == "partial":
-        limitations.append("部分英文新闻来源不可用，来源覆盖不完整。")
-    return tuple(dict.fromkeys(limitations))
+        source_coverage_limit = "部分英文新闻来源不可用，来源覆盖不完整。"
+    if source_coverage_limit is None:
+        return tuple(limitations[:12])
+    return tuple((*limitations[:11], source_coverage_limit))
+
+
+def _bounded_confidence(
+    proposed: Literal["low", "medium", "high"],
+    deterministic: Literal["low", "medium", "high"],
+) -> Literal["low", "medium", "high"]:
+    return (
+        proposed
+        if _CONFIDENCE_RANK[proposed] <= _CONFIDENCE_RANK[deterministic]
+        else deterministic
+    )
 
 
 def _data_cutoff(evidence: tuple[AnalysisEvidenceDraft, ...]) -> datetime | None:

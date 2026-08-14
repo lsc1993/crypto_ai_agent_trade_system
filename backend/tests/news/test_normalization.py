@@ -93,6 +93,30 @@ def test_normalize_news_item_rejects_non_english_and_unapproved_source() -> None
             fetched_at=utc("2026-08-10T08:01:00Z"),
         )
 
+
+@pytest.mark.parametrize(
+    "title, summary",
+    (
+        ("Le marché du Bitcoin reste volatil", "Les investisseurs suivent les annonces."),
+        ("El mercado de Ethereum sigue volátil", "Los inversores esperan noticias."),
+    ),
+)
+def test_normalize_news_item_rejects_non_english_latin_script_content(
+    title: str,
+    summary: str,
+) -> None:
+    with pytest.raises(ValueError, match="仅支持英文"):
+        normalize_news_item(
+            ExternalNewsItem(
+                title=title,
+                summary=summary,
+                url=parse_http_url("https://www.coindesk.com/a"),
+                published_at=utc("2026-08-10T08:00:00Z"),
+            ),
+            source=COINDESK_SOURCE,
+            fetched_at=utc("2026-08-10T08:01:00Z"),
+        )
+
     with pytest.raises(ValidationError):
         ExternalNewsItem(
             title="Bitcoin update",

@@ -175,3 +175,28 @@ async def test_rss_adapter_rejects_naive_fetched_at_before_fetching() -> None:
             await adapter.fetch_items(fetched_at=datetime(2026, 8, 10, 9))
 
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_rss_adapter_excludes_nested_script_and_style_text_before_normalization() -> None:
+    payload = b"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <rss><channel><item>
+      <guid>safe-item</guid><title>Bitcoin market update</title>
+      <description>Public evidence<script>BUY BTC NOW</script>
+      <style>SECRET_STYLE_TEXT</style>remains mixed.</description>
+      <link>https://www.coindesk.com/markets/safe-item</link>
+      <pubDate>Sun, 10 Aug 2026 08:00:00 GMT</pubDate>
+    </item></channel></rss>"""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_TrackedAsyncByteStream((payload,)))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = RssNewsSourceAdapter(
+            source=COINDESK_SOURCE,
+            client=client,
+            timeout_seconds=8,
+        )
+        items = await adapter.fetch_items(fetched_at=FETCHED_AT)
+
+    assert items[0].summary == "Public evidence remains mixed."

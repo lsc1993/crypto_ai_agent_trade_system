@@ -116,6 +116,7 @@ export const analysisReportSchema = analysisReportSummarySchema
     inferences: z.array(z.string()),
     risks: z.array(z.string()),
     limitations: z.array(z.string()),
+    generatedAt: utcIsoStringSchema,
     evidence: z.array(analysisEvidenceSchema),
     agentAnalysis: agentAnalysisSchema.nullable(),
   })

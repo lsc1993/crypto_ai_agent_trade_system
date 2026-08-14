@@ -12,6 +12,7 @@ const reportWire = {
   title: "BTCUSDT public market research",
   summary: "Frozen public evidence research.",
   createdAt: "2026-08-10T12:00:00Z",
+  generatedAt: "2026-08-10T12:00:01Z",
   dataCutoffAt: "2026-08-10T12:00:00Z",
   generatorKind: "langgraph_deepseek",
   facts: [],
@@ -83,6 +84,7 @@ describe("HttpWorkbenchApi agent reports", () => {
     });
     await expect(api.getReport(reportWire.id)).resolves.toMatchObject({
       generatorKind: "langgraph_deepseek",
+      generatedAt: "2026-08-10T12:00:01Z",
       agentAnalysis: {
         horizon: "1_to_3_days",
         supportZones: [{ lower: "67000.10" }],
@@ -141,6 +143,7 @@ const deterministicReportSummary = {
 
 const deterministicReportDetail = {
   ...deterministicReportSummary,
+  generatedAt: "2026-07-30T12:00:00Z",
   facts: [],
   inferences: [],
   risks: ["持久化市场研究数据不可用"],

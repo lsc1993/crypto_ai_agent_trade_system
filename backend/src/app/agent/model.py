@@ -21,7 +21,12 @@ from pydantic import (
 from app.agent.market_structure import MarketStructure
 from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import ContractSymbol, UtcDateTime
-from app.reports.contracts import Catalyst, MarketOutlook, RiskAndInvalidation
+from app.reports.contracts import (
+    Catalyst,
+    MarketOutlook,
+    RiskAndInvalidation,
+    validate_research_display_text,
+)
 
 _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 _MAX_TOKENS = 1_200
@@ -86,10 +91,7 @@ class AgentAnalysisProposal(_AgentModel):
     def normalize_limitations(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if len(value) > 12:
             raise ValueError("模型限制不能超过 12 项")
-        normalized = tuple(item.strip() for item in value)
-        if any(not item for item in normalized):
-            raise ValueError("模型限制不能为空")
-        return normalized
+        return tuple(validate_research_display_text(item) for item in value)
 
     @model_validator(mode="after")
     def require_frozen_evidence_reference(self) -> AgentAnalysisProposal:

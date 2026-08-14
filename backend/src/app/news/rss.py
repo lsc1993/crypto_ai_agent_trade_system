@@ -103,9 +103,20 @@ def _local_name(tag: str) -> str:
 def _child_text(element: Element, name: str) -> str | None:
     for child in element:
         if _local_name(child.tag) == name:
-            value = "".join(child.itertext()).strip()
+            value = _safe_element_text(child).strip()
             return value or None
     return None
+
+
+def _safe_element_text(element: Element) -> str:
+    parts = [element.text or ""]
+    for child in element:
+        if _local_name(child.tag).casefold() not in {"script", "style"}:
+            parts.append(_safe_element_text(child))
+        else:
+            parts.append(" ")
+        parts.append(child.tail or "")
+    return "".join(parts)
 
 
 def _child_url(element: Element) -> str | None:

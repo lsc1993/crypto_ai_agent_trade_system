@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, Index, Numeric, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -75,6 +75,23 @@ class MarketSnapshotRecord(Base):
     data_version: Mapped[str] = mapped_column(String(20), nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class MarketSnapshotInputRecord(Base):
+    __tablename__ = "market_snapshot_inputs"
+
+    snapshot_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("market_snapshots.id"),
+        primary_key=True,
+    )
+    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    candle_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

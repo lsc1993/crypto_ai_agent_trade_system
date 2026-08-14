@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,7 +26,10 @@ from app.market.contracts import (
     MarketSummary,
     MarketTimeframe,
 )
-from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
+from app.market.research import (
+    PersistedMarketSnapshot,
+    PersistedMarketSnapshotInput,
+)
 from app.news.contracts import (
     NewsEventCategory,
     NewsItemDraft,
@@ -104,6 +107,22 @@ class RecordingModel:
         return outcome
 
 
+class HighConfidenceModel(RecordingModel):
+    async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal:
+        self.requests.append(request)
+        return _proposal(request.evidences[0].id, confidence="high")
+
+
+class LimitedProposalModel(RecordingModel):
+    def __init__(self, limitations: tuple[str, ...]) -> None:
+        super().__init__()
+        self._limitations = limitations
+
+    async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal:
+        self.requests.append(request)
+        return _proposal(request.evidences[0].id, limitations=self._limitations)
+
+
 class RecordingRepository:
     def __init__(self) -> None:
         self.creations: list[AgentReportCreation] = []
@@ -151,6 +170,19 @@ class StaticMarketReader:
         del symbol
         return self.market.snapshot
 
+    async def load_snapshot_input(
+        self,
+        snapshot_id: UUID,
+    ) -> PersistedMarketSnapshotInput | None:
+        if snapshot_id != SNAPSHOT_ID:
+            return None
+        return PersistedMarketSnapshotInput(
+            candles=tuple(
+                candle for series in self.market.detail.series for candle in series.candles
+            ),
+            payload_sha256="a" * 64,
+        )
+
     async def load_recent_candles(
         self,
         symbol: ContractSymbol,
@@ -162,6 +194,35 @@ class StaticMarketReader:
             item for item in self.market.detail.series if item.timeframe is timeframe
         )
         return series.candles
+
+
+class ImmutableInputMarketReader(StaticMarketReader):
+    def __init__(self, market: CapturedAgentMarket) -> None:
+        super().__init__(market)
+        self.recent_candle_calls = 0
+
+    async def load_snapshot_input(
+        self,
+        snapshot_id: UUID,
+    ) -> PersistedMarketSnapshotInput | None:
+        if snapshot_id != SNAPSHOT_ID:
+            return None
+        return PersistedMarketSnapshotInput(
+            candles=tuple(
+                candle for series in self.market.detail.series for candle in series.candles
+            ),
+            payload_sha256="b" * 64,
+        )
+
+    async def load_recent_candles(
+        self,
+        symbol: ContractSymbol,
+        timeframe: MarketTimeframe,
+        limit: int,
+    ) -> tuple[Candle, ...]:
+        del symbol, timeframe, limit
+        self.recent_candle_calls += 1
+        return ()
 
 
 @pytest.mark.asyncio
@@ -198,7 +259,7 @@ async def test_persisted_market_capture_excludes_candles_after_run_start() -> No
     )
     capture = PersistedAgentMarketCapture(
         capture_service=cast(MarketCaptureService, RawCapture()),
-        reader=cast(PersistedMarketReader, StaticMarketReader(market)),
+        reader=StaticMarketReader(market),
     )
 
     frozen = await capture.capture(ContractSymbol.BTCUSDT, captured_at=NOW)
@@ -207,6 +268,25 @@ async def test_persisted_market_capture_excludes_candles_after_run_start() -> No
         candle.close_at <= NOW
         for series in frozen.detail.series
         for candle in series.candles
+    )
+
+
+@pytest.mark.asyncio
+async def test_persisted_market_capture_uses_immutable_snapshot_input_not_mutable_candles() -> None:
+    market = _market()
+    reader = ImmutableInputMarketReader(market)
+    capture = PersistedAgentMarketCapture(
+        capture_service=cast(MarketCaptureService, RawCapture()),
+        reader=reader,
+    )
+
+    frozen = await capture.capture(ContractSymbol.BTCUSDT, captured_at=NOW)
+
+    assert reader.recent_candle_calls == 0
+    assert frozen.snapshot_input_sha256 == "b" * 64
+    assert all(
+        series.candles
+        for series in frozen.detail.series
     )
 
 
@@ -310,6 +390,24 @@ async def test_graph_freezes_deduplicated_evidence_and_calls_model_once() -> Non
 
 
 @pytest.mark.asyncio
+async def test_graph_records_the_frozen_snapshot_input_hash_with_market_evidence() -> None:
+    input_sha256 = "c" * 64
+    service = _service(
+        market=_market(snapshot_input_sha256=input_sha256),
+        news=_collection(),
+        model=RecordingModel(),
+        repository=RecordingRepository(),
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    market_evidence = next(
+        evidence for evidence in report.evidence if evidence.source == "binance_usdm_public_rest"
+    )
+    assert market_evidence.payload["snapshotInputSha256"] == input_sha256
+
+
+@pytest.mark.asyncio
 async def test_graph_continues_after_one_news_source_fails() -> None:
     service = _service(
         market=_market(),
@@ -341,6 +439,46 @@ async def test_graph_persists_market_only_completed_report_when_all_news_fail() 
     assert report.agent_analysis is not None
     assert report.agent_analysis.data_quality.source_coverage == "none"
     assert any("英文新闻" in item for item in report.limitations)
+
+
+@pytest.mark.asyncio
+async def test_graph_caps_model_confidence_at_the_frozen_structure_confidence() -> None:
+    market = _market_with_sparse_timeframes()
+    repository = RecordingRepository()
+    service = _service(
+        market=market,
+        news=_collection(),
+        model=HighConfidenceModel(),
+        repository=repository,
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.COMPLETED
+    assert report.agent_analysis is not None
+    assert report.agent_analysis.confidence == "low"
+
+
+@pytest.mark.asyncio
+async def test_graph_bounds_model_limitations_before_adding_source_coverage_limit() -> None:
+    market = _market()
+    repository = RecordingRepository()
+    service = _service(
+        market=market,
+        news=_collection(failures=2),
+        model=LimitedProposalModel(
+            tuple(f"Model limitation {index}." for index in range(12))
+        ),
+        repository=repository,
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.COMPLETED
+    assert report.agent_analysis is not None
+    assert len(report.limitations) == 12
+    assert any("英文新闻" in limitation for limitation in report.limitations)
+    assert repository.creations[0].error_code is None
 
 
 @pytest.mark.asyncio
@@ -426,7 +564,11 @@ def _service(
     )
 
 
-def _market(*, captured_at: datetime = NOW) -> CapturedAgentMarket:
+def _market(
+    *,
+    captured_at: datetime = NOW,
+    snapshot_input_sha256: str | None = None,
+) -> CapturedAgentMarket:
     summary = MarketSummary(
         symbol=ContractSymbol.BTCUSDT,
         price=Decimal("68000"),
@@ -448,6 +590,31 @@ def _market(*, captured_at: datetime = NOW) -> CapturedAgentMarket:
             summary=summary,
             series=tuple(_series(timeframe, captured_at) for timeframe in MarketTimeframe),
         ),
+        snapshot_input_sha256=snapshot_input_sha256,
+    )
+
+
+def _market_with_sparse_timeframes() -> CapturedAgentMarket:
+    market = _market()
+    detail = market.detail.model_copy(
+        update={
+            "series": tuple(
+                CandleSeries(
+                    timeframe=series.timeframe,
+                    candles=(
+                        series.candles
+                        if series.timeframe is MarketTimeframe.H1
+                        else series.candles[-49:]
+                    ),
+                )
+                for series in market.detail.series
+            )
+        }
+    )
+    return market.__class__(
+        snapshot_id=market.snapshot_id,
+        snapshot=market.snapshot,
+        detail=detail,
     )
 
 
@@ -509,10 +676,15 @@ def _news_item(key: str, content: str) -> NewsItemDraft:
     )
 
 
-def _proposal(evidence_id: UUID) -> AgentAnalysisProposal:
+def _proposal(
+    evidence_id: UUID,
+    *,
+    confidence: str = "low",
+    limitations: tuple[str, ...] = (),
+) -> AgentAnalysisProposal:
     return AgentAnalysisProposal(
         outlook=MarketOutlook.NEUTRAL,
-        confidence="low",
+        confidence=cast(Literal["low", "medium", "high"], confidence),
         catalysts=(
             Catalyst(
                 category="market",
@@ -529,4 +701,5 @@ def _proposal(evidence_id: UUID) -> AgentAnalysisProposal:
                 evidence_ids=(evidence_id,),
             ),
         ),
+        limitations=limitations,
     )

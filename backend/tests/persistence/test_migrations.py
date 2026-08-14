@@ -165,8 +165,10 @@ def test_agent_research_migration_adds_immutable_tables_without_rewriting_report
             "news_items",
             "agent_analysis_runs",
             "agent_report_details",
+            "market_snapshot_inputs",
         }
         asyncio.run(_assert_agent_tables_immutable(test_database_url, schema, report_id))
+        asyncio.run(_assert_market_snapshot_inputs_immutable(test_database_url, schema))
     finally:
         asyncio.run(_drop_schema(test_database_url, schema))
 
@@ -332,6 +334,49 @@ async def _assert_agent_tables_immutable(
         {"report_id": report_id},
     )
     for statement in statements.values():
+        with pytest.raises(DBAPIError, match="immutable"):
+            await _execute_in_schema(database_url, schema, text(statement), {})
+
+
+async def _assert_market_snapshot_inputs_immutable(
+    database_url: SecretStr,
+    schema: str,
+) -> None:
+    snapshot_id = uuid4()
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO market_snapshots ("
+            "id, symbol, source, captured_at, data_as_of, data_version, payload, payload_sha256"
+            ") VALUES ("
+            ":id, 'BTCUSDT', 'binance_usdm_public_rest', :captured_at, :data_as_of, "
+            "'market-v1', '{\"summary\": {}}'::jsonb, :payload_sha256"
+            ")"
+        ),
+        {
+            "id": snapshot_id,
+            "captured_at": AGENT_TEST_NOW,
+            "data_as_of": AGENT_TEST_NOW,
+            "payload_sha256": "a" * 64,
+        },
+    )
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO market_snapshot_inputs ("
+            "snapshot_id, symbol, payload, payload_sha256, candle_count"
+            ") VALUES ("
+            ":snapshot_id, 'BTCUSDT', '{\"candles\": [{}]}'::jsonb, :payload_sha256, 1"
+            ")"
+        ),
+        {"snapshot_id": snapshot_id, "payload_sha256": "b" * 64},
+    )
+    for statement in (
+        "UPDATE market_snapshot_inputs SET candle_count = candle_count",
+        "DELETE FROM market_snapshot_inputs",
+    ):
         with pytest.raises(DBAPIError, match="immutable"):
             await _execute_in_schema(database_url, schema, text(statement), {})
 

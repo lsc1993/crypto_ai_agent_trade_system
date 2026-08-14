@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infrastructure.persistence.models.market import (
     MarketCandleRecord,
+    MarketSnapshotInputRecord,
     MarketSnapshotRecord,
 )
 from app.market.contracts import (
@@ -21,7 +22,11 @@ from app.market.contracts import (
     MarketTimeframe,
 )
 from app.market.repository import snapshot_payload_sha256
-from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
+from app.market.research import (
+    PersistedMarketReader,
+    PersistedMarketSnapshot,
+    PersistedMarketSnapshotInput,
+)
 
 _MAX_CANDLES = 200
 _UNAVAILABLE_CODE = "market_research_unavailable"
@@ -51,6 +56,20 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
         )
         record = await self._load_snapshot_record(statement)
         return None if record is None else _to_snapshot(record)
+
+    async def load_snapshot_input(
+        self,
+        snapshot_id: UUID,
+    ) -> PersistedMarketSnapshotInput | None:
+        statement = select(MarketSnapshotInputRecord).where(
+            MarketSnapshotInputRecord.snapshot_id == snapshot_id
+        )
+        try:
+            async with self._session_factory() as session:
+                record = (await session.execute(statement)).scalar_one_or_none()
+            return None if record is None else _to_snapshot_input(record)
+        except (SQLAlchemyError, TypeError, ValidationError, ValueError) as error:
+            raise _unavailable() from error
 
     async def load_recent_candles(
         self,
@@ -124,6 +143,24 @@ def _to_candle(record: MarketCandleRecord) -> Candle:
         volume=record.volume,
         observed_at=record.observed_at,
         fetched_at=record.fetched_at,
+    )
+
+
+def _to_snapshot_input(
+    record: MarketSnapshotInputRecord,
+) -> PersistedMarketSnapshotInput:
+    payload = cast(dict[str, JsonValue], record.payload)
+    if snapshot_payload_sha256(payload) != record.payload_sha256:
+        raise ValueError("冻结市场 K 线输入哈希不匹配")
+    raw_candles = payload.get("candles")
+    if not isinstance(raw_candles, list) or len(raw_candles) != record.candle_count:
+        raise ValueError("冻结市场 K 线输入载荷无效")
+    candles = tuple(Candle.model_validate(candle) for candle in raw_candles)
+    if not candles or any(candle.symbol.value != record.symbol for candle in candles):
+        raise ValueError("冻结市场 K 线输入标的不一致")
+    return PersistedMarketSnapshotInput(
+        candles=candles,
+        payload_sha256=record.payload_sha256,
     )
 
 

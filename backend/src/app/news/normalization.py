@@ -23,6 +23,44 @@ _SCRIPT_OR_STYLE = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECA
 _HTML_TAG = re.compile(r"<[^>]*>")
 _WHITESPACE = re.compile(r"\s+")
 _TRACKING_KEY = re.compile(r"^(utm_.+|fbclid)$", re.IGNORECASE)
+_LATIN_WORD = re.compile(r"[a-z]+")
+_ENGLISH_SIGNAL_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "by",
+        "for",
+        "from",
+        "has",
+        "have",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "with",
+        "will",
+        "after",
+        "before",
+        "during",
+        "market",
+        "update",
+        "report",
+        "reports",
+        "announces",
+        "announced",
+    }
+)
 
 
 def normalize_news_item(
@@ -39,7 +77,7 @@ def normalize_news_item(
 
     title = _normalize_text(item.title, maximum=300)
     summary = _normalize_text(item.summary, maximum=1_600)
-    if _contains_non_latin_letter(f"{title} {summary}"):
+    if not _is_english_text(f"{title} {summary}"):
         raise ValueError("仅支持英文新闻")
 
     canonical_url = _canonicalize_url(str(item.url)) if item.url is not None else None
@@ -85,6 +123,12 @@ def _contains_non_latin_letter(value: str) -> bool:
         and "LATIN" not in unicodedata.name(character, "")
         for character in value
     )
+
+
+def _is_english_text(value: str) -> bool:
+    if _contains_non_latin_letter(value):
+        return False
+    return bool(set(_LATIN_WORD.findall(value.casefold())) & _ENGLISH_SIGNAL_WORDS)
 
 
 def _canonicalize_url(value: str):
