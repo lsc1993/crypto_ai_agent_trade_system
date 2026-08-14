@@ -10,3 +10,6 @@ __pycache__/
 # JavaScript generated files
 node_modules/
 dist/
+
+# Local linked worktrees
+.worktrees/
