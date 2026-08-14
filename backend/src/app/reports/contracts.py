@@ -37,17 +37,24 @@ _PROHIBITED_PHRASES = (
     "开仓",
     "建仓",
     "平仓",
-    "仓位",
-    "杠杆",
-    "止损",
     "保证收益",
     "自动交易",
 )
+_CHINESE_DIRECT_TRADING_PATTERNS = (
+    re.compile(
+        r"(?:建议|推荐|应当|应该|可以|宜|不宜|考虑|请|立即|现在|逢低|逢高|分批|直接|择机|优先|避免)"
+        r"\s*(?:买入|卖出|做多|做空|开仓|建仓|平仓|加仓|减仓|止损)"
+    ),
+    re.compile(
+        r"(?:买入|卖出|做多|做空|开仓|建仓|平仓|加仓|减仓)"
+        r"\s*(?:BTC|ETH|比特币|以太坊)(?:USDT)?\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(r"(?:设置|设定|使用|采用|调整)\s*(?:止损|杠杆|仓位)"),
+)
 _PROHIBITED_ENGLISH_PATTERNS = (
     re.compile(r"\b(?:buy|sell|long|short)\s+(?:btc|eth|bitcoin|ethereum)(?:usdt)?\b"),
-    re.compile(
-        r"\b(?:buy|sell)\b.*\b(?:now|immediately|today|btc|eth|bitcoin|ethereum)\b"
-    ),
+    re.compile(r"\b(?:buy|sell)\b.*\b(?:now|immediately|today|btc|eth|bitcoin|ethereum)\b"),
     re.compile(r"\b(?:consider|recommend|advise|suggest)\s+(?:buying|selling|to\s+(?:buy|sell))\b"),
     re.compile(r"\bworth\s+(?:buying|selling)\b"),
     re.compile(r"\b(?:go|stay)\s+(?:long|short)\b"),
@@ -125,6 +132,16 @@ def _validate_display_text(value: str) -> str:
     )
     if prohibited is not None:
         raise ValueError(f"报告文本不能包含交易指令：{prohibited}")
+    chinese_direct_trading = next(
+        (
+            pattern.pattern
+            for pattern in _CHINESE_DIRECT_TRADING_PATTERNS
+            if pattern.search(guard_text) is not None
+        ),
+        None,
+    )
+    if chinese_direct_trading is not None:
+        raise ValueError(f"报告文本不能包含交易指令：{chinese_direct_trading}")
     english_prohibited = next(
         (
             pattern.pattern

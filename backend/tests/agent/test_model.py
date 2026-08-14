@@ -292,7 +292,7 @@ async def test_deepseek_model_does_not_send_a_request_with_a_blank_api_key() -> 
 
 @pytest.mark.parametrize(
     "instruction",
-    ("做多 BTC", "建仓 ETH", "Invest in BTC now.", "Purchase ETH today."),
+    ("做多", "卖出", "做多 BTC", "建仓 ETH", "Invest in BTC now.", "Purchase ETH today."),
 )
 def test_agent_analysis_proposal_rejects_direct_trading_imperatives(instruction: str) -> None:
     with pytest.raises(ValueError, match="交易指令"):
@@ -302,6 +302,16 @@ def test_agent_analysis_proposal_rejects_direct_trading_imperatives(instruction:
                 "limitations": (instruction,),
             }
         )
+
+
+def test_agent_analysis_proposal_allows_neutral_leverage_and_position_analysis() -> None:
+    payload = _proposal_payload()
+    market_overview = cast(dict[str, object], payload["market_overview"])
+    market_overview["summary"] = _research_text("杠杆与仓位变化", 330)
+
+    proposal = AgentAnalysisProposal.model_validate(payload)
+
+    assert "杠杆与仓位变化" in proposal.market_overview.summary
 
 
 def test_news_content_cannot_close_its_untrusted_content_boundary() -> None:
@@ -390,6 +400,75 @@ async def test_deepseek_model_rejects_an_undersized_dual_horizon_narrative() -> 
             await model.generate(_request())
 
     assert error.value.code == "model_invalid_response"
+
+
+@pytest.mark.asyncio
+async def test_deepseek_retries_once_and_returns_valid_proposal_after_invalid_schema() -> None:
+    requests: list[httpx.Request] = []
+    responses = iter(
+        (
+            {"choices": [{"message": {"content": "not-json"}}]},
+            _fixture("deepseek_completed.json"),
+        )
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=next(responses))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-pro",
+        )
+
+        proposal = await model.generate(_request())
+
+    assert proposal.horizon == "dual_horizon"
+    assert len(requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_deepseek_model_logs_safe_validation_summary_after_final_invalid_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_model_logs(monkeypatch)
+    invalid_response = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "horizon": "dual_horizon",
+                            "outlook": "neutral",
+                            "unexpected": "LEAKED_MODEL_RESPONSE_BODY",
+                        }
+                    )
+                }
+            }
+        ]
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=invalid_response)),
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-pro",
+        )
+
+        with pytest.raises(ModelOutputError, match="无效研究 JSON"):
+            await model.generate(_request())
+
+    rejected = next(
+        entry for entry in logger.entries if entry["event"] == "agent_model_response_rejected"
+    )
+    assert rejected["error_code"] == "model_invalid_response"
+    assert isinstance(rejected["validation_issue_count"], int)
+    assert rejected["validation_issue_count"] >= 1
+    assert "LEAKED_MODEL_RESPONSE_BODY" not in repr(logger.entries)
+    assert "test-key" not in repr(logger.entries)
 
 
 @pytest.mark.asyncio
