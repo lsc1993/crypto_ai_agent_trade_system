@@ -7,7 +7,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "0009_create_immutable_market_snapshot_inputs"
+revision: str = "0009_market_snapshot_inputs"
 down_revision: str | None = "0008_create_agent_research"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

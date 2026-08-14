@@ -203,6 +203,14 @@ def test_market_snapshot_input_migration_downgrade_fails_before_schema_mutation(
         migration.downgrade()
 
 
+def test_all_migration_revisions_fit_the_default_alembic_version_column() -> None:
+    migrations_directory = Path(__file__).resolve().parents[2] / "alembic" / "versions"
+
+    for migration_path in migrations_directory.glob("*.py"):
+        migration = _load_migration(migration_path.name, migration_path.stem)
+        assert len(migration.revision) <= 32
+
+
 def _load_agent_research_migration() -> ModuleType:
     return _load_migration("0008_create_agent_research.py", "agent_research_migration")
 
