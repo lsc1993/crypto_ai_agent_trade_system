@@ -765,16 +765,17 @@ def _completed_report(
 ) -> AnalysisReportDraft:
     if proposal is None or structure is None or market is None:
         raise RuntimeError("completed agent report requires frozen market and model proposal")
+    narrative = proposal.narrative
     limitations = _limitations(news, proposal.limitations, market=market)
     return AnalysisReportDraft(
         id=report_id,
         analysis_id=analysis_id,
         symbol=symbol,
         status=AnalysisReportStatus.COMPLETED,
-        title=f"{symbol.value} 未来一至三天市场研究",
-        summary="本报告基于本次冻结的公开行情与英文新闻证据生成。",
+        title=f"{symbol.value} {narrative.market_overview.headline}",
+        summary=narrative.market_overview.summary,
         facts=(f"冻结市场快照价格：{market.snapshot.summary.price}。",),
-        inferences=(f"未来一至三天市场展望：{proposal.outlook.value}。",),
+        inferences=(narrative.short_term.heading, narrative.long_term.heading),
         risks=("公开市场环境可能快速变化，需重新抓取后复核。",),
         limitations=limitations,
         generated_at=generated_at,
@@ -853,6 +854,7 @@ def _agent_analysis(
             source_coverage=_source_coverage(news),
         ),
         limitations=_limitations(news, proposal.limitations, market=market),
+        narrative=proposal.narrative,
     )
 
 
@@ -879,7 +881,15 @@ def _proposal_uses_known_evidence(
     known = set(evidence_ids)
     referenced = {
         evidence_id
-        for item in (*proposal.catalysts, *proposal.risks_and_invalidation)
+        for item in (
+            *proposal.catalysts,
+            *proposal.risks_and_invalidation,
+            proposal.market_overview,
+            *proposal.short_term.drivers,
+            *proposal.short_term.invalidation,
+            *proposal.long_term.drivers,
+            *proposal.long_term.invalidation,
+        )
         for evidence_id in item.evidence_ids
     }
     return bool(referenced) and referenced <= known

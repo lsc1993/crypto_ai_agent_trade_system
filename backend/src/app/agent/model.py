@@ -24,14 +24,17 @@ from app.agent.market_structure import MarketStructure
 from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import ContractSymbol, UtcDateTime
 from app.reports.contracts import (
+    AgentResearchNarrative,
     Catalyst,
     MarketOutlook,
+    MarketOverview,
+    ResearchPerspective,
     RiskAndInvalidation,
     validate_research_display_text,
 )
 
 _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
-_MAX_TOKENS = 1_200
+_MAX_TOKENS = 4_000
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
 logger = structlog.get_logger(__name__)
 
@@ -72,7 +75,8 @@ class ResearchModelRequest(_AgentModel):
     symbol: ContractSymbol
     structure: MarketStructure
     evidences: tuple[ModelEvidence, ...] = Field(min_length=1, max_length=30)
-    horizon: Literal["1_to_3_days"] = "1_to_3_days"
+    report_language: Literal["zh-CN"] = "zh-CN"
+    horizon: Literal["dual_horizon"] = "dual_horizon"
 
     @model_validator(mode="after")
     def require_unique_evidence_ids(self) -> ResearchModelRequest:
@@ -82,9 +86,12 @@ class ResearchModelRequest(_AgentModel):
 
 
 class AgentAnalysisProposal(_AgentModel):
-    horizon: Literal["1_to_3_days"] = "1_to_3_days"
+    horizon: Literal["dual_horizon"] = "dual_horizon"
     outlook: MarketOutlook
     confidence: Literal["low", "medium", "high"]
+    market_overview: MarketOverview
+    short_term: ResearchPerspective
+    long_term: ResearchPerspective
     catalysts: tuple[Catalyst, ...] = ()
     risks_and_invalidation: tuple[RiskAndInvalidation, ...] = ()
     limitations: tuple[str, ...] = ()
@@ -98,14 +105,21 @@ class AgentAnalysisProposal(_AgentModel):
 
     @model_validator(mode="after")
     def require_frozen_evidence_reference(self) -> AgentAnalysisProposal:
-        referenced_ids = {
-            evidence_id
-            for item in (*self.catalysts, *self.risks_and_invalidation)
-            for evidence_id in item.evidence_ids
-        }
+        referenced_ids = _proposal_evidence_ids(self)
         if not referenced_ids:
             raise ValueError("模型结论必须引用冻结证据")
+        display_length = _narrative_display_length(self.narrative)
+        if not 1_500 <= display_length <= 2_500:
+            raise ValueError("模型双层市场报告正文必须为 1500 至 2500 个字符")
         return self
+
+    @property
+    def narrative(self) -> AgentResearchNarrative:
+        return AgentResearchNarrative(
+            market_overview=self.market_overview,
+            short_term=self.short_term,
+            long_term=self.long_term,
+        )
 
 
 class ModelOutputError(RuntimeError):
@@ -264,10 +278,37 @@ def _require_known_evidence_ids(
     evidences: Iterable[ModelEvidence],
 ) -> None:
     known_ids = {evidence.id for evidence in evidences}
-    referenced_ids = {
-        evidence_id
-        for item in (*proposal.catalysts, *proposal.risks_and_invalidation)
-        for evidence_id in item.evidence_ids
-    }
+    referenced_ids = _proposal_evidence_ids(proposal)
     if not referenced_ids <= known_ids:
         raise ModelOutputError("model_invalid_evidence", "DeepSeek 引用了未知冻结证据")
+
+
+def _proposal_evidence_ids(proposal: AgentAnalysisProposal) -> set[UUID]:
+    return {
+        evidence_id
+        for item in (
+            *proposal.catalysts,
+            *proposal.risks_and_invalidation,
+            proposal.market_overview,
+            *proposal.short_term.drivers,
+            *proposal.short_term.invalidation,
+            *proposal.long_term.drivers,
+            *proposal.long_term.invalidation,
+        )
+        for evidence_id in item.evidence_ids
+    }
+
+
+def _narrative_display_length(narrative: AgentResearchNarrative) -> int:
+    return len(
+        "".join(
+            (
+                narrative.market_overview.headline,
+                narrative.market_overview.summary,
+                narrative.short_term.thesis,
+                narrative.long_term.thesis,
+                *(driver.detail for driver in narrative.short_term.drivers),
+                *(driver.detail for driver in narrative.long_term.drivers),
+            )
+        )
+    )

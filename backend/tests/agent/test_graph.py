@@ -46,9 +46,12 @@ from app.reports.contracts import (
     AgentReportCreation,
     AnalysisReportStatus,
     Catalyst,
+    EvidenceBackedClaim,
     MarketOutlook,
+    MarketOverview,
     PersistedAnalysisEvidence,
     PersistedAnalysisReport,
+    ResearchPerspective,
     RiskAndInvalidation,
 )
 
@@ -883,9 +886,55 @@ def _proposal(
     confidence: str = "low",
     limitations: tuple[str, ...] = (),
 ) -> AgentAnalysisProposal:
+    research_text = _research_text
     return AgentAnalysisProposal(
         outlook=MarketOutlook.NEUTRAL,
         confidence=cast(Literal["low", "medium", "high"], confidence),
+        market_overview=MarketOverview(
+            headline="流动性与情绪分歧下的市场概况",
+            summary=research_text("市场概况", 330),
+            evidence_ids=(evidence_id,),
+        ),
+        short_term=ResearchPerspective(
+            horizon="short_term",
+            outlook=MarketOutlook.NEUTRAL,
+            heading="短期结构等待成交与情绪共同确认",
+            thesis=research_text("短期观点", 460),
+            drivers=(
+                EvidenceBackedClaim(
+                    label="冻结证据驱动",
+                    detail=research_text("短期驱动", 300),
+                    evidence_ids=(evidence_id,),
+                ),
+            ),
+            invalidation=(
+                RiskAndInvalidation(
+                    condition="关键公开指标方向改变。",
+                    impact="需要重新评估观点。",
+                    evidence_ids=(evidence_id,),
+                ),
+            ),
+        ),
+        long_term=ResearchPerspective(
+            horizon="long_term",
+            outlook=MarketOutlook.NEUTRAL,
+            heading="长期方向仍需宏观与流动性证据复核",
+            thesis=research_text("长期观点", 460),
+            drivers=(
+                EvidenceBackedClaim(
+                    label="冻结证据驱动",
+                    detail=research_text("长期驱动", 300),
+                    evidence_ids=(evidence_id,),
+                ),
+            ),
+            invalidation=(
+                RiskAndInvalidation(
+                    condition="关键公开指标方向改变。",
+                    impact="需要重新评估观点。",
+                    evidence_ids=(evidence_id,),
+                ),
+            ),
+        ),
         catalysts=(
             Catalyst(
                 category="market",
@@ -904,3 +953,8 @@ def _proposal(
         ),
         limitations=limitations,
     )
+
+
+def _research_text(label: str, length: int) -> str:
+    unit = f"{label}围绕冻结价格结构、公开衍生品指标、情绪读数与英文新闻交叉复核，"
+    return (unit * ((length // len(unit)) + 1))[:length]
