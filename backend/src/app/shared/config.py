@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIRECTORY = Path(__file__).resolve().parents[3]
@@ -36,6 +36,20 @@ class AppSettings(BaseSettings):
     )
     database_url: SecretStr | None = None
     test_database_url: SecretStr | None = None
+    deepseek_api_key: SecretStr | None = None
+    deepseek_model: Literal["deepseek-v4-flash", "deepseek-v4-pro"] = "deepseek-v4-pro"
+    news_http_timeout_seconds: int = Field(default=8, ge=1, le=20)
+    agent_request_timeout_seconds: int = Field(default=30, ge=5, le=60)
+
+    @field_validator("deepseek_model", mode="before")
+    @classmethod
+    def validate_deepseek_model(cls, value: Any) -> str:
+        if not isinstance(value, str) or value.strip() not in {
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        }:
+            raise ValueError("DeepSeek 模型不在允许列表")
+        return value.strip()
 
     @field_validator("cors_allowed_origins")
     @classmethod

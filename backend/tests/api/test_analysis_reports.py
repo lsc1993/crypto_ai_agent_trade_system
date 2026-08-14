@@ -216,7 +216,7 @@ class InMemoryAnalysisReportRepository:
         return ReportPage(
             items=tuple(
                 AnalysisReportSummary(
-                    **report.model_dump(exclude={"evidence"}),
+                    **report.model_dump(exclude={"evidence", "agent_analysis"}),
                 )
                 for report in reports[(page - 1) * page_size : page * page_size]
             ),
@@ -227,6 +227,10 @@ class InMemoryAnalysisReportRepository:
 
 
 class FreshPersistedMarketReader(PersistedMarketReader):
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None:
+        del snapshot_id
+        return None
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,
@@ -247,6 +251,13 @@ class FreshPersistedMarketReader(PersistedMarketReader):
 
 
 class UnavailablePersistedMarketReader(PersistedMarketReader):
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None:
+        del snapshot_id
+        raise MarketDataUnavailableError(
+            "market_research_unavailable",
+            "持久化市场研究数据不可用",
+        )
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,

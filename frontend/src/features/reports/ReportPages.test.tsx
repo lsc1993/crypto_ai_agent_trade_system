@@ -20,6 +20,7 @@ import {
   analysisReportSchema,
   analysisReportSummarySchema,
   analysisStreamEventSchema,
+  toAnalysisReportSummary,
   type AnalysisReport,
   type AnalysisReportSummary,
   type AnalysisStreamEvent,
@@ -55,7 +56,7 @@ class EveryStatusReportsApi extends MockWorkbenchApi {
     const seed = seedReport();
     const items = statusLabels.map(([status]) =>
       analysisReportSummarySchema.parse({
-        ...seed,
+        ...toAnalysisReportSummary(seed),
         id: `report-${status}`,
         analysisId: `analysis-${status}`,
         status,
@@ -88,7 +89,7 @@ class FailingReportListApi extends EveryStatusReportsApi {
 class SpecialIdentifierReportApi extends EveryStatusReportsApi {
   override listReports(): Promise<Page<AnalysisReportSummary>> {
     const report = analysisReportSummarySchema.parse({
-      ...seedReport(),
+      ...toAnalysisReportSummary(seedReport()),
       id: "report/segment?query#fragment",
       title: "特殊不可变 ID 研究样例",
     });
@@ -281,6 +282,61 @@ class DegradedNoCutoffApi extends ControlledReportDetailApi {
   }
 }
 
+class AgentReportDetailApi extends ControlledReportDetailApi {
+  override getReport(): Promise<AnalysisReport> {
+    return Promise.resolve(
+      analysisReportSchema.parse({
+        ...seedReport(),
+        generatorKind: "langgraph_deepseek",
+        agentAnalysis: {
+          horizon: "1_to_3_days",
+          outlook: "neutral",
+          confidence: "medium",
+          trendAlignment: { "1h": "neutral", "4h": "bullish" },
+          supportZones: [
+            {
+              lower: "67000.10",
+              upper: "67100.20",
+              timeframe: "1h",
+              rationale: "Closed-candle support.",
+            },
+          ],
+          resistanceZones: [
+            {
+              lower: "69000.10",
+              upper: "69100.20",
+              timeframe: "4h",
+              rationale: "Closed-candle resistance.",
+            },
+          ],
+          catalysts: [
+            {
+              category: "market",
+              direction: "neutral",
+              claim: "Frozen public news remains mixed.",
+              evidenceIds: ["evidence-btc-001"],
+              timing: "Within one to three days.",
+            },
+          ],
+          risksAndInvalidation: [
+            {
+              condition: "The frozen context changes materially.",
+              impact: "Reassessment is required.",
+              evidenceIds: ["evidence-btc-001"],
+            },
+          ],
+          dataQuality: {
+            freshness: "fresh",
+            missingInputs: [],
+            sourceCoverage: "partial",
+          },
+          limitations: ["Not trading advice."],
+        },
+      }),
+    );
+  }
+}
+
 class RoutedReportDetailApi extends ControlledReportDetailApi {
   override getReport(reportId: string): Promise<AnalysisReport> {
     return Promise.resolve(
@@ -452,7 +508,9 @@ describe("ReportGenerator", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "生成 AI 研究报告" }),
+      screen.getByRole("button", {
+        name: "抓取公开行情与英文新闻并分析",
+      }),
     );
 
     expect(await screen.findByLabelText("当前页面路径")).toHaveTextContent(
@@ -472,7 +530,7 @@ describe("ReportGenerator", () => {
     );
 
     const generate = screen.getByRole("button", {
-      name: "生成 AI 研究报告",
+      name: "抓取公开行情与英文新闻并分析",
     });
     await user.click(generate);
     await waitFor(() => {
@@ -514,7 +572,7 @@ describe("ReportGenerator", () => {
 
       await user.click(
         screen.getByRole("button", {
-          name: "生成 AI 研究报告",
+          name: "抓取公开行情与英文新闻并分析",
         }),
       );
       await waitFor(() => {
@@ -546,7 +604,7 @@ describe("ReportGenerator", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "生成 AI 研究报告",
+        name: "抓取公开行情与英文新闻并分析",
       }),
     );
     await waitFor(() => {
@@ -573,7 +631,7 @@ describe("ReportGenerator", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "生成 AI 研究报告",
+        name: "抓取公开行情与英文新闻并分析",
       }),
     );
     expect(api.startedSymbols).toEqual(["BTCUSDT"]);
@@ -672,6 +730,45 @@ describe("ReportDetailPage", () => {
 
     expect(await screen.findByText("无可用数据")).toBeVisible();
     expect(screen.queryByText("null")).not.toBeInTheDocument();
+  });
+
+  it("renders the bounded one-to-three-day research evidence without trade advice", async () => {
+    renderReportDetail(new AgentReportDetailApi());
+
+    const outlook = await screen.findByRole("region", {
+      name: "未来 1–3 天市场研判",
+    });
+    const structure = screen.getByRole("region", {
+      name: "关键支撑与阻力",
+    });
+    const catalysts = screen.getByRole("region", {
+      name: "潜在催化事件",
+    });
+    const risks = screen.getByRole("region", {
+      name: "风险与失效条件",
+    });
+
+    expect(outlook).toHaveTextContent("1–3 天");
+    expect(structure).toHaveTextContent("67000.10");
+    expect(structure).toHaveTextContent("69100.20");
+    expect(catalysts).toHaveTextContent("Frozen public news remains mixed.");
+    expect(risks).toHaveTextContent("Reassessment is required.");
+    expect(
+      within(catalysts).getByRole("link", {
+        name: "查看证据 evidence-btc-001",
+      }),
+    ).toHaveAttribute("href", "#evidence-evidence-btc-001");
+    expect(screen.queryByRole("region", { name: "事实观察" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "分析推断" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "风险标记" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "分析限制" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "基于此分析创建交易日志" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("BTCUSDT 离线研究样例")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("用于界面和 API 契约验证的确定性 Mock 报告。"),
+    ).not.toBeInTheDocument();
   });
 
   it("retries the original report with a fresh analysis lifecycle", async () => {

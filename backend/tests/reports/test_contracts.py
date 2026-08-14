@@ -6,12 +6,18 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import JsonValue, ValidationError
 
-from app.market.contracts import ContractSymbol
+from app.market.contracts import ContractSymbol, FreshnessStatus
 from app.reports.contracts import (
+    AgentAnalysis,
+    AgentDataQuality,
+    AgentReportCreation,
     AnalysisEvidenceDraft,
     AnalysisReportCreation,
     AnalysisReportDraft,
     AnalysisReportStatus,
+    Catalyst,
+    MarketOutlook,
+    RiskAndInvalidation,
     report_payload_sha256,
 )
 
@@ -28,6 +34,25 @@ def test_report_creation_requires_evidence_for_a_completed_report() -> None:
 def test_report_draft_rejects_trading_instruction_language_after_normalization() -> None:
     with pytest.raises(ValidationError, match="交易指令"):
         _completed_report(summary="建议 立 即 买 入 BTCUSDT")
+
+
+def test_report_draft_rejects_english_trading_instruction_language() -> None:
+    with pytest.raises(ValidationError, match="交易指令"):
+        _completed_report(summary="The model says to buy BTC now.")
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    (
+        "Bitcoin may be worth buying in the next 1–3 days.",
+        "Consider buying BTC now.",
+        "We advise buying BTC.",
+        "Open a long position.",
+    ),
+)
+def test_report_draft_rejects_common_english_trade_advice(instruction: str) -> None:
+    with pytest.raises(ValidationError, match="交易指令"):
+        _completed_report(summary=instruction)
 
 
 def test_degraded_report_rejects_market_facts_or_inferences() -> None:
@@ -82,6 +107,154 @@ def test_creation_accepts_a_matching_immutable_completed_report() -> None:
     )
     with pytest.raises(ValidationError):
         creation.report.title = "不可修改的标题"  # type: ignore[misc]
+
+
+def test_agent_creation_json_round_trip_preserves_referenced_evidence_ids() -> None:
+    evidence = _valid_evidence(report_id=REPORT_ID)
+    creation = AgentReportCreation(
+        report=_completed_report(),
+        evidences=(evidence,),
+        started_at=NOW,
+        completed_at=NOW,
+        agent_analysis=AgentAnalysis(
+            horizon="1_to_3_days",
+            outlook=MarketOutlook.NEUTRAL,
+            confidence="low",
+            support_zones=(),
+            resistance_zones=(),
+            catalysts=(
+                Catalyst(
+                    category="market",
+                    direction=MarketOutlook.NEUTRAL,
+                    claim="Frozen evidence describes the current market context.",
+                    evidence_ids=(evidence.id,),
+                    timing="Within one to three days.",
+                ),
+            ),
+            risks_and_invalidation=(
+                RiskAndInvalidation(
+                    condition="The cited market context materially changes.",
+                    impact="The outlook requires reassessment.",
+                    evidence_ids=(evidence.id,),
+                ),
+            ),
+            data_quality=AgentDataQuality(
+                freshness=FreshnessStatus.FRESH,
+                missing_inputs=(),
+                source_coverage="partial",
+            ),
+        ),
+    )
+
+    restored = AgentReportCreation.model_validate_json(creation.model_dump_json())
+
+    assert restored.evidences[0].id == evidence.id
+    assert restored.agent_analysis.catalysts[0].evidence_ids == (evidence.id,)
+
+
+def test_catalyst_rejects_a_category_empty_after_normalization() -> None:
+    with pytest.raises(ValidationError, match="类别不能为空"):
+        Catalyst(
+            category="   ",
+            direction=MarketOutlook.NEUTRAL,
+            claim="Frozen evidence describes the current market context.",
+            evidence_ids=(uuid4(),),
+            timing="Within one to three days.",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "instruction"),
+    (
+        ("catalyst_category", "Buy BTC now"),
+        ("catalyst_claim", "Short BTC immediately."),
+        ("risk_condition", "Buy ETH now."),
+        ("limitation", "Increase your exposure before the close."),
+        ("catalyst_category", "做多 BTC"),
+        ("catalyst_claim", "建仓 ETH"),
+        ("risk_condition", "Invest in BTC now."),
+        ("limitation", "Purchase ETH today."),
+    ),
+)
+def test_agent_analysis_rejects_direct_trading_imperatives(
+    field: str,
+    instruction: str,
+) -> None:
+    evidence_id = uuid4()
+    payload: dict[str, object] = {
+        "horizon": "1_to_3_days",
+        "outlook": MarketOutlook.NEUTRAL,
+        "confidence": "low",
+        "support_zones": (),
+        "resistance_zones": (),
+        "catalysts": (
+            {
+                "category": instruction if field == "catalyst_category" else "market",
+                "direction": MarketOutlook.NEUTRAL,
+                "claim": instruction
+                if field == "catalyst_claim"
+                else "Frozen evidence is mixed.",
+                "evidence_ids": (evidence_id,),
+                "timing": "Within one to three days.",
+            },
+        ),
+        "risks_and_invalidation": (
+            {
+                "condition": instruction
+                if field == "risk_condition"
+                else "Liquidity materially changes.",
+                "impact": "The outlook requires reassessment.",
+                "evidence_ids": (evidence_id,),
+            },
+        ),
+        "data_quality": AgentDataQuality(
+            freshness=FreshnessStatus.FRESH,
+            missing_inputs=(),
+            source_coverage="partial",
+        ),
+        "limitations": (
+            instruction if field == "limitation" else "Research-only evidence.",
+        ),
+    }
+
+    with pytest.raises(ValidationError, match="交易指令"):
+        AgentAnalysis.model_validate(payload)
+
+
+def test_agent_analysis_allows_neutral_short_positioning_context() -> None:
+    evidence_id = uuid4()
+
+    analysis = AgentAnalysis(
+        horizon="1_to_3_days",
+        outlook=MarketOutlook.NEUTRAL,
+        confidence="low",
+        support_zones=(),
+        resistance_zones=(),
+        catalysts=(
+            Catalyst(
+                category="market",
+                direction=MarketOutlook.NEUTRAL,
+                claim="Short positioning has increased in the cited market context.",
+                evidence_ids=(evidence_id,),
+                timing="Within one to three days.",
+            ),
+        ),
+        risks_and_invalidation=(
+            RiskAndInvalidation(
+                condition="The cited positioning data materially changes.",
+                impact="The outlook requires reassessment.",
+                evidence_ids=(evidence_id,),
+            ),
+        ),
+        data_quality=AgentDataQuality(
+            freshness=FreshnessStatus.FRESH,
+            missing_inputs=(),
+            source_coverage="partial",
+        ),
+        limitations=("Research-only evidence.",),
+    )
+
+    assert analysis.catalysts[0].claim.startswith("Short positioning")
 
 
 def _completed_report(

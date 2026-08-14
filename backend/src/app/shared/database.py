@@ -28,6 +28,17 @@ def create_database_engine(database_url: SecretStr) -> AsyncEngine:
     return create_async_engine_from_secret(database_url)
 
 
+def checkpoint_connection_string(database_url: SecretStr) -> str:
+    """Return an in-memory psycopg-compatible URL without logging the secret value."""
+    value = database_url.get_secret_value()
+    asyncpg_prefix = "postgresql+asyncpg://"
+    if value.startswith(asyncpg_prefix):
+        return f"postgresql://{value.removeprefix(asyncpg_prefix)}"
+    if value.startswith("postgresql://"):
+        return value
+    raise ValueError("LangGraph checkpoint 仅支持 PostgreSQL 数据库连接")
+
+
 def create_session_factory(
     engine: AsyncEngine,
 ) -> async_sessionmaker[AsyncSession]:

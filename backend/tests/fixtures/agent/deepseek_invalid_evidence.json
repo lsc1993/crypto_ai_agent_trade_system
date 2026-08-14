@@ -1,0 +1,9 @@
+{
+  "choices": [
+    {
+      "message": {
+        "content": "{\"outlook\":\"neutral\",\"confidence\":\"low\",\"catalysts\":[{\"category\":\"market\",\"direction\":\"neutral\",\"claim\":\"The proposal cites an unavailable evidence item.\",\"evidence_ids\":[\"00000000-0000-0000-0000-000000000099\"],\"timing\":\"Within one to three days.\"}],\"risks_and_invalidation\":[{\"condition\":\"The cited evidence is unavailable.\",\"impact\":\"The proposal is invalid.\",\"evidence_ids\":[\"00000000-0000-0000-0000-000000000099\"]}],\"limitations\":[]}"
+      }
+    }
+  ]
+}

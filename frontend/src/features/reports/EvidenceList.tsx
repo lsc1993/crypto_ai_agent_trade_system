@@ -19,6 +19,7 @@ export function EvidenceList({ evidence }: EvidenceListProps) {
             <article
               className="evidence-card"
               aria-label={`证据 ${item.id}`}
+              id={`evidence-${item.id}`}
               key={item.id}
             >
               <p>{item.summary}</p>

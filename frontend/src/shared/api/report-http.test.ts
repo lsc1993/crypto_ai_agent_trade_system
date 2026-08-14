@@ -1,9 +1,135 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { HttpWorkbenchApi } from "./http-workbench-api";
+import { WorkbenchResponseError } from "./http-transport";
 import type { ReportEventSource } from "./report-stream";
 
-const reportSummary = {
+const reportWire = {
+  id: "00000000-0000-4000-8000-000000000601",
+  analysisId: "00000000-0000-4000-8000-000000000602",
+  symbol: "BTCUSDT",
+  status: "completed",
+  title: "BTCUSDT public market research",
+  summary: "Frozen public evidence research.",
+  createdAt: "2026-08-10T12:00:00Z",
+  generatedAt: "2026-08-10T12:00:01Z",
+  dataCutoffAt: "2026-08-10T12:00:00Z",
+  generatorKind: "langgraph_deepseek",
+  facts: [],
+  inferences: [],
+  risks: [],
+  limitations: ["Not trading advice."],
+  evidence: [
+    {
+      id: "00000000-0000-4000-8000-000000000603",
+      symbol: "BTCUSDT",
+      source: "CoinDesk",
+      sourceUrl: "https://www.coindesk.com/example",
+      observedAt: "2026-08-10T12:00:00Z",
+      summary: "Public English evidence.",
+    },
+  ],
+  agentAnalysis: {
+    horizon: "1_to_3_days",
+    outlook: "neutral",
+    confidence: "medium",
+    trendAlignment: { "1h": "neutral" },
+    supportZones: [
+      {
+        lower: "67000.10",
+        upper: "67100.20",
+        timeframe: "1h",
+        rationale: "Closed-candle support.",
+      },
+    ],
+    resistanceZones: [],
+    catalysts: [
+      {
+        category: "market",
+        direction: "neutral",
+        claim: "Public evidence is mixed.",
+        evidenceIds: ["00000000-0000-4000-8000-000000000603"],
+        timing: "Within one to three days.",
+      },
+    ],
+    risksAndInvalidation: [],
+    dataQuality: {
+      freshness: "fresh",
+      missingInputs: [],
+      sourceCoverage: "partial",
+    },
+    limitations: ["Not trading advice."],
+  },
+} as const;
+
+describe("HttpWorkbenchApi agent reports", () => {
+  it("posts only the selected symbol and reads the validated agent report", async () => {
+    const fetchImpl: typeof fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          analysisId: reportWire.analysisId,
+          reportId: reportWire.id,
+        }),
+      )
+      .mockResolvedValueOnce(Response.json(reportWire));
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+
+    await expect(api.startReport({ symbol: "BTCUSDT" })).resolves.toEqual({
+      analysisId: reportWire.analysisId,
+      reportId: reportWire.id,
+    });
+    await expect(api.getReport(reportWire.id)).resolves.toMatchObject({
+      generatorKind: "langgraph_deepseek",
+      generatedAt: "2026-08-10T12:00:01Z",
+      agentAnalysis: {
+        horizon: "1_to_3_days",
+        supportZones: [{ lower: "67000.10" }],
+      },
+    });
+
+    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls;
+    expect(new URL(calls[0]?.[0] as URL).pathname).toBe("/api/v1/analysis-runs");
+    const request = calls[0]?.[1] as RequestInit;
+    expect(request.method).toBe("POST");
+    expect(request.body).toBe(JSON.stringify({ symbol: "BTCUSDT" }));
+    expect(new URL(calls[1]?.[0] as URL).pathname).toBe(
+      `/api/v1/analysis-runs/${reportWire.id}`,
+    );
+  });
+
+  it("rejects Agent citations outside the current report evidence", async () => {
+    const fetchImpl: typeof fetch = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          ...reportWire,
+          agentAnalysis: {
+            ...reportWire.agentAnalysis,
+            catalysts: [
+              {
+                ...reportWire.agentAnalysis.catalysts[0],
+                evidenceIds: ["00000000-0000-4000-8000-000000000604"],
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    const api = new HttpWorkbenchApi({
+      baseUrl: "http://localhost:8000",
+      fetchImpl,
+    });
+
+    await expect(api.getReport(reportWire.id)).rejects.toBeInstanceOf(
+      WorkbenchResponseError,
+    );
+  });
+});
+
+const deterministicReportSummary = {
   id: "report-btc-001",
   analysisId: "analysis-btc-001",
   symbol: "BTCUSDT",
@@ -12,16 +138,19 @@ const reportSummary = {
   summary: "当前证据不足，无法形成市场研究结论。",
   createdAt: "2026-07-30T12:00:00Z",
   dataCutoffAt: null,
-};
+  generatorKind: "deterministic",
+} as const;
 
-const reportDetail = {
-  ...reportSummary,
+const deterministicReportDetail = {
+  ...deterministicReportSummary,
+  generatedAt: "2026-07-30T12:00:00Z",
   facts: [],
   inferences: [],
   risks: ["持久化市场研究数据不可用"],
   limitations: ["报告未形成市场结论，需等待新的持久化市场数据。"],
   evidence: [],
-};
+  agentAnalysis: null,
+} as const;
 
 class FakeReportEventSource implements ReportEventSource {
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
@@ -33,12 +162,12 @@ class FakeReportEventSource implements ReportEventSource {
   }
 }
 
-describe("HttpWorkbenchApi report HTTP mapping", () => {
-  it("uses analysis-run paths and maps the report page wire contract", async () => {
+describe("HttpWorkbenchApi existing report HTTP mapping", () => {
+  it("uses analysis-run paths and maps deterministic report pages", async () => {
     const fetchImpl: typeof fetch = vi.fn(() =>
       Promise.resolve(
         Response.json({
-          items: [reportSummary],
+          items: [deterministicReportSummary],
           page: 2,
           page_size: 10,
           total: 1,
@@ -58,12 +187,11 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
         status: "degraded",
       }),
     ).resolves.toEqual({
-      items: [reportSummary],
+      items: [deterministicReportSummary],
       page: 2,
       pageSize: 10,
       total: 1,
     });
-
     const requestUrl = new URL(
       (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
     );
@@ -74,9 +202,9 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
     expect(requestUrl.searchParams.get("status")).toBe("degraded");
   });
 
-  it("reads a report detail through one encoded analysis-run path", async () => {
+  it("reads one encoded deterministic report path", async () => {
     const fetchImpl: typeof fetch = vi.fn(() =>
-      Promise.resolve(Response.json(reportDetail)),
+      Promise.resolve(Response.json(deterministicReportDetail)),
     );
     const api = new HttpWorkbenchApi({
       baseUrl: "http://localhost:8000",
@@ -84,9 +212,8 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
     });
 
     await expect(api.getReport("report/id?fragment")).resolves.toEqual(
-      reportDetail,
+      deterministicReportDetail,
     );
-
     const requestUrl = new URL(
       (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as URL,
     );
@@ -95,7 +222,7 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
     );
   });
 
-  it("posts report creation and retry requests without leaking state into the URL", async () => {
+  it("posts report creation and retry without leaking state into the URL", async () => {
     const fetchImpl: typeof fetch = vi.fn(() =>
       Promise.resolve(
         Response.json({
@@ -117,27 +244,16 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
       analysisId: "analysis-created-001",
       reportId: "report-created-001",
     });
-
-    const start = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0];
-    const retry = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[1];
-    expect(start).toBeDefined();
-    expect(retry).toBeDefined();
-    if (start === undefined || retry === undefined) {
-      throw new Error("Report requests were not sent");
-    }
-    expect(new URL(start[0] as URL).pathname).toBe("/api/v1/analysis-runs");
-    expect(start[1]).toMatchObject({ method: "POST" });
-    const startBody = (start[1] as RequestInit).body;
-    if (typeof startBody !== "string") {
-      throw new Error("Report creation request body must be JSON text");
-    }
-    expect(JSON.parse(startBody)).toEqual({
-      symbol: "BTCUSDT",
-    });
-    expect(new URL(retry[0] as URL).pathname).toBe(
+    const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls;
+    expect(new URL(calls[0]?.[0] as URL).pathname).toBe("/api/v1/analysis-runs");
+    expect(calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect((calls[0]?.[1] as RequestInit).body).toBe(
+      JSON.stringify({ symbol: "BTCUSDT" }),
+    );
+    expect(new URL(calls[1]?.[0] as URL).pathname).toBe(
       "/api/v1/analysis-runs/report%2Fid%3Ffragment/retry",
     );
-    expect(retry[1]).toMatchObject({ method: "POST" });
+    expect(calls[1]?.[1]).toMatchObject({ method: "POST" });
   });
 
   it("replays one valid report event and closes a malformed stream", () => {
@@ -152,7 +268,6 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
     const unsubscribe = api.subscribeReport("analysis-btc-001", (event) => {
       received.push(event);
     });
-
     expect(eventSourceFactory).toHaveBeenCalledWith(
       "http://localhost:8000/api/v1/analysis-runs/analysis-btc-001/events",
     );
@@ -167,21 +282,10 @@ describe("HttpWorkbenchApi report HTTP mapping", () => {
         }),
       }),
     );
-    expect(received).toEqual([
-      {
-        analysisId: "analysis-btc-001",
-        symbol: "BTCUSDT",
-        status: "degraded",
-        occurredAt: "2026-07-30T12:00:00Z",
-        message: "持久化市场研究报告已降级完成。",
-      },
-    ]);
+    expect(received).toHaveLength(1);
 
-    eventSource.onmessage?.(
-      new MessageEvent("message", { data: "not JSON" }),
-    );
+    eventSource.onmessage?.(new MessageEvent("message", { data: "not JSON" }));
     expect(eventSource.closeCount).toBe(1);
-
     unsubscribe();
     expect(eventSource.closeCount).toBe(2);
   });

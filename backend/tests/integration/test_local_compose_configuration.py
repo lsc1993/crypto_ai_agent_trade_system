@@ -64,6 +64,8 @@ def load_compose_configuration(tmp_path: Path) -> dict[str, object]:
                 "APP_ENV=production",
                 "LOG_LEVEL=INFO",
                 'CORS_ALLOWED_ORIGINS=["http://localhost:8080"]',
+                "DEEPSEEK_API_KEY=",
+                "DEEPSEEK_MODEL=deepseek-v4-pro",
             ),
         ),
         encoding="utf-8",
@@ -207,6 +209,8 @@ def test_compose_configuration_ignores_host_project_and_application_environment(
     assert api_environment["APP_ENV"] == "production"
     assert api_environment["LOG_LEVEL"] == "INFO"
     assert api_environment["CORS_ALLOWED_ORIGINS"] == '["http://localhost:8080"]'
+    assert api_environment["DEEPSEEK_API_KEY"] == ""
+    assert api_environment["DEEPSEEK_MODEL"] == "deepseek-v4-pro"
 
 
 def test_environment_template_has_unique_synchronized_compose_values() -> None:

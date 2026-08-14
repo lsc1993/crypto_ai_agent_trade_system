@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import NoReturn, Protocol
+from uuid import UUID
 
 from app.market.contracts import (
     Candle,
@@ -31,7 +32,36 @@ class PersistedMarketSnapshot:
         _require_utc(self.captured_at)
 
 
+@dataclass(frozen=True)
+class PersistedMarketSnapshotInput:
+    candles: tuple[Candle, ...]
+    payload_sha256: str
+
+    def __post_init__(self) -> None:
+        if not self.candles:
+            raise ValueError("冻结市场快照输入不能为空")
+        if len(self.candles) > len(MarketTimeframe) * _CANDLE_LIMIT:
+            raise ValueError("冻结市场快照输入超过 K 线限制")
+        if len(self.payload_sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in self.payload_sha256
+        ):
+            raise ValueError("冻结市场快照输入哈希无效")
+        symbol = self.candles[0].symbol
+        if any(candle.symbol is not symbol for candle in self.candles):
+            raise ValueError("冻结市场快照输入标的必须一致")
+        for timeframe in MarketTimeframe:
+            series_candles = tuple(
+                candle for candle in self.candles if candle.timeframe is timeframe
+            )
+            if len(series_candles) > _CANDLE_LIMIT:
+                raise ValueError("冻结市场快照输入单周期超过 K 线限制")
+            if series_candles:
+                CandleSeries(timeframe=timeframe, candles=series_candles)
+
+
 class PersistedMarketReader(Protocol):
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None: ...
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,

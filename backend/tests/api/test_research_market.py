@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import NoReturn
+from uuid import UUID
 
 import httpx
 import pytest
@@ -28,6 +29,10 @@ NOW = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
 
 
 class FakePersistedMarketReader:
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None:
+        del snapshot_id
+        return None
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,
@@ -49,6 +54,13 @@ class FakePersistedMarketReader:
 
 
 class UnavailablePersistedMarketReader:
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None:
+        del snapshot_id
+        raise MarketDataUnavailableError(
+            "market_research_unavailable",
+            "持久化市场研究数据不可用",
+        )
+
     async def load_latest_snapshot(
         self,
         symbol: ContractSymbol,

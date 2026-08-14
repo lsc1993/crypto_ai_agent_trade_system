@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -44,6 +45,10 @@ class FakePersistedMarketReader:
         default_factory=_empty_candles,
     )
     limits: list[int] = field(default_factory=_empty_limits)
+
+    async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None:
+        del snapshot_id
+        return None
 
     async def load_latest_snapshot(
         self,

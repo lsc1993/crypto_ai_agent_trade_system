@@ -51,15 +51,18 @@ const realReportSummary: AnalysisReportSummary = {
   summary: "来自本地 API 的持久化报告。",
   createdAt: "2026-07-31T08:00:00Z",
   dataCutoffAt: "2026-07-31T07:55:00Z",
+  generatorKind: "deterministic",
 };
 
 const realReport: AnalysisReport = {
   ...realReportSummary,
+  generatedAt: "2026-07-31T08:00:00Z",
   facts: ["BTCUSDT 公开行情已写入研究数据集。"],
   inferences: ["报告由确定性研究流程生成。"],
   risks: [],
   limitations: [],
   evidence: [],
+  agentAnalysis: null,
 };
 
 const realReportPage: Page<AnalysisReportSummary> = {

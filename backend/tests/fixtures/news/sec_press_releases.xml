@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>SEC Press Releases</title>
+  <entry>
+    <id>sec-2026-42</id>
+    <title>SEC announces digital asset enforcement action</title>
+    <link href="https://www.sec.gov/newsroom/press-releases/example?fbclid=ignored" />
+    <summary>Digital asset market regulation update.</summary>
+    <updated>2026-08-10T08:00:00Z</updated>
+  </entry>
+</feed>

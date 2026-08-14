@@ -73,6 +73,7 @@ const dashboardWire = {
       summary: "Market conditions are stable.",
       createdAt: "2026-07-28T12:00:00Z",
       dataCutoffAt: "2026-07-28T11:55:00Z",
+      generatorKind: "deterministic",
     },
   ],
   generatedAt: "2026-07-28T12:00:00Z",

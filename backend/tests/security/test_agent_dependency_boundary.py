@@ -1,0 +1,20 @@
+import tomllib
+from pathlib import Path
+
+from packaging.requirements import Requirement
+
+
+def test_agent_dependencies_include_required_packages_and_exclude_forbidden_packages() -> None:
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    dependencies = tuple(pyproject["project"]["dependencies"])
+    dependency_names = {Requirement(dependency).name for dependency in dependencies}
+
+    assert {"langgraph", "langgraph-checkpoint-postgres", "defusedxml"} <= dependency_names
+    assert not {
+        dependency
+        for dependency in dependencies
+        if dependency.startswith("langchain-openai")
+        or dependency.startswith("ccxt")
+        or dependency.startswith(("binance", "coinbase", "kraken", "okx", "bybit"))
+    }

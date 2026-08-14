@@ -10,14 +10,21 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.market.contracts import ContractSymbol, UtcDateTime
 from app.reports.contracts import (
+    AgentAnalysis,
     AnalysisReportStatus,
     AnalysisReportSummary,
+    Catalyst,
+    MarketOutlook,
     PersistedAnalysisEvidence,
     PersistedAnalysisReport,
+    PriceZone,
+    ReportGeneratorKind,
     ReportPage,
+    RiskAndInvalidation,
+    TrendDirection,
 )
 from app.reports.repository import AnalysisReportRepository
-from app.reports.service import DeterministicResearchReportService
+from app.reports.service import AnalysisReportService
 
 router = APIRouter(prefix="/analysis-runs", tags=["analysis-reports"])
 
@@ -54,6 +61,7 @@ class AnalysisReportSummaryResponse(_ApiModel):
     summary: str
     created_at: UtcDateTime
     data_cutoff_at: UtcDateTime | None
+    generator_kind: ReportGeneratorKind
 
 
 class AnalysisEvidenceResponse(_ApiModel):
@@ -65,6 +73,46 @@ class AnalysisEvidenceResponse(_ApiModel):
     summary: str
 
 
+class PriceZoneResponse(_ApiModel):
+    lower: str
+    upper: str
+    timeframe: str
+    rationale: str
+
+
+class CatalystResponse(_ApiModel):
+    category: str
+    direction: MarketOutlook
+    claim: str
+    evidence_ids: tuple[UUID, ...]
+    timing: str
+
+
+class RiskAndInvalidationResponse(_ApiModel):
+    condition: str
+    impact: str
+    evidence_ids: tuple[UUID, ...]
+
+
+class AgentDataQualityResponse(_ApiModel):
+    freshness: str
+    missing_inputs: tuple[str, ...]
+    source_coverage: str
+
+
+class AgentAnalysisResponse(_ApiModel):
+    horizon: str
+    outlook: MarketOutlook
+    confidence: str
+    trend_alignment: dict[str, TrendDirection]
+    support_zones: tuple[PriceZoneResponse, ...]
+    resistance_zones: tuple[PriceZoneResponse, ...]
+    catalysts: tuple[CatalystResponse, ...]
+    risks_and_invalidation: tuple[RiskAndInvalidationResponse, ...]
+    data_quality: AgentDataQualityResponse
+    limitations: tuple[str, ...]
+
+
 class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
     facts: tuple[str, ...]
     inferences: tuple[str, ...]
@@ -72,6 +120,7 @@ class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
     limitations: tuple[str, ...]
     generated_at: UtcDateTime
     evidence: tuple[AnalysisEvidenceResponse, ...]
+    agent_analysis: AgentAnalysisResponse | None
 
 
 class AnalysisReportPageResponse(_ApiModel):
@@ -89,8 +138,8 @@ class AnalysisRunEvent(_ApiModel):
     message: str
 
 
-def get_analysis_report_service(request: Request) -> DeterministicResearchReportService:
-    return cast(DeterministicResearchReportService, request.app.state.analysis_report_service)
+def get_analysis_report_service(request: Request) -> AnalysisReportService:
+    return cast(AnalysisReportService, request.app.state.analysis_report_service)
 
 
 def get_analysis_report_repository(request: Request) -> AnalysisReportRepository:
@@ -105,7 +154,7 @@ def get_analysis_report_repository(request: Request) -> AnalysisReportRepository
 async def create_analysis_run(
     request: StartAnalysisRequest,
     service: Annotated[
-        DeterministicResearchReportService,
+        AnalysisReportService,
         Depends(get_analysis_report_service),
     ],
 ) -> AnalysisRunCreatedResponse:
@@ -160,7 +209,7 @@ async def retry_analysis_run(
         Depends(get_analysis_report_repository),
     ],
     service: Annotated[
-        DeterministicResearchReportService,
+        AnalysisReportService,
         Depends(get_analysis_report_service),
     ],
 ) -> AnalysisRunCreatedResponse:
@@ -235,6 +284,7 @@ def _to_summary_response(
         summary=report.summary,
         created_at=report.created_at,
         data_cutoff_at=report.data_cutoff_at,
+        generator_kind=report.generator_kind,
     )
 
 
@@ -249,6 +299,11 @@ def _to_detail_response(
         limitations=report.limitations,
         generated_at=report.generated_at,
         evidence=tuple(_to_evidence_response(evidence) for evidence in report.evidence),
+        agent_analysis=(
+            None
+            if report.agent_analysis is None
+            else _to_agent_analysis_response(report.agent_analysis)
+        ),
     )
 
 
@@ -262,4 +317,56 @@ def _to_evidence_response(
         source_url=evidence.source_url,
         observed_at=evidence.observed_at,
         summary=evidence.summary,
+    )
+
+
+def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisResponse:
+    return AgentAnalysisResponse(
+        horizon=analysis.horizon,
+        outlook=analysis.outlook,
+        confidence=analysis.confidence,
+        trend_alignment={
+            timeframe.value: trend for timeframe, trend in analysis.trend_alignment.items()
+        },
+        support_zones=tuple(_to_price_zone_response(zone) for zone in analysis.support_zones),
+        resistance_zones=tuple(
+            _to_price_zone_response(zone) for zone in analysis.resistance_zones
+        ),
+        catalysts=tuple(_to_catalyst_response(item) for item in analysis.catalysts),
+        risks_and_invalidation=tuple(
+            _to_risk_response(item) for item in analysis.risks_and_invalidation
+        ),
+        data_quality=AgentDataQualityResponse(
+            freshness=analysis.data_quality.freshness.value,
+            missing_inputs=analysis.data_quality.missing_inputs,
+            source_coverage=analysis.data_quality.source_coverage,
+        ),
+        limitations=analysis.limitations,
+    )
+
+
+def _to_price_zone_response(zone: PriceZone) -> PriceZoneResponse:
+    return PriceZoneResponse(
+        lower=str(zone.lower),
+        upper=str(zone.upper),
+        timeframe=zone.timeframe.value,
+        rationale=zone.rationale,
+    )
+
+
+def _to_catalyst_response(catalyst: Catalyst) -> CatalystResponse:
+    return CatalystResponse(
+        category=catalyst.category,
+        direction=catalyst.direction,
+        claim=catalyst.claim,
+        evidence_ids=catalyst.evidence_ids,
+        timing=catalyst.timing,
+    )
+
+
+def _to_risk_response(risk: RiskAndInvalidation) -> RiskAndInvalidationResponse:
+    return RiskAndInvalidationResponse(
+        condition=risk.condition,
+        impact=risk.impact,
+        evidence_ids=risk.evidence_ids,
     )
