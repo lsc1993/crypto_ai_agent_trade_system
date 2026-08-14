@@ -46,7 +46,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         try:
             async with self._session_factory() as session:
                 async with session.begin():
-                    _add_report_records(session, creation)
+                    await _add_report_records(session, creation)
         except SQLAlchemyError as error:
             raise ReportStorageUnavailableError("研究报告持久化不可用") from error
 
@@ -64,7 +64,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         try:
             async with self._session_factory() as session:
                 async with session.begin():
-                    _add_report_records(session, creation)
+                    await _add_report_records(session, creation)
                     session.add(
                         AgentAnalysisRunRecord(
                             id=uuid4(),
@@ -173,7 +173,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         )
 
 
-def _add_report_records(
+async def _add_report_records(
     session: AsyncSession,
     creation: AnalysisReportCreation,
 ) -> None:
@@ -194,6 +194,10 @@ def _add_report_records(
             data_cutoff_at=report.data_cutoff_at,
         )
     )
+    # Both evidence and Agent-run rows reference this report. Flush the parent
+    # before adding either child collection so database FK enforcement does not
+    # depend on SQLAlchemy's unordered pending-object traversal.
+    await session.flush()
     session.add_all(
         AnalysisEvidenceRecord(
             id=evidence.id,
