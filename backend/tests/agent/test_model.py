@@ -101,6 +101,27 @@ async def test_deepseek_model_explicitly_disables_thinking_for_json_formatting()
 
 
 @pytest.mark.asyncio
+async def test_deepseek_model_accepts_a_single_quoted_json_object_response() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=_single_quoted_model_response(_proposal_payload()))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+
+        proposal = await model.generate(_request())
+
+    assert proposal.horizon == "dual_horizon"
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
 async def test_deepseek_request_requires_chinese_dual_horizon_narrative() -> None:
     requests: list[httpx.Request] = []
 
@@ -135,6 +156,19 @@ def test_system_prompt_includes_a_complete_json_schema_example() -> None:
     assert '"neutral"' in prompt
     assert '"risks_and_invalidation"' in prompt
     assert '"evidence_ids"' in prompt
+    assert "市场概况不少于 350 个中文字符" in prompt
+
+
+def test_system_prompt_requires_canonical_catalyst_directions() -> None:
+    prompt = system_prompt()
+
+    assert 'direction 字段只能取 "bullish"、"bearish" 或 "neutral"' in prompt
+
+
+def test_agent_analysis_proposal_accepts_the_relaxed_narrative_floor() -> None:
+    proposal = AgentAnalysisProposal.model_validate(_compact_proposal_payload())
+
+    assert proposal.horizon == "dual_horizon"
 
 
 @pytest.mark.asyncio
@@ -427,6 +461,45 @@ async def test_deepseek_retries_once_and_returns_valid_proposal_after_invalid_sc
 
     assert proposal.horizon == "dual_horizon"
     assert len(requests) == 2
+    retry_payload = json.loads(requests[1].content)
+    assert 'direction 字段只能取 "bullish"、"bearish" 或 "neutral"' in retry_payload[
+        "messages"
+    ][-1]["content"]
+    expected_length_instruction = (
+        "市场概况、两个 thesis 与所有 driver.detail 拼接后必须达到 "
+        "1800 至 2200 个中文字符"
+    )
+    assert expected_length_instruction in retry_payload[
+        "messages"
+    ][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_retries_a_second_time_after_an_undersized_narrative() -> None:
+    requests: list[httpx.Request] = []
+    responses = iter(
+        (
+            {"choices": [{"message": {"content": "not-json"}}]},
+            _model_response(_undersized_proposal_payload()),
+            _fixture("deepseek_completed.json"),
+        )
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=next(responses))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+
+        proposal = await model.generate(_request())
+
+    assert proposal.horizon == "dual_horizon"
+    assert len(requests) == 3
 
 
 @pytest.mark.asyncio
@@ -554,6 +627,10 @@ def _model_response(payload: dict[str, object]) -> dict[str, object]:
     return {"choices": [{"message": {"content": json.dumps(payload)}}]}
 
 
+def _single_quoted_model_response(payload: dict[str, object]) -> dict[str, object]:
+    return {"choices": [{"message": {"content": repr(json.dumps(payload))}}]}
+
+
 def _proposal_payload() -> dict[str, object]:
     evidence_id = str(MARKET_EVIDENCE_ID)
     return {
@@ -638,6 +715,18 @@ def _undersized_proposal_payload() -> dict[str, object]:
         perspective["thesis"] = "中文观点。"
         drivers = cast(list[dict[str, object]], perspective["drivers"])
         drivers[0]["detail"] = "中文驱动。"
+    return payload
+
+
+def _compact_proposal_payload() -> dict[str, object]:
+    payload = _proposal_payload()
+    market_overview = cast(dict[str, object], payload["market_overview"])
+    market_overview["summary"] = _research_text("市场概况", 150)
+    for name in ("short_term", "long_term"):
+        perspective = cast(dict[str, object], payload[name])
+        perspective["thesis"] = _research_text("市场观点", 300)
+        drivers = cast(list[dict[str, object]], perspective["drivers"])
+        drivers[0]["detail"] = _research_text("市场驱动", 170)
     return payload
 
 

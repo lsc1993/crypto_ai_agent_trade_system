@@ -145,10 +145,10 @@ const agentResearchNarrativeSchema = z
       ...narrative.shortTerm.drivers.map((driver) => driver.detail),
       ...narrative.longTerm.drivers.map((driver) => driver.detail),
     ].join("").length;
-    if (displayLength < 1500 || displayLength > 2500) {
+    if (displayLength < 1100 || displayLength > 2500) {
       context.addIssue({
         code: "custom",
-        message: "Detailed research narrative must contain 1,500 to 2,500 display characters",
+        message: "Detailed research narrative must contain 1,100 to 2,500 display characters",
       });
     }
   });

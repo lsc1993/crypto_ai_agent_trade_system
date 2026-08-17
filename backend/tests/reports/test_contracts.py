@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -19,6 +20,7 @@ from app.reports.contracts import (
     MarketOutlook,
     RiskAndInvalidation,
     report_payload_sha256,
+    validate_research_display_text,
 )
 
 NOW = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
@@ -39,6 +41,12 @@ def test_report_draft_rejects_trading_instruction_language_after_normalization()
 def test_report_draft_rejects_english_trading_instruction_language() -> None:
     with pytest.raises(ValidationError, match="交易指令"):
         _completed_report(summary="The model says to buy BTC now.")
+
+
+def test_research_text_allows_open_interest_contract_market_context() -> None:
+    text = "未平仓合约数量增加，说明衍生品参与度需要继续观察。"
+
+    assert validate_research_display_text(text) == text
 
 
 @pytest.mark.parametrize(
@@ -167,6 +175,17 @@ def test_dual_horizon_narrative_requires_chinese_evidence_backed_sections() -> N
     assert analysis.narrative.long_term.horizon == "long_term"
     assert analysis.market_metrics is not None
     assert str(analysis.market_metrics.price) == "68000.12"
+
+
+def test_dual_horizon_analysis_accepts_the_relaxed_narrative_floor() -> None:
+    analysis = AgentAnalysis.model_validate(
+        {
+            **_compact_dual_horizon_analysis_payload(uuid4()),
+            "market_metrics": _market_metrics_payload(),
+        }
+    )
+
+    assert analysis.horizon == "dual_horizon"
 
 
 def test_dual_horizon_analysis_requires_frozen_market_metrics() -> None:
@@ -430,6 +449,20 @@ def _market_metrics_payload() -> dict[str, object]:
         "fear_greed_classification": "Extreme Fear",
         "fear_greed_change_7d": -11,
     }
+
+
+def _compact_dual_horizon_analysis_payload(evidence_id: UUID) -> dict[str, object]:
+    payload = _dual_horizon_analysis_payload(evidence_id)
+    narrative = cast(dict[str, object], payload["narrative"])
+    market_overview = cast(dict[str, object], narrative["market_overview"])
+    market_overview["summary"] = _research_text("市场概况", 150)
+    for name in ("short_term", "long_term"):
+        perspective = cast(dict[str, object], narrative[name])
+        perspective["thesis"] = _research_text("市场观点", 300)
+        drivers = cast(tuple[dict[str, object], ...], perspective["drivers"])
+        driver = drivers[0]
+        driver["detail"] = _research_text("市场驱动", 170)
+    return payload
 
 
 def _research_text(prefix: str, length: int) -> str:

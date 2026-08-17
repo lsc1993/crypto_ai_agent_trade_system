@@ -287,6 +287,7 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
     return Promise.resolve(
       analysisReportSchema.parse({
         ...seedReport(),
+        status: "degraded",
         generatorKind: "langgraph_deepseek",
         agentAnalysis: {
           horizon: "1_to_3_days",
@@ -873,32 +874,24 @@ describe("ReportDetailPage", () => {
     expect(screen.queryByText("null")).not.toBeInTheDocument();
   });
 
-  it("renders the bounded one-to-three-day research evidence without trade advice", async () => {
+  it("renders a modern degraded Agent shell without the retired one-to-three-day outlook", async () => {
     renderReportDetail(new AgentReportDetailApi());
 
-    const outlook = await screen.findByRole("region", {
-      name: "未来 1–3 天市场研判",
+    const report = await screen.findByRole("article", {
+      name: "Agent 降级研究报告",
     });
-    const structure = screen.getByRole("region", {
+    const structure = within(report).getByRole("region", {
       name: "关键支撑与阻力",
     });
-    const catalysts = screen.getByRole("region", {
-      name: "潜在催化事件",
-    });
-    const risks = screen.getByRole("region", {
-      name: "风险与失效条件",
-    });
 
-    expect(outlook).toHaveTextContent("1–3 天");
+    expect(report).toHaveTextContent("本次 AI 详尽报告未生成");
+    expect(report).toHaveTextContent("模型输出未通过格式校验");
     expect(structure).toHaveTextContent("67000.10");
     expect(structure).toHaveTextContent("69100.20");
-    expect(catalysts).toHaveTextContent("Frozen public news remains mixed.");
-    expect(risks).toHaveTextContent("Reassessment is required.");
+    expect(screen.queryByRole("heading", { name: "报告详情" })).not.toBeInTheDocument();
     expect(
-      within(catalysts).getByRole("link", {
-        name: "查看证据 evidence-btc-001",
-      }),
-    ).toHaveAttribute("href", "#evidence-evidence-btc-001");
+      screen.queryByRole("region", { name: "未来 1–3 天市场研判" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "事实观察" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "分析推断" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "风险标记" })).not.toBeInTheDocument();

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -37,10 +38,16 @@ _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 _MAX_TOKENS = 4_000
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
 _MAX_VALIDATION_FIELD_PATHS = 8
+_MAX_FORMAT_ATTEMPTS = 3
 _FORMAT_RETRY_INSTRUCTION = (
     "上一份候选未通过机器格式校验。请从头重新生成一个完整 JSON 对象："
     "不得使用 Markdown 或额外说明；必须包含所有 schema 字段，"
-    "只引用提供的 UUID；正文总长度保持在 1800 至 2200 个中文字符。"
+    "只引用提供的 UUID；"
+    "市场概况、两个 thesis 与所有 driver.detail 拼接后必须达到 1800 至 2200 个中文字符；"
+    "市场概况不少于 350 个中文字符，两个 thesis 各不少于 350 个中文字符，"
+    "短期和长期各列出二至三个 driver，每个 driver.detail 不少于 175 个中文字符；"
+    'direction 字段只能取 "bullish"、"bearish" 或 "neutral"，'
+    "不得使用 positive、negative、up、down 等同义值。"
 )
 logger = structlog.get_logger(__name__)
 
@@ -115,8 +122,8 @@ class AgentAnalysisProposal(_AgentModel):
         if not referenced_ids:
             raise ValueError("模型结论必须引用冻结证据")
         display_length = _narrative_display_length(self.narrative)
-        if not 1_500 <= display_length <= 2_500:
-            raise ValueError("模型双层市场报告正文必须为 1500 至 2500 个字符")
+        if not 1_100 <= display_length <= 2_500:
+            raise ValueError("模型双层市场报告正文必须为 1100 至 2500 个字符")
         return self
 
     @property
@@ -232,39 +239,34 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         secret_value: str,
         started_at: float,
     ) -> AgentAnalysisProposal:
-        try:
-            return await self._generate_once(
-                request=request,
-                secret_value=secret_value,
-                started_at=started_at,
-                retry=False,
-            )
-        except ModelOutputError as error:
-            if error.code != "model_invalid_response":
-                raise
-            self._log_response_rejected(error=error, attempt=1)
-            logger.info(
-                "agent_model_format_retry_started",
-                model=self._model,
-                attempt=2,
-            )
+        for attempt in range(1, _MAX_FORMAT_ATTEMPTS + 1):
             try:
                 proposal = await self._generate_once(
                     request=request,
                     secret_value=secret_value,
                     started_at=started_at,
-                    retry=True,
+                    attempt=attempt,
                 )
-            except ModelOutputError as retry_error:
-                if retry_error.code == "model_invalid_response":
-                    self._log_response_rejected(error=retry_error, attempt=2)
-                raise
-            logger.info(
-                "agent_model_format_retry_completed",
-                model=self._model,
-                attempt=2,
-            )
+            except ModelOutputError as error:
+                if error.code != "model_invalid_response":
+                    raise
+                self._log_response_rejected(error=error, attempt=attempt)
+                if attempt == _MAX_FORMAT_ATTEMPTS:
+                    raise
+                logger.info(
+                    "agent_model_format_retry_started",
+                    model=self._model,
+                    attempt=attempt + 1,
+                )
+                continue
+            if attempt > 1:
+                logger.info(
+                    "agent_model_format_retry_completed",
+                    model=self._model,
+                    attempt=attempt,
+                )
             return proposal
+        raise RuntimeError("模型格式重试未能返回结果")
 
     async def _generate_once(
         self,
@@ -272,13 +274,13 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         request: ResearchModelRequest,
         secret_value: str,
         started_at: float,
-        retry: bool,
+        attempt: int,
     ) -> AgentAnalysisProposal:
         messages: tuple[dict[str, str], ...] = (
             {"role": "system", "content": system_prompt()},
             {"role": "user", "content": research_user_message(request)},
         )
-        if retry:
+        if attempt > 1:
             messages = (*messages, {"role": "user", "content": _FORMAT_RETRY_INSTRUCTION})
         try:
             response = await self._client.post(
@@ -304,9 +306,9 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             model=self._model,
             status_code=response.status_code,
             duration_ms=_duration_ms(started_at),
-            attempt=2 if retry else 1,
+            attempt=attempt,
         )
-        content = _response_content(response)
+        content = _normalize_json_object_content(_response_content(response))
         try:
             proposal = AgentAnalysisProposal.model_validate_json(content)
         except (ValidationError, ValueError, json.JSONDecodeError) as error:
@@ -384,6 +386,21 @@ def _response_content(response: httpx.Response) -> str:
     if not isinstance(content, str) or not content.strip():
         raise ModelOutputError("model_empty_response", "DeepSeek 未返回研究内容")
     return content
+
+
+def _normalize_json_object_content(content: str) -> str:
+    """Unwrap a model's quoted JSON-object string without evaluating code."""
+    candidate = content.strip()
+    if not (candidate.startswith("'") and candidate.endswith("'")):
+        return candidate
+    try:
+        unwrapped = ast.literal_eval(candidate)
+    except (SyntaxError, ValueError):
+        return candidate
+    if not isinstance(unwrapped, str):
+        return candidate
+    normalized = unwrapped.strip()
+    return normalized if normalized.startswith("{") else candidate
 
 
 def _require_known_evidence_ids(

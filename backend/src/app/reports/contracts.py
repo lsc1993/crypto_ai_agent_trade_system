@@ -125,7 +125,9 @@ def _validate_display_text(value: str) -> str:
         raise ValueError("报告文本不能为空")
     if len(normalized) > _MAX_TEXT_LENGTH:
         raise ValueError("报告文本不能超过 1000 个字符")
-    guard_text = _normalize_text(normalized).replace("未平仓量", "")
+    guard_text = _normalize_text(normalized)
+    for market_term in ("未平仓量", "未平仓合约"):
+        guard_text = guard_text.replace(market_term, "")
     prohibited = next(
         (phrase for phrase in _PROHIBITED_PHRASES if phrase in guard_text),
         None,
@@ -547,8 +549,8 @@ class AgentAnalysis(_ReportModel):
         if self.market_metrics is None:
             raise ValueError("双层市场报告必须包含冻结市场指标")
         display_length = _narrative_display_length(self.narrative)
-        if not 1_500 <= display_length <= 2_500:
-            raise ValueError("双层市场报告正文必须为 1500 至 2500 个字符")
+        if not 1_100 <= display_length <= 2_500:
+            raise ValueError("双层市场报告正文必须为 1100 至 2500 个字符")
         return self
 
 

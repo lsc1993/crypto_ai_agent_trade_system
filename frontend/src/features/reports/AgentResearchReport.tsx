@@ -13,8 +13,22 @@ type DualHorizonAnalysis = Extract<
   { horizon: "dual_horizon" }
 >;
 
+type DegradedAgentAnalysis = Extract<
+  NonNullable<AnalysisReport["agentAnalysis"]>,
+  { horizon: "1_to_3_days" }
+>;
+
+type MarketStructureAnalysis = Pick<
+  NonNullable<AnalysisReport["agentAnalysis"]>,
+  "supportZones" | "resistanceZones"
+>;
+
 export type DualHorizonReport = Omit<AnalysisReport, "agentAnalysis"> & {
   agentAnalysis: DualHorizonAnalysis;
+};
+
+export type DegradedAgentReport = Omit<AnalysisReport, "agentAnalysis"> & {
+  agentAnalysis: DegradedAgentAnalysis;
 };
 
 const outlookLabels = {
@@ -184,6 +198,92 @@ export function AgentResearchReport({ report }: { report: DualHorizonReport }) {
   );
 }
 
+export function DegradedAgentResearchReport({
+  report,
+}: {
+  report: DegradedAgentReport;
+}) {
+  const analysis = report.agentAnalysis;
+  const trends = Object.entries(analysis.trendAlignment);
+
+  return (
+    <article
+      className="research-report research-report--degraded"
+      aria-label="Agent 降级研究报告"
+    >
+      <header className="research-report__hero">
+        <p className="research-report__eyebrow">
+          {report.symbol} · {statusLabels[report.status]} · 冻结公开证据研究
+        </p>
+        <h1>本次 AI 详尽报告未生成</h1>
+        <p className="research-report__summary">
+          模型输出未通过格式校验，因此系统没有将其展示为市场观点。以下仅保留可审计的冻结市场结构与数据质量信息；请以新的研究任务重新生成双周期中文报告。
+        </p>
+        <dl className="research-report__hero-meta">
+          <div>
+            <dt>模型输出</dt>
+            <dd>未通过格式校验</dd>
+          </div>
+          <div>
+            <dt>数据截止时间（UTC）</dt>
+            <dd>
+              {report.dataCutoffAt === null ? (
+                "无可用数据"
+              ) : (
+                <time dateTime={report.dataCutoffAt}>
+                  {report.dataCutoffAt}
+                </time>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>来源覆盖</dt>
+            <dd>{coverageLabels[analysis.dataQuality.sourceCoverage]}</dd>
+          </div>
+          <div>
+            <dt>数据新鲜度</dt>
+            <dd>{freshnessLabels[analysis.dataQuality.freshness]}</dd>
+          </div>
+        </dl>
+      </header>
+
+      <section
+        className="research-report__section research-report__section--overview"
+        aria-labelledby="degraded-report-structure-title"
+      >
+        <p className="research-report__section-kicker">仅保留确定性市场输入</p>
+        <h2 id="degraded-report-structure-title">已冻结的市场结构</h2>
+        {trends.length === 0 ? (
+          <p>本次未形成可用的周期趋势输入。</p>
+        ) : (
+          <p>
+            周期趋势：{trends.map(([timeframe, direction]) => `${timeframe} ${direction}`).join(" · ")}
+          </p>
+        )}
+        <ZoneList analysis={analysis} />
+      </section>
+
+      <section
+        className="research-report__section research-report__section--risk"
+        aria-labelledby="degraded-report-limitations-title"
+      >
+        <p className="research-report__section-kicker">重新生成前需要注意</p>
+        <h2 id="degraded-report-limitations-title">数据限制与重试提示</h2>
+        {analysis.dataQuality.missingInputs.length === 0 ? (
+          <p>未记录缺失输入。</p>
+        ) : (
+          <p>缺失输入：{analysis.dataQuality.missingInputs.join("、")}</p>
+        )}
+        {analysis.limitations.length === 0 ? null : (
+          <p className="research-report__annotation">
+            限制：{analysis.limitations.join("、")}
+          </p>
+        )}
+      </section>
+    </article>
+  );
+}
+
 function marketMetricCards(analysis: DualHorizonAnalysis) {
   const metrics = analysis.marketMetrics;
   const hasSentiment = metrics.fearGreedValue !== null;
@@ -284,7 +384,7 @@ function PerspectiveSection({
   );
 }
 
-function ZoneList({ analysis }: { analysis: DualHorizonAnalysis }) {
+function ZoneList({ analysis }: { analysis: MarketStructureAnalysis }) {
   return (
     <section className="research-report__zones" aria-label="关键支撑与阻力">
       <h3>关键支撑与阻力</h3>
@@ -301,7 +401,7 @@ function ZoneColumn({
   zones,
 }: {
   title: string;
-  zones: DualHorizonAnalysis["supportZones"];
+  zones: MarketStructureAnalysis["supportZones"];
 }) {
   return (
     <section aria-label={title}>

@@ -20,6 +20,10 @@
   border-top: 3px solid #4e9cff;
 }
 
+.research-report--degraded .research-report__hero {
+  border-top-color: #d89b5c;
+}
+
 .research-report__hero h1,
 .research-report__section h2,
 .research-report__metrics h2 {

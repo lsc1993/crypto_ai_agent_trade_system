@@ -4,7 +4,10 @@ import { analysisReportSchema } from "./report";
 
 const detailedText = "本次冻结证据仅描述可观察市场状态，不构成任何交易指令或账户操作。";
 
-function dualReport(marketMetrics: object | null) {
+function dualReport(
+  marketMetrics: object | null,
+  repetitions = { summary: 10, thesis: 12, driver: 7 },
+) {
   return {
     id: "report-btc-001",
     analysisId: "analysis-btc-001",
@@ -49,18 +52,18 @@ function dualReport(marketMetrics: object | null) {
       narrative: {
         marketOverview: {
           headline: "冻结公开数据等待进一步确认",
-          summary: detailedText.repeat(10),
+          summary: detailedText.repeat(repetitions.summary),
           evidenceIds: ["evidence-btc-001"],
         },
         shortTerm: {
           horizon: "short_term",
           outlook: "neutral",
           heading: "短期结构等待进一步确认",
-          thesis: detailedText.repeat(12),
+          thesis: detailedText.repeat(repetitions.thesis),
           drivers: [
             {
               label: "冻结公开数据",
-              detail: detailedText.repeat(7),
+              detail: detailedText.repeat(repetitions.driver),
               evidenceIds: ["evidence-btc-001"],
             },
           ],
@@ -76,11 +79,11 @@ function dualReport(marketMetrics: object | null) {
           horizon: "long_term",
           outlook: "neutral",
           heading: "长期结构等待进一步确认",
-          thesis: detailedText.repeat(12),
+          thesis: detailedText.repeat(repetitions.thesis),
           drivers: [
             {
               label: "冻结公开数据",
-              detail: detailedText.repeat(7),
+              detail: detailedText.repeat(repetitions.driver),
               evidenceIds: ["evidence-btc-001"],
             },
           ],
@@ -125,5 +128,13 @@ describe("analysisReportSchema frozen market metrics", () => {
         dualReport({ ...completeMetrics, fearGreedClassification: null }),
       ),
     ).toThrow("Fear and greed metrics");
+  });
+
+  it("accepts the relaxed 1,100-character dual-horizon narrative floor", () => {
+    const parsed = analysisReportSchema.parse(
+      dualReport(completeMetrics, { summary: 7, thesis: 9, driver: 6 }),
+    );
+
+    expect(parsed.agentAnalysis?.horizon).toBe("dual_horizon");
   });
 });

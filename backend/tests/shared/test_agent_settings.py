@@ -8,6 +8,7 @@ def test_agent_settings_default_to_disabled_key_and_allowed_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setitem(AppSettings.model_config, "env_file", None)
     settings = AppSettings()
 
     assert settings.deepseek_api_key is None
