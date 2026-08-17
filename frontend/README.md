@@ -8,7 +8,7 @@
 
 ```powershell
 Set-Location backend
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run python -m app
 ```
 
 ```powershell
@@ -35,7 +35,7 @@ uv run python scripts/check_public_market.py
 ```powershell
 Set-Location backend
 uv run alembic upgrade head
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run python -m app
 ```
 
 在另一个 PowerShell 窗口启动前端。`api` 与 `market-api` 都会把模拟盘请求委托给本地 HTTP API；`mock` 模式会明确提示“模拟盘需要本地 API 与数据库”。
