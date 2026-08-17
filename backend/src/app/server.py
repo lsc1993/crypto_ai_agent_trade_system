@@ -28,7 +28,13 @@ def configure_windows_selector_event_loop_policy(
 def run_api() -> None:
     """Configure platform prerequisites before Uvicorn creates an event loop."""
     configure_windows_selector_event_loop_policy()
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
+    loop = "app.server:windows_selector_event_loop_factory" if sys.platform == "win32" else "auto"
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, loop=loop)
+
+
+def windows_selector_event_loop_factory() -> asyncio.AbstractEventLoop:
+    """Create the loop Uvicorn must use with Psycopg on Windows."""
+    return asyncio.SelectorEventLoop()
 
 
 def _windows_selector_policy_factory() -> Callable[[], asyncio.AbstractEventLoopPolicy] | None:
