@@ -142,7 +142,7 @@ def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
     nginx = (ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
 
     assert "uv run alembic upgrade head" in entrypoint
-    assert "exec uv run uvicorn app.main:app" in entrypoint
+    assert "exec uv run python -m app" in entrypoint
     assert all(
         token not in entrypoint.lower()
         for token in ("alembic downgrade", "drop", "truncate", "reset")
