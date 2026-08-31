@@ -15,6 +15,7 @@ from app.harness.contracts import (
 )
 from app.harness.policy import MARKET_RESEARCH_POLICY
 from app.harness.runtime import HarnessRuntime
+from app.main import create_app
 from app.market.contracts import ContractSymbol
 
 REQUEST = HarnessRunRequest(
@@ -154,3 +155,24 @@ async def test_runtime_logs_only_safe_lifecycle_fields() -> None:
         assert entry["symbol"] == REQUEST.symbol
         assert entry["phase"] in {"started", "failed", "details"}
         assert "duration_ms" in entry
+
+
+@pytest.mark.asyncio
+async def test_runtime_logs_are_captured_after_application_logger_cache_is_warmed() -> None:
+    create_app()
+    workflow = _workflow()
+    runtime = HarnessRuntime(
+        policies=(MARKET_RESEARCH_POLICY,),
+        workflows=(workflow,),
+    )
+
+    await runtime.run(REQUEST)
+
+    with structlog.testing.capture_logs() as logs:
+        await runtime.run(REQUEST)
+
+    assert {entry["event"] for entry in logs} == {
+        "harness_run_started",
+        "harness_run_completed",
+        "harness_run_details",
+    }

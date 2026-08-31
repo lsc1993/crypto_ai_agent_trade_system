@@ -14,8 +14,6 @@ from app.harness.contracts import (
 )
 from app.market.contracts import ContractSymbol
 
-logger = structlog.get_logger(__name__)
-
 
 class HarnessRuntime[ResultT]:
     def __init__(
@@ -121,7 +119,7 @@ class HarnessRuntime[ResultT]:
         duration_ms: int,
         **safe_details: int | str,
     ) -> None:
-        logger.info(
+        structlog.get_logger(__name__).info(
             event,
             run_id=str(request.run_id),
             kind=request.kind,
