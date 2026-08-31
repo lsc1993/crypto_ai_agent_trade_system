@@ -57,6 +57,7 @@ from app.reports.contracts import (
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 SNAPSHOT_ID = UUID("00000000-0000-0000-0000-000000000701")
+ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000702")
 
 
 class RecordingLogger:
@@ -716,7 +717,8 @@ async def test_graph_degrades_when_model_references_unknown_evidence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_state_and_metadata_do_not_include_research_payloads() -> None:
+async def test_graph_uses_supplied_analysis_id_as_checkpoint_thread_without_research_payloads(
+) -> None:
     checkpointer = InMemorySaver()
     service = _service(
         market=_market(),
@@ -726,10 +728,11 @@ async def test_checkpoint_state_and_metadata_do_not_include_research_payloads() 
         checkpointer=checkpointer,
     )
 
-    report = await service.generate(ContractSymbol.BTCUSDT)
-    checkpoints = tuple(checkpointer.list({"configurable": {"thread_id": str(report.analysis_id)}}))
+    report = await service.generate(ContractSymbol.BTCUSDT, analysis_id=ANALYSIS_ID)
+    checkpoints = tuple(checkpointer.list({"configurable": {"thread_id": str(ANALYSIS_ID)}}))
     serialized = repr(checkpoints).casefold()
 
+    assert report.analysis_id == ANALYSIS_ID
     assert checkpoints
     assert "leaked_news_body" not in serialized
     assert "raw_market_json" not in serialized

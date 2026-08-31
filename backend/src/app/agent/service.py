@@ -256,11 +256,16 @@ class AgentResearchService:
         self._dependencies = dependencies
         self._checkpointer = checkpointer
 
-    async def generate(self, symbol: ContractSymbol) -> PersistedAnalysisReport:
+    async def generate(
+        self,
+        symbol: ContractSymbol,
+        *,
+        analysis_id: UUID | None = None,
+    ) -> PersistedAnalysisReport:
         started_at = _require_utc(self._dependencies.clock())
         run = _AgentResearchRun(
             dependencies=self._dependencies,
-            analysis_id=uuid4(),
+            analysis_id=uuid4() if analysis_id is None else analysis_id,
             symbol=symbol,
             started_at=started_at,
         )
