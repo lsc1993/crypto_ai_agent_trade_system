@@ -4,6 +4,11 @@ from app.infrastructure.persistence.models.agent_research import (
     AgentAnalysisRunRecord,
     AgentReportDetailRecord,
 )
+from app.infrastructure.persistence.models.harness import (
+    HarnessAuditEventRecord,
+    HarnessAuditRunRecord,
+    HarnessEvaluationRecord,
+)
 from app.infrastructure.persistence.models.news import NewsItemRecord
 from app.infrastructure.persistence.models.paper_trading import (
     PaperAccountRecord,
@@ -19,6 +24,9 @@ from app.infrastructure.persistence.models.paper_trading import (
 __all__ = [
     "AgentAnalysisRunRecord",
     "AgentReportDetailRecord",
+    "HarnessAuditEventRecord",
+    "HarnessAuditRunRecord",
+    "HarnessEvaluationRecord",
     "NewsItemRecord",
     "PaperAccountRecord",
     "PaperAccountValuationRecord",
