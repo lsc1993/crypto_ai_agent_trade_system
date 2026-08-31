@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import cast
@@ -10,6 +11,12 @@ import pytest
 from fastapi import FastAPI
 from pydantic import JsonValue
 
+from app.harness.audit import (
+    HarnessAuditEvent,
+    HarnessAuditRun,
+    HarnessAuditTrace,
+    HarnessEvaluation,
+)
 from app.harness.market_research import (
     HarnessedMarketResearchService,
     MarketResearchWorkflow,
@@ -40,6 +47,38 @@ REPORT_ID = UUID("00000000-0000-0000-0000-000000000801")
 ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000802")
 EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000803")
 RETRY_ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000804")
+
+
+def _empty_audit_events() -> list[HarnessAuditEvent]:
+    return []
+
+
+@dataclass
+class RecordingAuditRepository:
+    events: list[HarnessAuditEvent] = field(default_factory=_empty_audit_events)
+
+    async def create_requested_run(
+        self,
+        run: HarnessAuditRun,
+        event: HarnessAuditEvent,
+    ) -> None:
+        del run
+        self.events.append(event)
+
+    async def append_policy_evaluation(
+        self,
+        evaluation: HarnessEvaluation,
+        event: HarnessAuditEvent,
+    ) -> None:
+        del evaluation
+        self.events.append(event)
+
+    async def append_event(self, event: HarnessAuditEvent) -> None:
+        self.events.append(event)
+
+    async def get_trace(self, run_id: UUID) -> HarnessAuditTrace | None:
+        del run_id
+        return None
 
 
 class FakeAgentService:
@@ -107,11 +146,13 @@ class UnusedMarketReader(PersistedMarketReader):
 async def test_analysis_post_retry_and_detail_preserve_the_http_contract() -> None:
     report = _report()
     delegate = FakeAgentService(report)
+    audit = RecordingAuditRepository()
     run_ids = iter((ANALYSIS_ID, RETRY_ANALYSIS_ID))
     service = HarnessedMarketResearchService(
         HarnessRuntime[PersistedAnalysisReport](
             policies=(MARKET_RESEARCH_POLICY,),
             workflows=(MarketResearchWorkflow(delegate),),
+            audit_repository=audit,
         ),
         clock=lambda: NOW,
         new_run_id=run_ids.__next__,
@@ -137,6 +178,7 @@ async def test_analysis_post_retry_and_detail_preserve_the_http_contract() -> No
         "analysisId": str(RETRY_ANALYSIS_ID),
         "reportId": str(REPORT_ID),
     }
+    assert [event.sequence for event in audit.events] == [0, 1, 2, 0, 1, 2]
     assert delegate.calls == [
         (ContractSymbol.BTCUSDT, ANALYSIS_ID),
         (ContractSymbol.BTCUSDT, RETRY_ANALYSIS_ID),

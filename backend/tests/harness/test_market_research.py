@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
@@ -7,6 +8,12 @@ from uuid import UUID
 
 import pytest
 
+from app.harness.audit import (
+    HarnessAuditEvent,
+    HarnessAuditRun,
+    HarnessAuditTrace,
+    HarnessEvaluation,
+)
 from app.harness.contracts import HarnessPolicyViolation
 from app.harness.market_research import (
     HarnessedMarketResearchService,
@@ -19,6 +26,38 @@ from app.reports.contracts import PersistedAnalysisReport
 
 NOW = datetime(2026, 8, 31, 12, tzinfo=UTC)
 RUN_ID = UUID("00000000-0000-0000-0000-000000000903")
+
+
+def _empty_audit_events() -> list[HarnessAuditEvent]:
+    return []
+
+
+@dataclass
+class RecordingAuditRepository:
+    events: list[HarnessAuditEvent] = field(default_factory=_empty_audit_events)
+
+    async def create_requested_run(
+        self,
+        run: HarnessAuditRun,
+        event: HarnessAuditEvent,
+    ) -> None:
+        del run
+        self.events.append(event)
+
+    async def append_policy_evaluation(
+        self,
+        evaluation: HarnessEvaluation,
+        event: HarnessAuditEvent,
+    ) -> None:
+        del evaluation
+        self.events.append(event)
+
+    async def append_event(self, event: HarnessAuditEvent) -> None:
+        self.events.append(event)
+
+    async def get_trace(self, run_id: UUID) -> HarnessAuditTrace | None:
+        del run_id
+        return None
 
 
 class RecordingAgentResearchService:
@@ -39,6 +78,7 @@ def _service(delegate: RecordingAgentResearchService) -> HarnessedMarketResearch
     runtime = HarnessRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(MarketResearchWorkflow(delegate),),
+        audit_repository=RecordingAuditRepository(),
     )
     return HarnessedMarketResearchService(
         runtime,
@@ -73,6 +113,7 @@ async def test_policy_rejection_does_not_call_the_agent_delegate() -> None:
     runtime = HarnessRuntime(
         policies=(rejected_policy,),
         workflows=(MarketResearchWorkflow(delegate),),
+        audit_repository=RecordingAuditRepository(),
     )
     service = HarnessedMarketResearchService(
         runtime,

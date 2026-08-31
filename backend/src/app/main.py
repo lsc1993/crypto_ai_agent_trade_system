@@ -29,6 +29,9 @@ from app.harness.market_research import (
 from app.harness.policy import MARKET_RESEARCH_POLICY
 from app.harness.runtime import HarnessRuntime
 from app.infrastructure.persistence.backtest_repository import SqlAlchemyBacktestRepository
+from app.infrastructure.persistence.harness_audit_repository import (
+    SqlAlchemyHarnessAuditRepository,
+)
 from app.infrastructure.persistence.news_repository import SqlAlchemyNewsRepository
 from app.infrastructure.persistence.paper_trading_repository import (
     SqlAlchemyPaperTradingRepository,
@@ -488,6 +491,8 @@ def create_app(
             api_key=settings.deepseek_api_key,
             model=settings.deepseek_model,
         )
+        harness_audit_repository = SqlAlchemyHarnessAuditRepository(session_factory)
+
         def create_agent_service(checkpointer: AsyncPostgresSaver) -> AnalysisReportService:
             agent_service = AgentResearchService(
                 dependencies=AgentResearchDependencies(
@@ -502,6 +507,7 @@ def create_app(
             runtime = HarnessRuntime[PersistedAnalysisReport](
                 policies=(MARKET_RESEARCH_POLICY,),
                 workflows=(MarketResearchWorkflow(agent_service),),
+                audit_repository=harness_audit_repository,
             )
             return HarnessedMarketResearchService(
                 runtime,

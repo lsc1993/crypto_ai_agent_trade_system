@@ -25,12 +25,27 @@ def test_agent_dependencies_include_required_packages_and_exclude_forbidden_pack
 def test_harness_source_has_no_risk_execution_or_persistence_implementation_dependency() -> None:
     harness_files = sorted((BACKEND_ROOT / "src" / "app" / "harness").rglob("*.py"))
     assert harness_files
+    assert "audit.py" in {path.name for path in harness_files}
 
     forbidden = (
+        "sqlalchemy",
+        "alembic",
         "app.risk",
         "app.execution",
         "app.paper_trading",
         "app.infrastructure.persistence",
+        "httpx",
+        "subprocess",
+        "os.system",
+        "playwright",
+        "selenium",
+        "browser",
+        "tools=",
+        "tool_choice",
+        "mcp",
+        "api_key",
+        "secret_key",
+        "private_key",
         "ccxt",
     )
     violations = {
@@ -47,5 +62,8 @@ def test_live_agent_factory_routes_market_research_through_the_harness() -> None
 
     assert "HarnessRuntime[PersistedAnalysisReport]" in source
     assert "MarketResearchWorkflow(agent_service)" in source
+    assert "SqlAlchemyHarnessAuditRepository(session_factory)" in source
     assert "return HarnessedMarketResearchService(" in source
     assert "app.state.harness_runtime" not in source
+    assert "app.state.harness_audit_repository" not in source
+    assert "app.state.audit_repository" not in source
