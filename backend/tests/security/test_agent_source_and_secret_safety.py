@@ -39,8 +39,14 @@ def test_agent_sources_are_allowlisted_and_cannot_enable_social_or_full_page_fet
     assert "BeautifulSoup" not in news_source
 
 
-def test_agent_and_news_source_contain_no_private_exchange_or_model_tool_surface() -> None:
-    source = f"{_application_source('agent')}\n{_application_source('news')}"
+def test_agent_news_and_harness_contain_no_private_exchange_or_model_tool_surface() -> None:
+    source = "\n".join(
+        (
+            _application_source("agent"),
+            _application_source("news"),
+            _application_source("harness"),
+        )
+    )
 
     forbidden = (
         "create_order",
@@ -55,6 +61,26 @@ def test_agent_and_news_source_contain_no_private_exchange_or_model_tool_surface
         "selenium",
         "playwright",
     )
+    assert not {token for token in forbidden if token in source}
+
+
+def test_harness_source_contains_no_tool_or_external_io_surface() -> None:
+    source = _application_source("harness")
+    forbidden = (
+        "subprocess",
+        "os.system",
+        "httpx.AsyncClient",
+        "requests.",
+        "tools=",
+        "tool_choice",
+        "playwright",
+        "selenium",
+        "create_order",
+        "cancel_order",
+        "fetch_balance",
+        "fetch_positions",
+    )
+
     assert not {token for token in forbidden if token in source}
 
 

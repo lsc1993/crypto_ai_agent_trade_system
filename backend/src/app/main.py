@@ -22,6 +22,12 @@ from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
 from app.dashboard.service import DashboardService
+from app.harness.market_research import (
+    HarnessedMarketResearchService,
+    MarketResearchWorkflow,
+)
+from app.harness.policy import MARKET_RESEARCH_POLICY
+from app.harness.runtime import HarnessRuntime
 from app.infrastructure.persistence.backtest_repository import SqlAlchemyBacktestRepository
 from app.infrastructure.persistence.news_repository import SqlAlchemyNewsRepository
 from app.infrastructure.persistence.paper_trading_repository import (
@@ -69,6 +75,7 @@ from app.paper_trading.service import PaperTradingService
 from app.reports.contracts import (
     AnalysisReportCreation,
     AnalysisReportStatus,
+    PersistedAnalysisReport,
     ReportStorageUnavailableError,
 )
 from app.reports.repository import AnalysisReportRepository
@@ -431,7 +438,7 @@ def create_app(
     alternative_client: httpx.AsyncClient | None = None
     model_client: httpx.AsyncClient | None = None
     checkpoint_connection: str | None = None
-    agent_service_factory: Callable[[AsyncPostgresSaver], AgentResearchService] | None = None
+    agent_service_factory: Callable[[AsyncPostgresSaver], AnalysisReportService] | None = None
     agent_report_repository = (
         analysis_report_repository
         if isinstance(analysis_report_repository, SqlAlchemyAnalysisReportRepository)
@@ -481,8 +488,8 @@ def create_app(
             api_key=settings.deepseek_api_key,
             model=settings.deepseek_model,
         )
-        def create_agent_service(checkpointer: AsyncPostgresSaver) -> AgentResearchService:
-            return AgentResearchService(
+        def create_agent_service(checkpointer: AsyncPostgresSaver) -> AnalysisReportService:
+            agent_service = AgentResearchService(
                 dependencies=AgentResearchDependencies(
                     market=market_capture,
                     news=news_ingestion,
@@ -491,6 +498,14 @@ def create_app(
                     clock=lambda: datetime.now(UTC),
                 ),
                 checkpointer=checkpointer,
+            )
+            runtime = HarnessRuntime[PersistedAnalysisReport](
+                policies=(MARKET_RESEARCH_POLICY,),
+                workflows=(MarketResearchWorkflow(agent_service),),
+            )
+            return HarnessedMarketResearchService(
+                runtime,
+                clock=lambda: datetime.now(UTC),
             )
 
         agent_service_factory = create_agent_service
