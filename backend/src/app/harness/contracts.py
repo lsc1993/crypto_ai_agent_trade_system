@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Protocol
+from typing import Annotated, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.market.contracts import ContractSymbol, UtcDateTime
 
@@ -40,6 +40,7 @@ class HarnessRunRequest(BaseModel):
 class HarnessPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    version: Annotated[str, Field(pattern=r"^[a-z0-9_]{1,64}$")]
     run_kind: HarnessRunKind
     allowed_symbols: tuple[ContractSymbol, ...]
     allowed_capabilities: tuple[HarnessCapability, ...]

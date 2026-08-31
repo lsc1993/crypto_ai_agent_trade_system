@@ -17,6 +17,7 @@ NOW = datetime(2026, 8, 31, 12, tzinfo=UTC)
 
 
 def test_market_research_policy_is_static_and_minimally_privileged() -> None:
+    assert MARKET_RESEARCH_POLICY.version == "market_research_v1"
     assert MARKET_RESEARCH_POLICY.run_kind is HarnessRunKind.MARKET_RESEARCH
     assert MARKET_RESEARCH_POLICY.allowed_symbols == (
         ContractSymbol.BTCUSDT,
@@ -54,10 +55,22 @@ def test_run_request_rejects_non_utc_and_extra_payload() -> None:
 def test_policy_rejects_duplicate_capabilities() -> None:
     with pytest.raises(ValidationError):
         HarnessPolicy(
+            version="market_research_v1",
             run_kind=HarnessRunKind.MARKET_RESEARCH,
             allowed_symbols=(ContractSymbol.BTCUSDT,),
             allowed_capabilities=(
                 HarnessCapability.READ_PUBLIC_MARKET,
                 HarnessCapability.READ_PUBLIC_MARKET,
             ),
+        )
+
+
+def test_policy_requires_a_version() -> None:
+    with pytest.raises(ValidationError):
+        HarnessPolicy.model_validate(
+            {
+                "run_kind": HarnessRunKind.MARKET_RESEARCH,
+                "allowed_symbols": (ContractSymbol.BTCUSDT,),
+                "allowed_capabilities": (HarnessCapability.READ_PUBLIC_MARKET,),
+            }
         )

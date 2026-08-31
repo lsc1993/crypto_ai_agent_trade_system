@@ -6,6 +6,7 @@ from app.harness.contracts import (
 from app.market.contracts import ContractSymbol
 
 MARKET_RESEARCH_POLICY = HarnessPolicy(
+    version="market_research_v1",
     run_kind=HarnessRunKind.MARKET_RESEARCH,
     allowed_symbols=(ContractSymbol.BTCUSDT, ContractSymbol.ETHUSDT),
     allowed_capabilities=(
