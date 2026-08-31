@@ -1,11 +1,11 @@
 import asyncio
 from argparse import Namespace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from importlib.util import find_spec, module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import ModuleType
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from alembic.config import Config
@@ -18,6 +18,7 @@ from app.shared.config import AppSettings
 
 PAPER_TEST_NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
 AGENT_TEST_NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
+HARNESS_TEST_NOW = datetime(2026, 8, 31, 12, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -252,6 +253,171 @@ def test_report_market_metrics_migration_is_forward_only_and_nullable() -> None:
     assert "server_default" not in source
 
 
+def test_harness_audit_migration_adds_immutable_tables_without_rewriting_reports() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"harness_test_{uuid4().hex[:16]}"
+    report_id = uuid4()
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        _upgrade_to(test_database_url, schema, "0011_agent_report_metrics")
+        asyncio.run(_insert_existing_analysis_report(test_database_url, schema, report_id))
+        before = asyncio.run(_analysis_report_row(test_database_url, schema, report_id))
+
+        _upgrade_to(test_database_url, schema, "head")
+
+        assert asyncio.run(_analysis_report_row(test_database_url, schema, report_id)) == before
+        assert asyncio.run(_table_names(test_database_url, schema)) >= {
+            "harness_runs",
+            "harness_run_events",
+            "harness_evaluations",
+        }
+        assert asyncio.run(_table_column_types(test_database_url, schema, "harness_runs")) == {
+            "run_id": "uuid",
+            "run_kind": "character varying",
+            "policy_version": "character varying",
+            "policy_sha256": "character",
+            "symbol": "character varying",
+            "requested_at": "timestamp with time zone",
+            "initiator_kind": "character varying",
+            "request_sha256": "character",
+            "created_at": "timestamp with time zone",
+        }
+        assert asyncio.run(
+            _table_column_types(test_database_url, schema, "harness_run_events")
+        ) == {
+            "run_id": "uuid",
+            "sequence": "integer",
+            "event_kind": "character varying",
+            "occurred_at": "timestamp with time zone",
+            "duration_ms": "integer",
+            "error_code": "character varying",
+            "details": "jsonb",
+        }
+        assert asyncio.run(
+            _table_column_types(test_database_url, schema, "harness_evaluations")
+        ) == {
+            "run_id": "uuid",
+            "sequence": "integer",
+            "evaluator_name": "character varying",
+            "evaluator_version": "character varying",
+            "decision": "character varying",
+            "reason_code": "character varying",
+            "evaluated_at": "timestamp with time zone",
+            "details": "jsonb",
+        }
+        event_constraints = asyncio.run(
+            _table_constraint_columns(test_database_url, schema, "harness_run_events")
+        )
+        evaluation_constraints = asyncio.run(
+            _table_constraint_columns(test_database_url, schema, "harness_evaluations")
+        )
+        assert ("PRIMARY KEY", ("run_id", "sequence")) in event_constraints
+        assert ("PRIMARY KEY", ("run_id", "sequence")) in evaluation_constraints
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
+def test_harness_audit_migration_emits_only_atomic_agent_terminal_events() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"harness_test_{uuid4().hex[:16]}"
+    completed_run_id = uuid4()
+    degraded_run_id = uuid4()
+    direct_run_id = uuid4()
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        _upgrade_to(test_database_url, schema, "head")
+
+        asyncio.run(_seed_harness_run(test_database_url, schema, completed_run_id))
+        asyncio.run(
+            _insert_agent_analysis_run(
+                test_database_url,
+                schema,
+                completed_run_id,
+                status="completed",
+                completed_at=HARNESS_TEST_NOW + timedelta(milliseconds=1234, microseconds=999),
+            )
+        )
+        assert asyncio.run(_terminal_events(test_database_url, schema, completed_run_id)) == [
+            (0, "requested", None),
+            (1, "policy_authorized", None),
+            (2, "workflow_started", None),
+            (3, "workflow_completed", None),
+        ]
+        assert asyncio.run(
+            _terminal_event_payload(test_database_url, schema, completed_run_id)
+        ) == (
+            HARNESS_TEST_NOW + timedelta(milliseconds=1234, microseconds=999),
+            1234,
+            {},
+        )
+
+        asyncio.run(
+            _seed_harness_run(
+                test_database_url,
+                schema,
+                degraded_run_id,
+                requested_at=HARNESS_TEST_NOW + timedelta(seconds=3),
+            )
+        )
+        asyncio.run(
+            _insert_agent_analysis_run(
+                test_database_url,
+                schema,
+                degraded_run_id,
+                status="degraded",
+                error_code="partial_data",
+                completed_at=HARNESS_TEST_NOW + timedelta(seconds=2),
+            )
+        )
+        assert asyncio.run(_terminal_events(test_database_url, schema, degraded_run_id)) == [
+            (0, "requested", None),
+            (1, "policy_authorized", None),
+            (2, "workflow_started", None),
+            (3, "workflow_degraded", "partial_data"),
+        ]
+        assert asyncio.run(_terminal_event_payload(test_database_url, schema, degraded_run_id)) == (
+            HARNESS_TEST_NOW + timedelta(seconds=2),
+            0,
+            {},
+        )
+
+        asyncio.run(
+            _insert_direct_agent_run_with_qualified_tables(
+                test_database_url,
+                schema,
+                direct_run_id,
+                completed_at=HARNESS_TEST_NOW,
+            )
+        )
+        assert asyncio.run(_terminal_events(test_database_url, schema, direct_run_id)) == []
+
+        asyncio.run(_assert_harness_tables_immutable(test_database_url, schema))
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
+def test_harness_audit_migration_downgrade_fails_before_schema_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = _load_harness_audit_migration()
+
+    class NoSchemaMutation:
+        def __getattr__(self, _: str) -> object:
+            raise AssertionError("downgrade must not mutate the schema")
+
+    monkeypatch.setattr(migration, "op", NoSchemaMutation())
+
+    with pytest.raises(
+        NotImplementedError,
+        match="Harness 审计迁移不可逆，禁止删除审计记录",
+    ):
+        migration.downgrade()
+
+
 def test_all_migration_revisions_fit_the_default_alembic_version_column() -> None:
     migrations_directory = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 
@@ -282,6 +448,13 @@ def _load_report_market_metrics_migration() -> ModuleType:
     return _load_migration(
         "0011_add_agent_report_market_metrics.py",
         "report_market_metrics_migration",
+    )
+
+
+def _load_harness_audit_migration() -> ModuleType:
+    return _load_migration(
+        "0012_create_harness_audit.py",
+        "harness_audit_migration",
     )
 
 
@@ -347,6 +520,242 @@ async def _analysis_report_row(
                 {"id": report_id},
             )
             return tuple(result.one())
+    finally:
+        await engine.dispose()
+
+
+async def _seed_harness_run(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+    *,
+    requested_at: datetime = HARNESS_TEST_NOW,
+) -> None:
+    await _insert_existing_analysis_report(database_url, schema, run_id)
+    engine = _database_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            await connection.execute(
+                text(
+                    "INSERT INTO harness_runs ("
+                    "run_id, run_kind, policy_version, policy_sha256, symbol, requested_at, "
+                    "initiator_kind, request_sha256"
+                    ") VALUES ("
+                    ":run_id, 'market_research', 'market_research_v1', :policy_sha256, "
+                    "'BTCUSDT', :requested_at, 'manual_api', :request_sha256"
+                    ")"
+                ),
+                {
+                    "run_id": run_id,
+                    "policy_sha256": "a" * 64,
+                    "requested_at": requested_at,
+                    "request_sha256": "b" * 64,
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO harness_run_events ("
+                    "run_id, sequence, event_kind, occurred_at, duration_ms, error_code, details"
+                    ") VALUES "
+                    "(:run_id, 0, 'requested', :occurred_at, 0, NULL, "
+                    '\'{"workflow_kind": "market_research"}\'::jsonb), '
+                    "(:run_id, 1, 'policy_authorized', :occurred_at, 0, NULL, "
+                    "'{\"allowed_capability_count\": 1}'::jsonb), "
+                    "(:run_id, 2, 'workflow_started', :occurred_at, 0, NULL, "
+                    '\'{"workflow_kind": "market_research"}\'::jsonb)'
+                ),
+                {"run_id": run_id, "occurred_at": requested_at},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO harness_evaluations ("
+                    "run_id, sequence, evaluator_name, evaluator_version, decision, "
+                    "reason_code, evaluated_at, details"
+                    ") VALUES ("
+                    ":run_id, 0, 'policy_allowlist', '1', 'passed', NULL, "
+                    ":evaluated_at, '{\"allowed_capability_count\": 1}'::jsonb"
+                    ")"
+                ),
+                {"run_id": run_id, "evaluated_at": requested_at},
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _insert_agent_analysis_run(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+    *,
+    status: str,
+    completed_at: datetime,
+    error_code: str | None = None,
+) -> None:
+    if not await _analysis_report_exists(database_url, schema, run_id):
+        await _insert_existing_analysis_report(database_url, schema, run_id)
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO agent_analysis_runs ("
+            "id, analysis_id, symbol, status, started_at, completed_at, generator_kind, "
+            "error_code"
+            ") VALUES ("
+            ":id, :analysis_id, 'BTCUSDT', :status, :started_at, :completed_at, "
+            "'langgraph_deepseek', :error_code"
+            ")"
+        ),
+        {
+            "id": uuid4(),
+            "analysis_id": run_id,
+            "status": status,
+            "started_at": HARNESS_TEST_NOW,
+            "completed_at": completed_at,
+            "error_code": error_code,
+        },
+    )
+
+
+async def _analysis_report_exists(
+    database_url: SecretStr,
+    schema: str,
+    report_id: UUID,
+) -> bool:
+    rows = await _rows_in_schema(
+        database_url,
+        schema,
+        text("SELECT 1 FROM analysis_reports WHERE id = :id"),
+        {"id": report_id},
+    )
+    return bool(rows)
+
+
+async def _insert_direct_agent_run_with_qualified_tables(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+    *,
+    completed_at: datetime,
+) -> None:
+    engine = _database_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    f'INSERT INTO "{schema}".analysis_reports ('
+                    "id, analysis_id, symbol, status, title, summary, facts, inferences, "
+                    "risks, limitations, generated_at, data_cutoff_at"
+                    ") VALUES ("
+                    ":id, :id, 'BTCUSDT', 'completed', 'direct', 'direct', "
+                    "'[]'::jsonb, '[]'::jsonb, '[\"risk\"]'::jsonb, "
+                    "'[\"limit\"]'::jsonb, :generated_at, NULL"
+                    ")"
+                ),
+                {"id": run_id, "generated_at": completed_at},
+            )
+            await connection.execute(
+                text(
+                    f'INSERT INTO "{schema}".agent_analysis_runs ('
+                    "id, analysis_id, symbol, status, started_at, completed_at, "
+                    "generator_kind, error_code"
+                    ") VALUES ("
+                    ":id, :analysis_id, 'BTCUSDT', 'completed', :started_at, "
+                    ":completed_at, 'langgraph_deepseek', NULL"
+                    ")"
+                ),
+                {
+                    "id": uuid4(),
+                    "analysis_id": run_id,
+                    "started_at": completed_at,
+                    "completed_at": completed_at,
+                },
+            )
+    finally:
+        await engine.dispose()
+
+
+async def _terminal_events(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+) -> list[tuple[int, str, str | None]]:
+    rows = await _rows_in_schema(
+        database_url,
+        schema,
+        text(
+            "SELECT sequence, event_kind, error_code FROM harness_run_events "
+            "WHERE run_id = :run_id ORDER BY sequence"
+        ),
+        {"run_id": run_id},
+    )
+    terminal_events: list[tuple[int, str, str | None]] = []
+    for sequence, event_kind, error_code in rows:
+        assert isinstance(sequence, int)
+        assert isinstance(event_kind, str)
+        assert error_code is None or isinstance(error_code, str)
+        terminal_events.append((sequence, event_kind, error_code))
+    return terminal_events
+
+
+async def _terminal_event_payload(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+) -> tuple[datetime, int, object]:
+    rows = await _rows_in_schema(
+        database_url,
+        schema,
+        text(
+            "SELECT occurred_at, duration_ms, details FROM harness_run_events "
+            "WHERE run_id = :run_id AND sequence = 3"
+        ),
+        {"run_id": run_id},
+    )
+    occurred_at, duration_ms, details = rows[0]
+    assert isinstance(occurred_at, datetime)
+    assert isinstance(duration_ms, int)
+    return occurred_at, duration_ms, details
+
+
+async def _assert_harness_tables_immutable(
+    database_url: SecretStr,
+    schema: str,
+) -> None:
+    assignments = {
+        "harness_runs": "symbol = symbol",
+        "harness_run_events": "duration_ms = duration_ms",
+        "harness_evaluations": "decision = decision",
+    }
+    for table, assignment in assignments.items():
+        with pytest.raises(DBAPIError, match="immutable"):
+            await _execute_in_schema(
+                database_url,
+                schema,
+                text(f"UPDATE {table} SET {assignment}"),
+                {},
+            )
+        with pytest.raises(DBAPIError, match="immutable"):
+            await _execute_in_schema(
+                database_url,
+                schema,
+                text(f"DELETE FROM {table}"),
+                {},
+            )
+
+
+async def _rows_in_schema(
+    database_url: SecretStr,
+    schema: str,
+    statement: object,
+    parameters: dict[str, object],
+) -> list[tuple[object, ...]]:
+    engine = _database_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text(f'SET search_path TO "{schema}"'))
+            result = await connection.execute(statement, parameters)
+            return [tuple(row) for row in result.all()]
     finally:
         await engine.dispose()
 
