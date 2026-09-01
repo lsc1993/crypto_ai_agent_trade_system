@@ -11,10 +11,25 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.harness.audit import (
+    HarnessAuditEvent,
+    HarnessAuditEventKind,
+    HarnessAuditRun,
+    HarnessEvaluation,
+    HarnessEvaluationDecision,
+    HarnessEvaluationDetails,
+    HarnessEventDetails,
+    HarnessInitiatorKind,
+)
+from app.harness.contracts import HarnessRunKind
+from app.infrastructure.persistence.harness_audit_repository import (
+    SqlAlchemyHarnessAuditRepository,
+)
 from app.infrastructure.persistence.models.agent_research import (
     AgentAnalysisRunRecord,
     AgentReportDetailRecord,
 )
+from app.infrastructure.persistence.models.harness import HarnessAuditEventRecord
 from app.infrastructure.persistence.report_repository import (
     SqlAlchemyAnalysisReportRepository,
 )
@@ -130,6 +145,84 @@ async def test_deterministic_reports_remain_backward_compatible_without_agent_de
     assert page.items[0].generator_kind is ReportGeneratorKind.DETERMINISTIC
 
 
+@pytest.mark.asyncio
+async def test_agent_report_persistence_appends_harness_terminal_event_atomically(
+    migrated_database: MigratedDatabase,
+) -> None:
+    report_repository = SqlAlchemyAnalysisReportRepository(
+        migrated_database.session_factory
+    )
+    audit_repository = SqlAlchemyHarnessAuditRepository(
+        migrated_database.session_factory
+    )
+    completed = _agent_creation()
+    await _record_admitted_run(audit_repository, completed.report.analysis_id)
+
+    prior_events = await _audit_event_snapshots(
+        migrated_database.session_factory,
+        completed.report.analysis_id,
+    )
+    await report_repository.persist_agent(completed)
+    completed_events = await _audit_event_snapshots(
+        migrated_database.session_factory,
+        completed.report.analysis_id,
+    )
+
+    assert completed_events[:3] == prior_events
+    assert completed_events[3] == (
+        3,
+        "workflow_completed",
+        completed.completed_at,
+        0,
+        None,
+        {},
+    )
+
+    degraded = _agent_creation_for(
+        report_id=UUID("00000000-0000-0000-0000-000000000304"),
+        evidence_id=UUID("00000000-0000-0000-0000-000000000305"),
+        status=AnalysisReportStatus.DEGRADED,
+        error_code="partial_data",
+    )
+    await _record_admitted_run(audit_repository, degraded.report.analysis_id)
+    await report_repository.persist_agent(degraded)
+
+    degraded_events = await _audit_event_snapshots(
+        migrated_database.session_factory,
+        degraded.report.analysis_id,
+    )
+    assert [event[1] for event in degraded_events] == [
+        "requested",
+        "policy_authorized",
+        "workflow_started",
+        "workflow_degraded",
+    ]
+    assert degraded_events[3] == (
+        3,
+        "workflow_degraded",
+        degraded.completed_at,
+        0,
+        "partial_data",
+        {},
+    )
+
+    no_envelope = _agent_creation_for(
+        report_id=UUID("00000000-0000-0000-0000-000000000306"),
+        evidence_id=UUID("00000000-0000-0000-0000-000000000307"),
+        status=AnalysisReportStatus.COMPLETED,
+        error_code=None,
+    )
+    await report_repository.persist_agent(no_envelope)
+
+    assert (
+        await _audit_event_snapshots(
+            migrated_database.session_factory,
+            no_envelope.report.analysis_id,
+        )
+        == ()
+    )
+
+
 def _agent_creation() -> AgentReportCreation:
     report = AnalysisReportDraft(
         id=REPORT_ID,
@@ -207,6 +300,145 @@ def _agent_creation() -> AgentReportCreation:
         completed_at=NOW,
         error_code=None,
         agent_analysis=analysis,
+    )
+
+
+def _agent_creation_for(
+    *,
+    report_id: UUID,
+    evidence_id: UUID,
+    status: AnalysisReportStatus,
+    error_code: str | None,
+) -> AgentReportCreation:
+    creation = _agent_creation()
+    report_updates: dict[str, object] = {
+        "id": report_id,
+        "analysis_id": report_id,
+        "status": status,
+    }
+    if status is AnalysisReportStatus.DEGRADED:
+        report_updates.update(facts=(), inferences=())
+    report = AnalysisReportDraft.model_validate(
+        {**creation.report.model_dump(mode="python"), **report_updates}
+    )
+    evidence = AnalysisEvidenceDraft.model_validate(
+        {
+            **creation.evidences[0].model_dump(mode="python"),
+            "id": evidence_id,
+            "report_id": report_id,
+        }
+    )
+    analysis = AgentAnalysis.model_validate(
+        {
+            **creation.agent_analysis.model_dump(mode="python"),
+            "catalysts": tuple(
+                catalyst.model_copy(update={"evidence_ids": (evidence_id,)})
+                for catalyst in creation.agent_analysis.catalysts
+            ),
+            "risks_and_invalidation": tuple(
+                risk.model_copy(update={"evidence_ids": (evidence_id,)})
+                for risk in creation.agent_analysis.risks_and_invalidation
+            ),
+        }
+    )
+    return AgentReportCreation(
+        report=report,
+        evidences=(evidence,),
+        started_at=creation.started_at,
+        completed_at=creation.completed_at,
+        generator_kind=creation.generator_kind,
+        error_code=error_code,
+        agent_analysis=analysis,
+    )
+
+
+async def _record_admitted_run(
+    repository: SqlAlchemyHarnessAuditRepository,
+    run_id: UUID,
+) -> None:
+    run = HarnessAuditRun(
+        run_id=run_id,
+        run_kind=HarnessRunKind.MARKET_RESEARCH,
+        policy_version="market_research_v1",
+        policy_sha256="a" * 64,
+        symbol=ContractSymbol.BTCUSDT,
+        requested_at=NOW,
+        initiator_kind=HarnessInitiatorKind.MANUAL_API,
+        request_sha256="b" * 64,
+    )
+    await repository.create_requested_run(
+        run,
+        HarnessAuditEvent(
+            run_id=run_id,
+            sequence=0,
+            kind=HarnessAuditEventKind.REQUESTED,
+            occurred_at=NOW,
+            duration_ms=0,
+            error_code=None,
+            details=HarnessEventDetails(declared_capability_count=4),
+        ),
+    )
+    await repository.append_policy_evaluation(
+        HarnessEvaluation(
+            run_id=run_id,
+            sequence=0,
+            evaluator_name="policy_allowlist",
+            evaluator_version="1",
+            decision=HarnessEvaluationDecision.PASSED,
+            reason_code=None,
+            evaluated_at=NOW,
+            details=HarnessEvaluationDetails(
+                declared_capability_count=4,
+                allowed_capability_count=4,
+            ),
+        ),
+        HarnessAuditEvent(
+            run_id=run_id,
+            sequence=1,
+            kind=HarnessAuditEventKind.POLICY_AUTHORIZED,
+            occurred_at=NOW,
+            duration_ms=0,
+            error_code=None,
+            details=HarnessEventDetails(allowed_capability_count=4),
+        ),
+    )
+    await repository.append_event(
+        HarnessAuditEvent(
+            run_id=run_id,
+            sequence=2,
+            kind=HarnessAuditEventKind.WORKFLOW_STARTED,
+            occurred_at=NOW,
+            duration_ms=0,
+            error_code=None,
+            details=HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+        )
+    )
+
+
+async def _audit_event_snapshots(
+    session_factory: async_sessionmaker[AsyncSession],
+    run_id: UUID,
+) -> tuple[tuple[int, str, datetime, int, str | None, dict[str, object]], ...]:
+    async with session_factory() as session:
+        records = tuple(
+            (
+                await session.execute(
+                    select(HarnessAuditEventRecord)
+                    .where(HarnessAuditEventRecord.run_id == run_id)
+                    .order_by(HarnessAuditEventRecord.sequence.asc())
+                )
+            ).scalars()
+        )
+    return tuple(
+        (
+            record.sequence,
+            record.event_kind,
+            record.occurred_at,
+            record.duration_ms,
+            record.error_code,
+            record.details,
+        )
+        for record in records
     )
 
 

@@ -273,3 +273,13 @@ uv run pytest
 - 实施计划必须按测试驱动方式拆分，并在开始迁移前列出精确的 schema 影响与不可逆性。
 - 每项提交只能包含本阶段新增的 Harness 审计文件、相关测试、迁移或文档；不得混入既有工作树改动。
 - Phase 3 策略研究、自动模拟执行、私有数据和实盘能力仍需要独立的业务与安全确认。
+
+## Phase 2 实施记录
+
+日期：2026-09-01。
+
+- `harness_runs`、`harness_run_events`、`harness_evaluations` 三张追加式审计表已经存在。
+- 真实组装路径中的手动 `market_research` 运行会记录本文声明的请求、策略评估与工作流开始审计事实。
+- completed 与 degraded 报告的终态事件会随报告事务插入，终态 details 为受限空 JSON 对象；没有 Harness 信封的报告不会创建 Harness 事件。
+- 未新增报告 HTTP schema、自动任务、策略 Agent、模拟执行、私有 API 或实盘能力。
+- 2026-09-01 全量后端质量门结果：Ruff 通过；Pyright 为 0 errors、0 warnings；pytest 收集 366 项，其中 363 passed、3 skipped。
