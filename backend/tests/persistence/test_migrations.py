@@ -319,6 +319,61 @@ def test_harness_audit_migration_adds_immutable_tables_without_rewriting_reports
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
+def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping() -> None:
+    test_database_url = AppSettings().test_database_url
+    assert test_database_url is not None
+    schema = f"harness_test_{uuid4().hex[:16]}"
+
+    asyncio.run(_create_schema(test_database_url, schema))
+    try:
+        _upgrade_to(test_database_url, schema, "head")
+
+        for event_kind, sequence, error_code in (
+            ("requested", 0, None),
+            ("policy_authorized", 1, None),
+            ("policy_rejected", 1, "symbol_not_allowed"),
+            ("workflow_started", 2, None),
+            ("workflow_completed", 3, None),
+            ("workflow_degraded", 3, None),
+            ("workflow_failed", 3, "workflow_exception"),
+        ):
+            run_id = uuid4()
+            asyncio.run(_insert_harness_run_envelope(test_database_url, schema, run_id))
+            asyncio.run(
+                _insert_harness_event(
+                    test_database_url,
+                    schema,
+                    run_id,
+                    event_kind=event_kind,
+                    sequence=sequence,
+                    error_code=error_code,
+                )
+            )
+
+        for event_kind, sequence, error_code in (
+            ("requested", 1, None),
+            ("policy_authorized", 0, None),
+            ("policy_rejected", 2, "symbol_not_allowed"),
+            ("workflow_started", 1, None),
+            ("workflow_failed", 2, "workflow_exception"),
+        ):
+            run_id = uuid4()
+            asyncio.run(_insert_harness_run_envelope(test_database_url, schema, run_id))
+            with pytest.raises(DBAPIError):
+                asyncio.run(
+                    _insert_harness_event(
+                        test_database_url,
+                        schema,
+                        run_id,
+                        event_kind=event_kind,
+                        sequence=sequence,
+                        error_code=error_code,
+                    )
+                )
+    finally:
+        asyncio.run(_drop_schema(test_database_url, schema))
+
+
 def test_harness_audit_migration_emits_only_atomic_agent_terminal_events() -> None:
     test_database_url = AppSettings().test_database_url
     assert test_database_url is not None
@@ -673,6 +728,61 @@ async def _insert_direct_agent_run_with_qualified_tables(
             )
     finally:
         await engine.dispose()
+
+
+async def _insert_harness_run_envelope(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+) -> None:
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO harness_runs ("
+            "run_id, run_kind, policy_version, policy_sha256, symbol, requested_at, "
+            "initiator_kind, request_sha256"
+            ") VALUES ("
+            ":run_id, 'market_research', 'market_research_v1', :policy_sha256, "
+            "'BTCUSDT', :requested_at, 'manual_api', :request_sha256"
+            ")"
+        ),
+        {
+            "run_id": run_id,
+            "policy_sha256": "a" * 64,
+            "requested_at": HARNESS_TEST_NOW,
+            "request_sha256": "b" * 64,
+        },
+    )
+
+
+async def _insert_harness_event(
+    database_url: SecretStr,
+    schema: str,
+    run_id: UUID,
+    *,
+    event_kind: str,
+    sequence: int,
+    error_code: str | None,
+) -> None:
+    await _execute_in_schema(
+        database_url,
+        schema,
+        text(
+            "INSERT INTO harness_run_events ("
+            "run_id, sequence, event_kind, occurred_at, duration_ms, error_code, details"
+            ") VALUES ("
+            ":run_id, :sequence, :event_kind, :occurred_at, 0, :error_code, '{}'::jsonb"
+            ")"
+        ),
+        {
+            "run_id": run_id,
+            "sequence": sequence,
+            "event_kind": event_kind,
+            "occurred_at": HARNESS_TEST_NOW,
+            "error_code": error_code,
+        },
+    )
 
 
 async def _terminal_events(

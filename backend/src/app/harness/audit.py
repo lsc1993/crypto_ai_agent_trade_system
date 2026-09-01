@@ -33,6 +33,17 @@ class HarnessAuditEventKind(StrEnum):
     WORKFLOW_FAILED = "workflow_failed"
 
 
+_EVENT_SEQUENCE_BY_KIND = {
+    HarnessAuditEventKind.REQUESTED: 0,
+    HarnessAuditEventKind.POLICY_AUTHORIZED: 1,
+    HarnessAuditEventKind.POLICY_REJECTED: 1,
+    HarnessAuditEventKind.WORKFLOW_STARTED: 2,
+    HarnessAuditEventKind.WORKFLOW_COMPLETED: 3,
+    HarnessAuditEventKind.WORKFLOW_DEGRADED: 3,
+    HarnessAuditEventKind.WORKFLOW_FAILED: 3,
+}
+
+
 class HarnessEvaluationDecision(StrEnum):
     PASSED = "passed"
     REJECTED = "rejected"
@@ -106,6 +117,8 @@ class HarnessAuditEvent(_AuditModel):
 
     @model_validator(mode="after")
     def validate_event(self) -> HarnessAuditEvent:
+        if self.sequence != _EVENT_SEQUENCE_BY_KIND[self.kind]:
+            raise ValueError("审计事件生命周期序号与事件类型不匹配")
         if self.kind in {
             HarnessAuditEventKind.WORKFLOW_COMPLETED,
             HarnessAuditEventKind.WORKFLOW_DEGRADED,

@@ -112,6 +112,116 @@ def test_audit_events_enforce_terminal_error_and_detail_rules() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("kind", "sequence", "error_code", "details"),
+    [
+        (
+            HarnessAuditEventKind.REQUESTED,
+            0,
+            None,
+            HarnessEventDetails(declared_capability_count=1),
+        ),
+        (
+            HarnessAuditEventKind.POLICY_AUTHORIZED,
+            1,
+            None,
+            HarnessEventDetails(allowed_capability_count=1),
+        ),
+        (
+            HarnessAuditEventKind.POLICY_REJECTED,
+            1,
+            "symbol_not_allowed",
+            HarnessEventDetails(declared_capability_count=1),
+        ),
+        (
+            HarnessAuditEventKind.WORKFLOW_STARTED,
+            2,
+            None,
+            HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+        ),
+        (HarnessAuditEventKind.WORKFLOW_COMPLETED, 3, None, HarnessEventDetails()),
+        (HarnessAuditEventKind.WORKFLOW_DEGRADED, 3, None, HarnessEventDetails()),
+        (
+            HarnessAuditEventKind.WORKFLOW_FAILED,
+            3,
+            "workflow_exception",
+            HarnessEventDetails(error_type="RuntimeError"),
+        ),
+    ],
+)
+def test_audit_events_accept_valid_lifecycle_positions(
+    kind: HarnessAuditEventKind,
+    sequence: int,
+    error_code: str | None,
+    details: HarnessEventDetails,
+) -> None:
+    event = HarnessAuditEvent(
+        run_id=RUN_ID,
+        sequence=sequence,
+        kind=kind,
+        occurred_at=NOW,
+        duration_ms=0,
+        error_code=error_code,
+        details=details,
+    )
+
+    assert event.kind is kind
+    assert event.sequence == sequence
+
+
+@pytest.mark.parametrize(
+    ("kind", "sequence", "error_code", "details"),
+    [
+        (
+            HarnessAuditEventKind.REQUESTED,
+            1,
+            None,
+            HarnessEventDetails(declared_capability_count=1),
+        ),
+        (
+            HarnessAuditEventKind.POLICY_AUTHORIZED,
+            0,
+            None,
+            HarnessEventDetails(allowed_capability_count=1),
+        ),
+        (
+            HarnessAuditEventKind.POLICY_REJECTED,
+            2,
+            "symbol_not_allowed",
+            HarnessEventDetails(declared_capability_count=1),
+        ),
+        (
+            HarnessAuditEventKind.WORKFLOW_STARTED,
+            1,
+            None,
+            HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+        ),
+        (
+            HarnessAuditEventKind.WORKFLOW_FAILED,
+            2,
+            "workflow_exception",
+            HarnessEventDetails(error_type="RuntimeError"),
+        ),
+    ],
+)
+def test_audit_events_reject_wrong_lifecycle_positions(
+    kind: HarnessAuditEventKind,
+    sequence: int,
+    error_code: str | None,
+    details: HarnessEventDetails,
+) -> None:
+    with pytest.raises(ValidationError, match="生命周期序号"):
+        HarnessAuditEvent(
+            run_id=RUN_ID,
+            sequence=sequence,
+            kind=kind,
+            occurred_at=NOW,
+            duration_ms=0,
+            error_code=error_code,
+            details=details,
+        )
+
+
 def test_rejected_evaluation_requires_a_reason_code() -> None:
     with pytest.raises(ValidationError):
         HarnessEvaluation(
