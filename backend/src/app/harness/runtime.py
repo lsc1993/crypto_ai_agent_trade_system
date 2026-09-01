@@ -120,7 +120,7 @@ class HarnessRuntime[ResultT]:
                     sequence=1,
                     kind=HarnessAuditEventKind.POLICY_REJECTED,
                     occurred_at=datetime.now(UTC),
-                    duration_ms=self._duration_ms(started_at),
+                    duration_ms=0,
                     error_code=str(error),
                     details=HarnessEventDetails(
                         declared_capability_count=declared_count,
@@ -157,7 +157,7 @@ class HarnessRuntime[ResultT]:
                 sequence=1,
                 kind=HarnessAuditEventKind.POLICY_AUTHORIZED,
                 occurred_at=evaluated_at,
-                duration_ms=self._duration_ms(started_at),
+                duration_ms=0,
                 error_code=None,
                 details=HarnessEventDetails(
                     allowed_capability_count=allowed_count,
@@ -224,24 +224,26 @@ class HarnessRuntime[ResultT]:
         try:
             result = await workflow.run(request)
         except Exception as error:
-            await self._audit_repository.append_event(
-                HarnessAuditEvent(
-                    run_id=request.run_id,
-                    sequence=3,
-                    kind=HarnessAuditEventKind.WORKFLOW_FAILED,
-                    occurred_at=datetime.now(UTC),
-                    duration_ms=self._duration_ms(started_at),
-                    error_code="workflow_exception",
-                    details=HarnessEventDetails(error_type=type(error).__name__),
+            try:
+                await self._audit_repository.append_event(
+                    HarnessAuditEvent(
+                        run_id=request.run_id,
+                        sequence=3,
+                        kind=HarnessAuditEventKind.WORKFLOW_FAILED,
+                        occurred_at=datetime.now(UTC),
+                        duration_ms=self._duration_ms(started_at),
+                        error_code="workflow_exception",
+                        details=HarnessEventDetails(error_type=type(error).__name__),
+                    )
                 )
-            )
-            self._log(
-                "harness_run_failed",
-                request,
-                phase="failed",
-                duration_ms=self._duration_ms(started_at),
-                error_type=type(error).__name__,
-            )
+            finally:
+                self._log(
+                    "harness_run_failed",
+                    request,
+                    phase="failed",
+                    duration_ms=self._duration_ms(started_at),
+                    error_type=type(error).__name__,
+                )
             raise
         self._log(
             "harness_run_completed",

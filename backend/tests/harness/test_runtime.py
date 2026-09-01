@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 import structlog
 
+import app.harness.runtime as harness_runtime_module
 from app.harness.audit import (
     HarnessAuditEvent,
     HarnessAuditEventKind,
@@ -134,7 +135,15 @@ def _workflow(
 
 
 @pytest.mark.asyncio
-async def test_runtime_runs_registered_workflow() -> None:
+async def test_runtime_runs_registered_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    elapsed_ticks = iter((0.0, 1.0))
+    monkeypatch.setattr(
+        harness_runtime_module,
+        "perf_counter",
+        lambda: next(elapsed_ticks, 1.0),
+    )
     audit = RecordingAuditRepository()
     workflow = _workflow(audit_repository=audit)
     runtime = HarnessRuntime(
@@ -162,13 +171,22 @@ async def test_runtime_runs_registered_workflow() -> None:
         HarnessAuditEventKind.POLICY_AUTHORIZED,
         HarnessAuditEventKind.WORKFLOW_STARTED,
     ]
+    assert audit.events[1].duration_ms == 0
     assert audit.evaluations[0].decision is HarnessEvaluationDecision.PASSED
     assert workflow.event_sequences_at_call == [0, 1, 2]
     assert workflow.calls == [REQUEST]
 
 
 @pytest.mark.asyncio
-async def test_runtime_rejects_unknown_capability_before_delegation() -> None:
+async def test_runtime_rejects_unknown_capability_before_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    elapsed_ticks = iter((0.0, 1.0))
+    monkeypatch.setattr(
+        harness_runtime_module,
+        "perf_counter",
+        lambda: next(elapsed_ticks, 1.0),
+    )
     workflow = _workflow(
         (
             HarnessCapability.READ_PUBLIC_MARKET,
@@ -191,6 +209,7 @@ async def test_runtime_rejects_unknown_capability_before_delegation() -> None:
     ]
     assert audit.evaluations[0].decision is HarnessEvaluationDecision.REJECTED
     assert audit.evaluations[0].reason_code == "capability_not_allowed"
+    assert audit.events[1].duration_ms == 0
     assert workflow.calls == []
 
 
@@ -313,11 +332,28 @@ async def test_runtime_audit_failure_while_recording_workflow_failure_takes_prec
         audit_repository=audit,
     )
 
-    with pytest.raises(HarnessAuditStorageUnavailableError):
-        await runtime.run(REQUEST)
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(HarnessAuditStorageUnavailableError):
+            await runtime.run(REQUEST)
 
     assert workflow.calls == [REQUEST]
     assert [event.sequence for event in audit.events] == [0, 1, 2]
+    rendered_logs = repr(logs)
+    assert "delegate exception message" not in rendered_logs
+    assert "Harness 审计存储不可用" not in rendered_logs
+    assert "raw_context" not in rendered_logs
+    assert {entry["event"] for entry in logs} == {
+        "harness_run_started",
+        "harness_run_failed",
+        "harness_run_details",
+    }
+    failed_log = next(entry for entry in logs if entry["event"] == "harness_run_failed")
+    assert failed_log["run_id"] == str(REQUEST.run_id)
+    assert failed_log["kind"] == REQUEST.kind
+    assert failed_log["symbol"] == REQUEST.symbol
+    assert failed_log["phase"] == "failed"
+    assert failed_log["error_type"] == "RuntimeError"
+    assert "duration_ms" in failed_log
 
 
 @pytest.mark.asyncio
