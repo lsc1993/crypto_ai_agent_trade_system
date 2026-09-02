@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import cast
@@ -10,6 +11,18 @@ import pytest
 from fastapi import FastAPI
 from pydantic import JsonValue
 
+from app.harness.audit import (
+    HarnessAuditEvent,
+    HarnessAuditRun,
+    HarnessAuditTrace,
+    HarnessEvaluation,
+)
+from app.harness.market_research import (
+    HarnessedMarketResearchService,
+    MarketResearchWorkflow,
+)
+from app.harness.policy import MARKET_RESEARCH_POLICY
+from app.harness.runtime import HarnessRuntime
 from app.main import create_app
 from app.market.contracts import Candle, ContractSymbol, FreshnessStatus, MarketTimeframe
 from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
@@ -33,16 +46,61 @@ NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 REPORT_ID = UUID("00000000-0000-0000-0000-000000000801")
 ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000802")
 EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000803")
+RETRY_ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000804")
+
+
+def _empty_audit_events() -> list[HarnessAuditEvent]:
+    return []
+
+
+@dataclass
+class RecordingAuditRepository:
+    events: list[HarnessAuditEvent] = field(default_factory=_empty_audit_events)
+
+    async def create_requested_run(
+        self,
+        run: HarnessAuditRun,
+        event: HarnessAuditEvent,
+    ) -> None:
+        del run
+        self.events.append(event)
+
+    async def append_policy_evaluation(
+        self,
+        evaluation: HarnessEvaluation,
+        event: HarnessAuditEvent,
+    ) -> None:
+        del evaluation
+        self.events.append(event)
+
+    async def append_event(self, event: HarnessAuditEvent) -> None:
+        self.events.append(event)
+
+    async def get_trace(self, run_id: UUID) -> HarnessAuditTrace | None:
+        del run_id
+        return None
 
 
 class FakeAgentService:
     def __init__(self, report: PersistedAnalysisReport) -> None:
         self.report = report
-        self.calls: list[ContractSymbol] = []
+        self.calls: list[tuple[ContractSymbol, UUID | None]] = []
+        self.persisted_reports: list[PersistedAnalysisReport] = []
 
-    async def generate(self, symbol: ContractSymbol) -> PersistedAnalysisReport:
-        self.calls.append(symbol)
-        return self.report
+    async def generate(
+        self,
+        symbol: ContractSymbol,
+        *,
+        analysis_id: UUID | None = None,
+    ) -> PersistedAnalysisReport:
+        self.calls.append((symbol, analysis_id))
+        persisted = self.report.model_copy(
+            update={
+                "analysis_id": self.report.analysis_id if analysis_id is None else analysis_id
+            }
+        )
+        self.persisted_reports.append(persisted)
+        return persisted
 
 
 class ReportReader:
@@ -85,9 +143,20 @@ class UnusedMarketReader(PersistedMarketReader):
 
 
 @pytest.mark.asyncio
-async def test_analysis_post_and_detail_expose_only_validated_agent_detail() -> None:
+async def test_analysis_post_retry_and_detail_preserve_the_http_contract() -> None:
     report = _report()
-    service = FakeAgentService(report)
+    delegate = FakeAgentService(report)
+    audit = RecordingAuditRepository()
+    run_ids = iter((ANALYSIS_ID, RETRY_ANALYSIS_ID))
+    service = HarnessedMarketResearchService(
+        HarnessRuntime[PersistedAnalysisReport](
+            policies=(MARKET_RESEARCH_POLICY,),
+            workflows=(MarketResearchWorkflow(delegate),),
+            audit_repository=audit,
+        ),
+        clock=lambda: NOW,
+        new_run_id=run_ids.__next__,
+    )
     app = create_app(
         market_research_reader=UnusedMarketReader(),
         analysis_report_repository=ReportReader(report),  # type: ignore[arg-type]
@@ -95,11 +164,26 @@ async def test_analysis_post_and_detail_expose_only_validated_agent_detail() -> 
     )
 
     created = await _request(app, "POST", "/api/v1/analysis-runs", {"symbol": "BTCUSDT"})
+    retried = await _request(
+        app,
+        "POST",
+        f"/api/v1/analysis-runs/{REPORT_ID}/retry",
+    )
     detail = await _request(app, "GET", f"/api/v1/analysis-runs/{REPORT_ID}")
 
     assert created.status_code == 201
     assert created.json() == {"analysisId": str(ANALYSIS_ID), "reportId": str(REPORT_ID)}
-    assert service.calls == [ContractSymbol.BTCUSDT]
+    assert retried.status_code == 201
+    assert retried.json() == {
+        "analysisId": str(RETRY_ANALYSIS_ID),
+        "reportId": str(REPORT_ID),
+    }
+    assert [event.sequence for event in audit.events] == [0, 1, 2, 0, 1, 2]
+    assert delegate.calls == [
+        (ContractSymbol.BTCUSDT, ANALYSIS_ID),
+        (ContractSymbol.BTCUSDT, RETRY_ANALYSIS_ID),
+    ]
+    assert delegate.persisted_reports[-1].analysis_id == RETRY_ANALYSIS_ID
     assert detail.status_code == 200
     payload = detail.json()
     assert payload["generatorKind"] == "langgraph_deepseek"
@@ -129,7 +213,7 @@ async def test_manual_report_returns_dual_horizon_chinese_narrative_and_partial_
     )
 
     assert created.status_code == 201
-    assert service.calls == [ContractSymbol.BTCUSDT]
+    assert service.calls == [(ContractSymbol.BTCUSDT, None)]
     assert detail.status_code == 200
     analysis = detail.json()["agentAnalysis"]
     assert analysis["horizon"] == "dual_horizon"

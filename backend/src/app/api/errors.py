@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.harness.audit import HarnessAuditStorageUnavailableError
+from app.harness.contracts import HarnessPolicyViolation
 from app.market.contracts import MarketDataUnavailableError
 from app.paper_trading.contracts import (
     PaperAccountNotFoundError,
@@ -129,6 +131,36 @@ async def _market_data_unavailable_handler(
     )
 
 
+async def _harness_policy_violation_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, HarnessPolicyViolation):
+        raise TypeError("Harness 策略异常处理器收到了不支持的异常类型")
+    return _response(
+        403,
+        ErrorEnvelope(
+            code="harness_policy_rejected",
+            message="当前运行不符合受限 Harness 策略",
+        ),
+    )
+
+
+async def _harness_audit_storage_unavailable_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, HarnessAuditStorageUnavailableError):
+        raise TypeError("Harness 审计存储异常处理器收到了不支持的异常类型")
+    return _response(
+        503,
+        ErrorEnvelope(
+            code="harness_audit_unavailable",
+            message="Harness 审计存储不可用",
+        ),
+    )
+
+
 async def _trade_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -239,6 +271,14 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         RequestValidationError,
         _validation_exception_handler,
+    )
+    app.add_exception_handler(
+        HarnessPolicyViolation,
+        _harness_policy_violation_handler,
+    )
+    app.add_exception_handler(
+        HarnessAuditStorageUnavailableError,
+        _harness_audit_storage_unavailable_handler,
     )
     app.add_exception_handler(
         MarketDataUnavailableError,
