@@ -280,7 +280,8 @@ uv run pytest
 
 - `harness_runs`、`harness_run_events`、`harness_evaluations` 三张追加式审计表已经存在。
 - 后续迁移 `0013_harness_event_lifecycle` 以 PostgreSQL CHECK 约束强制事件种类与固定 sequence 的一一映射：requested 为 0，策略事件为 1，workflow_started 为 2，终态事件为 3；Pydantic 审计契约执行相同校验。
+- Pydantic 契约与真实 PostgreSQL 迁移测试均枚举并拒绝 7 种事件各自 3 个非法 sequence，共 21 种错误映射；0013 downgrade 显式保持不可逆。
 - 真实组装路径中的手动 `market_research` 运行会记录本文声明的请求、策略评估与工作流开始审计事实。
 - completed 与 degraded 报告的终态事件会随报告事务插入，终态 details 为受限空 JSON 对象；没有 Harness 信封的报告不会创建 Harness 事件。
 - 未新增报告 HTTP schema、自动任务、策略 Agent、模拟执行、私有 API 或实盘能力。
-- 2026-09-01 全量后端质量门结果：Ruff 通过；Pyright 为 0 errors、0 warnings；pytest 收集 379 项，其中 376 passed、3 skipped。
+- 2026-09-02 全量后端质量门结果：Ruff 通过；Pyright 为 0 errors、0 warnings；pytest 收集 396 项，其中 393 passed、3 skipped。

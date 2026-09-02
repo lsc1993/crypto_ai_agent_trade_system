@@ -328,14 +328,19 @@ def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping(
     try:
         _upgrade_to(test_database_url, schema, "head")
 
-        for event_kind, sequence, error_code in (
-            ("requested", 0, None),
-            ("policy_authorized", 1, None),
-            ("policy_rejected", 1, "symbol_not_allowed"),
-            ("workflow_started", 2, None),
-            ("workflow_completed", 3, None),
-            ("workflow_degraded", 3, None),
-            ("workflow_failed", 3, "workflow_exception"),
+        for event_kind, sequence, error_code, details in (
+            ("requested", 0, None, '{"declared_capability_count": 1}'),
+            ("policy_authorized", 1, None, '{"allowed_capability_count": 1}'),
+            (
+                "policy_rejected",
+                1,
+                "symbol_not_allowed",
+                '{"declared_capability_count": 1}',
+            ),
+            ("workflow_started", 2, None, '{"workflow_kind": "market_research"}'),
+            ("workflow_completed", 3, None, "{}"),
+            ("workflow_degraded", 3, None, "{}"),
+            ("workflow_failed", 3, "workflow_exception", '{"error_type": "RuntimeError"}'),
         ):
             run_id = uuid4()
             asyncio.run(_insert_harness_run_envelope(test_database_url, schema, run_id))
@@ -347,15 +352,47 @@ def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping(
                     event_kind=event_kind,
                     sequence=sequence,
                     error_code=error_code,
+                    details=details,
                 )
             )
 
-        for event_kind, sequence, error_code in (
-            ("requested", 1, None),
-            ("policy_authorized", 0, None),
-            ("policy_rejected", 2, "symbol_not_allowed"),
-            ("workflow_started", 1, None),
-            ("workflow_failed", 2, "workflow_exception"),
+        for event_kind, sequence, error_code, details in (
+            ("requested", 1, None, '{"declared_capability_count": 1}'),
+            ("requested", 2, None, '{"declared_capability_count": 1}'),
+            ("requested", 3, None, '{"declared_capability_count": 1}'),
+            ("policy_authorized", 0, None, '{"allowed_capability_count": 1}'),
+            ("policy_authorized", 2, None, '{"allowed_capability_count": 1}'),
+            ("policy_authorized", 3, None, '{"allowed_capability_count": 1}'),
+            (
+                "policy_rejected",
+                0,
+                "symbol_not_allowed",
+                '{"declared_capability_count": 1}',
+            ),
+            (
+                "policy_rejected",
+                2,
+                "symbol_not_allowed",
+                '{"declared_capability_count": 1}',
+            ),
+            (
+                "policy_rejected",
+                3,
+                "symbol_not_allowed",
+                '{"declared_capability_count": 1}',
+            ),
+            ("workflow_started", 0, None, '{"workflow_kind": "market_research"}'),
+            ("workflow_started", 1, None, '{"workflow_kind": "market_research"}'),
+            ("workflow_started", 3, None, '{"workflow_kind": "market_research"}'),
+            ("workflow_completed", 0, None, "{}"),
+            ("workflow_completed", 1, None, "{}"),
+            ("workflow_completed", 2, None, "{}"),
+            ("workflow_degraded", 0, None, "{}"),
+            ("workflow_degraded", 1, None, "{}"),
+            ("workflow_degraded", 2, None, "{}"),
+            ("workflow_failed", 0, "workflow_exception", '{"error_type": "RuntimeError"}'),
+            ("workflow_failed", 1, "workflow_exception", '{"error_type": "RuntimeError"}'),
+            ("workflow_failed", 2, "workflow_exception", '{"error_type": "RuntimeError"}'),
         ):
             run_id = uuid4()
             asyncio.run(_insert_harness_run_envelope(test_database_url, schema, run_id))
@@ -368,6 +405,7 @@ def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping(
                         event_kind=event_kind,
                         sequence=sequence,
                         error_code=error_code,
+                        details=details,
                     )
                 )
     finally:
@@ -473,6 +511,24 @@ def test_harness_audit_migration_downgrade_fails_before_schema_mutation(
         migration.downgrade()
 
 
+def test_harness_event_lifecycle_migration_downgrade_fails_before_schema_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    migration = _load_harness_event_lifecycle_migration()
+
+    class NoSchemaMutation:
+        def __getattr__(self, _: str) -> object:
+            raise AssertionError("downgrade must not mutate the schema")
+
+    monkeypatch.setattr(migration, "op", NoSchemaMutation())
+
+    with pytest.raises(
+        NotImplementedError,
+        match="Harness 审计生命周期迁移不可逆，禁止删除审计记录",
+    ):
+        migration.downgrade()
+
+
 def test_all_migration_revisions_fit_the_default_alembic_version_column() -> None:
     migrations_directory = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 
@@ -510,6 +566,13 @@ def _load_harness_audit_migration() -> ModuleType:
     return _load_migration(
         "0012_create_harness_audit.py",
         "harness_audit_migration",
+    )
+
+
+def _load_harness_event_lifecycle_migration() -> ModuleType:
+    return _load_migration(
+        "0013_enforce_harness_audit_event_lifecycle.py",
+        "harness_event_lifecycle_migration",
     )
 
 
@@ -764,6 +827,7 @@ async def _insert_harness_event(
     event_kind: str,
     sequence: int,
     error_code: str | None,
+    details: str = "{}",
 ) -> None:
     await _execute_in_schema(
         database_url,
@@ -772,7 +836,8 @@ async def _insert_harness_event(
             "INSERT INTO harness_run_events ("
             "run_id, sequence, event_kind, occurred_at, duration_ms, error_code, details"
             ") VALUES ("
-            ":run_id, :sequence, :event_kind, :occurred_at, 0, :error_code, '{}'::jsonb"
+            ":run_id, :sequence, :event_kind, :occurred_at, 0, :error_code, "
+            "CAST(:details AS jsonb)"
             ")"
         ),
         {
@@ -781,6 +846,7 @@ async def _insert_harness_event(
             "event_kind": event_kind,
             "occurred_at": HARNESS_TEST_NOW,
             "error_code": error_code,
+            "details": details,
         },
     )
 
