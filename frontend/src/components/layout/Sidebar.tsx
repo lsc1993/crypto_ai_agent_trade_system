@@ -1,8 +1,7 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useMatch } from "react-router-dom";
 
 const navigationItems = [
   { to: "/", label: "研究工作台", end: true },
-  { to: "/market/BTCUSDT", label: "BTCUSDT 市场", end: false },
   { to: "/reports", label: "分析报告", end: false },
   { to: "/backtests", label: "策略回测", end: false },
   { to: "/paper-trading", label: "模拟盘", end: false },
@@ -17,6 +16,19 @@ export interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+  const marketMatch = useMatch("/market/:symbol");
+  const marketSymbol =
+    marketMatch?.params.symbol === "ETHUSDT" ? "ETHUSDT" : "BTCUSDT";
+  const sidebarItems = [
+    navigationItems[0],
+    {
+      to: `/market/${marketSymbol}`,
+      label: `${marketSymbol} 市场`,
+      end: false,
+    },
+    ...navigationItems.slice(1),
+  ];
+
   return (
     <aside className="app-sidebar">
       <div className="app-sidebar__header">
@@ -39,7 +51,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         hidden={collapsed}
       >
         <ul className="app-sidebar__list">
-          {navigationItems.map((item) => (
+          {sidebarItems.map((item) => (
             <li key={item.to}>
               <NavLink
                 className={({ isActive }) =>

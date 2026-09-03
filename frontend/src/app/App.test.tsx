@@ -159,6 +159,32 @@ describe("application shell routes", () => {
     }
   });
 
+  it("synchronizes the market navigation label and active state after switching symbols", async () => {
+    const user = userEvent.setup();
+    renderApp("/market/BTCUSDT");
+
+    await screen.findByRole("heading", { name: "BTCUSDT 市场详情" });
+    expect(
+      screen.getByRole("link", { name: "BTCUSDT 市场" }),
+    ).toHaveClass("app-sidebar__link--active");
+
+    await user.click(screen.getByRole("link", { name: "ETHUSDT" }));
+
+    expect(window.location.pathname).toBe("/market/ETHUSDT");
+    expect(
+      await screen.findByRole("heading", { name: "ETHUSDT 市场详情" }),
+    ).toBeVisible();
+
+    const marketNavigationLink = screen.getByRole("link", {
+      name: "ETHUSDT 市场",
+    });
+    expect(marketNavigationLink).toHaveAttribute("href", "/market/ETHUSDT");
+    expect(marketNavigationLink).toHaveClass("app-sidebar__link--active");
+    expect(
+      screen.queryByRole("link", { name: "BTCUSDT 市场" }),
+    ).not.toBeInTheDocument();
+  });
+
   it.each([
     ["/reports/report-btc-001", "报告详情"],
     ["/backtests", "策略回测"],
