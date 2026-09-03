@@ -158,6 +158,20 @@ def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
     )
 
 
+def test_shell_entrypoint_is_checked_out_with_lf_line_endings() -> None:
+    attribute = subprocess.run(
+        ["git", "check-attr", "eol", "--", "backend/docker-entrypoint.sh"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert attribute.returncode == 0
+    assert attribute.stdout == "backend/docker-entrypoint.sh: eol: lf\n"
+    assert b"\r\n" not in (ROOT / "backend" / "docker-entrypoint.sh").read_bytes()
+
+
 def test_container_images_run_without_root_users() -> None:
     backend_dockerfile = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
     frontend_dockerfile = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
