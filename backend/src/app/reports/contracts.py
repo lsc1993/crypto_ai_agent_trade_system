@@ -25,6 +25,7 @@ from app.market.contracts import (
     UtcDateTime,
 )
 from app.market.repository import snapshot_payload_sha256
+from app.reports.factors import FactorAnalysis
 
 _MAX_TEXT_LENGTH = 1_000
 _MAX_LIST_ITEMS = 12
@@ -528,6 +529,7 @@ class AgentAnalysis(_ReportModel):
     limitations: tuple[str, ...] = ()
     narrative: AgentResearchNarrative | None = None
     market_metrics: FrozenMarketMetrics | None = None
+    factor_analysis: FactorAnalysis | None = None
 
     @field_validator("limitations")
     @classmethod
@@ -626,6 +628,8 @@ def _agent_analysis_evidence_ids(analysis: AgentAnalysis) -> set[UUID]:
         )
         for evidence_id in item.evidence_ids
     }
+    if analysis.factor_analysis is not None:
+        referenced_ids.update(analysis.factor_analysis.evidence_ids())
     if analysis.narrative is None:
         return referenced_ids
     narrative = analysis.narrative

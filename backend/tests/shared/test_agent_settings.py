@@ -13,6 +13,7 @@ def test_agent_settings_default_to_disabled_key_and_allowed_model(
 
     assert settings.deepseek_api_key is None
     assert settings.deepseek_model == "deepseek-v4-pro"
+    assert settings.agent_request_timeout_seconds == 60
 
 
 def test_agent_settings_reject_legacy_or_unknown_model(

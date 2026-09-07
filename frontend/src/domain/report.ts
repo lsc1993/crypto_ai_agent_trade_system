@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
+import { factorAnalysisSchema } from "./report-factors";
 
 import {
   decimalStringSchema,
@@ -184,6 +185,7 @@ const marketMetricsSchema = z
 
 const agentAnalysisBaseSchema = z
   .object({
+    factorAnalysis: factorAnalysisSchema.nullable().optional(),
     outlook: marketOutlookSchema,
     confidence: z.enum(["low", "medium", "high"]),
     trendAlignment: z.partialRecord(timeframeSchema, trendDirectionSchema),
@@ -257,6 +259,15 @@ export const analysisReportSchema = analysisReportSummarySchema
     }
 
     const evidenceIds = new Set(report.evidence.map((evidence) => evidence.id));
+    const factors = report.agentAnalysis.factorAnalysis;
+    if (factors) {
+      for (const kind of ["policy", "funding", "etf"] as const) {
+        if (factors[kind].evidenceIds.some((id) => !evidenceIds.has(id))) {
+          context.addIssue({ code: "custom", path: ["agentAnalysis", "factorAnalysis", kind],
+            message: "Factor references must belong to this report's frozen evidence" });
+        }
+      }
+    }
     const referenceGroups = [
       ...report.agentAnalysis.catalysts.map((item, index) => ({
         path: ["agentAnalysis", "catalysts", index, "evidenceIds"],

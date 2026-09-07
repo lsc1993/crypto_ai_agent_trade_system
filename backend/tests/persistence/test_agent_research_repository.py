@@ -50,6 +50,7 @@ from app.reports.contracts import (
     TrendDirection,
     report_payload_sha256,
 )
+from app.reports.factors import FactorAnalysis, FactorFact, FactorTopic
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 REPORT_ID = UUID("00000000-0000-0000-0000-000000000301")
@@ -58,6 +59,35 @@ EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000302")
 
 class MigratedDatabase(Protocol):
     session_factory: async_sessionmaker[AsyncSession]
+
+
+@pytest.mark.asyncio
+async def test_repository_round_trips_frozen_report_factors(
+    migrated_database: MigratedDatabase,
+) -> None:
+    creation = _agent_creation()
+    funding = FactorTopic(
+        status="available",
+        window_end=NOW,
+        evidence_ids=(EVIDENCE_ID,),
+        facts=(FactorFact(label="最新结算费率", value="-0.000125", unit="rate"),),
+    )
+    missing = FactorTopic(status="missing", window_end=NOW)
+    factors = FactorAnalysis(policy=missing, funding=funding, etf=missing)
+    updated = creation.model_copy(
+        update={
+            "agent_analysis": creation.agent_analysis.model_copy(
+                update={"factor_analysis": factors},
+            )
+        }
+    )
+    repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+    saved = await repository.persist_agent(updated)
+    assert saved.agent_analysis is not None
+    assert saved.agent_analysis.factor_analysis == factors
+    fetched = await repository.get_by_id(saved.id)
+    assert fetched is not None and fetched.agent_analysis is not None
+    assert fetched.agent_analysis.factor_analysis == factors
 
 
 @pytest.mark.asyncio
@@ -149,12 +179,8 @@ async def test_deterministic_reports_remain_backward_compatible_without_agent_de
 async def test_agent_report_persistence_appends_harness_terminal_event_atomically(
     migrated_database: MigratedDatabase,
 ) -> None:
-    report_repository = SqlAlchemyAnalysisReportRepository(
-        migrated_database.session_factory
-    )
-    audit_repository = SqlAlchemyHarnessAuditRepository(
-        migrated_database.session_factory
-    )
+    report_repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+    audit_repository = SqlAlchemyHarnessAuditRepository(migrated_database.session_factory)
     completed = _agent_creation()
     await _record_admitted_run(audit_repository, completed.report.analysis_id)
 

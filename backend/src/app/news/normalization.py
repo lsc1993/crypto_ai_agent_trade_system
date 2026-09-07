@@ -1,3 +1,9 @@
+"""不可信 RSS 文本的规范化与分类模块。
+
+数据流：外部标题、摘要和 URL → 来源/语言/HTML/长度校验 → 稳定内容哈希与去重键 →
+安全的 NewsItemDraft。此模块不执行网页内容，也不把原始 HTML 传入模型。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -84,6 +90,12 @@ def normalize_news_item(
     source: NewsSourceDefinition,
     fetched_at: datetime,
 ) -> NewsItemDraft:
+    """将一个外部 RSS 项目规范化为可保存、可引用的英文新闻草稿。
+
+    处理顺序先验证白名单来源和抓取时间，再清理文本、去除跟踪参数、计算哈希及
+    分类；任一不可信输入不符合约束会被拒绝而不是静默修正。
+    """
+    # 规范化是进入持久化和模型上下文前的唯一入口；先检查来源再处理不可信 RSS 文本。
     approved_source = ALLOWED_NEWS_SOURCES.get(source.source_id)
     if approved_source != source:
         raise ValueError("未获准的新闻来源")
@@ -124,6 +136,7 @@ def normalize_news_item(
 
 
 def _normalize_text(value: str, *, maximum: int) -> str:
+    """去除脚本、样式和 HTML 标签，压缩空白并在语义字段上执行长度上限。"""
     without_scripts = _SCRIPT_OR_STYLE.sub(" ", value)
     plain_text = _WHITESPACE.sub(" ", _HTML_TAG.sub("", html.unescape(without_scripts))).strip()
     normalized = plain_text[:maximum].strip()
@@ -133,6 +146,7 @@ def _normalize_text(value: str, *, maximum: int) -> str:
 
 
 def _contains_non_latin_letter(value: str) -> bool:
+    """检测非拉丁文字母，为英文来源提供保守的混合语言防护。"""
     return any(
         unicodedata.category(character).startswith("L")
         and "LATIN" not in unicodedata.name(character, "")
@@ -141,16 +155,17 @@ def _contains_non_latin_letter(value: str) -> bool:
 
 
 def _is_english_text(value: str) -> bool:
+    """用拉丁字符和常见英文信号词做保守筛选，不承担通用语言识别职责。"""
     if _contains_non_latin_letter(value):
         return False
     words = _LATIN_WORD.findall(value.casefold())
-    # Sources are an allowlist of English publishers. This is an additional
-    # conservative mixed-language guard, not a general-purpose language model.
+    # 来源已是英文媒体白名单；这里仅做保守的混合语言防护，并非通用语言识别模型。
     english_signal_count = sum(word in _ENGLISH_SIGNAL_WORDS for word in words)
     return english_signal_count >= 2
 
 
 def _canonicalize_url(value: str):
+    """移除跟踪参数、规范化主机与路径，再按 HTTP URL 契约校验新闻链接。"""
     parts = urlsplit(value)
     query = urlencode(
         [
@@ -176,6 +191,7 @@ def _deduplication_key(
     canonical_url: AnyHttpUrl | None,
     content_hash: str,
 ) -> str:
+    """按来源项目 ID、规范链接或内容哈希依次生成稳定去重键。"""
     if source_item_id is not None:
         return f"{source_id}:source-item:{source_item_id}"
     if canonical_url is not None:
@@ -184,12 +200,30 @@ def _deduplication_key(
 
 
 def _related_symbols(title: str, summary: str, source_id: str) -> tuple[ContractSymbol, ...]:
+    """根据获准来源和文本关键字标记新闻涉及的受支持合约标的。"""
     content = f"{title} {summary}".casefold()
     symbols: list[ContractSymbol] = []
     if re.search(r"\b(bitcoin|btc)\b", content):
         symbols.append(ContractSymbol.BTCUSDT)
     if re.search(r"\b(ethereum|ether|eth)\b", content):
         symbols.append(ContractSymbol.ETHUSDT)
+    if (
+        not symbols
+        and source_id
+        in {
+            "federal_reserve_press_releases",
+            "us_treasury_press_releases",
+            "cftc_press_releases",
+            "sec_press_releases",
+        }
+        and re.search(
+            r"\b(fomc|federal funds|monetary policy|interest rates?|quantitative tightening|"
+            r"quantitative easing|liquidity|stablecoins?|digital assets?|crypto(?:currency)?|"
+            r"treasury (?:borrowing|refunding)|sanctions?)\b",
+            content,
+        )
+    ):
+        return (ContractSymbol.BTCUSDT, ContractSymbol.ETHUSDT)
     if (
         not symbols
         and source_id == "sec_press_releases"
@@ -200,8 +234,12 @@ def _related_symbols(title: str, summary: str, source_id: str) -> tuple[Contract
 
 
 def _event_category(title: str, summary: str) -> NewsEventCategory:
+    """用确定性关键词将标题和摘要归入有限新闻事件类别。"""
     content = f"{title} {summary}".casefold()
-    if re.search(r"\b(sec|regulat|enforcement|lawsuit|approval)\b", content):
+    if re.search(
+        r"\b(sec|regulat\w*|enforcement|lawsuit|approval|stablecoins?|sanctions?)\b",
+        content,
+    ):
         return NewsEventCategory.REGULATION
     if "etf" in content:
         return NewsEventCategory.ETF
@@ -209,6 +247,11 @@ def _event_category(title: str, summary: str) -> NewsEventCategory:
         return NewsEventCategory.SECURITY
     if re.search(r"\b(protocol|upgrade|fork|mainnet)\b", content):
         return NewsEventCategory.PROTOCOL
-    if re.search(r"\b(fed|inflation|interest rate|macro)\b", content):
+    if re.search(
+        r"\b(fed|fomc|federal reserve|federal funds|inflation|interest rates?|macro|"
+        r"monetary policy|quantitative tightening|quantitative easing|liquidity|"
+        r"treasury (?:borrowing|refunding))\b",
+        content,
+    ):
         return NewsEventCategory.MACRO
     return NewsEventCategory.MARKET

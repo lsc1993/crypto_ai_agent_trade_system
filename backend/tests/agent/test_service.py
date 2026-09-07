@@ -62,6 +62,20 @@ class RecordingNewsRepository:
 
 
 @pytest.mark.asyncio
+async def test_news_tracks_official_source_failure_separately_from_media_success() -> None:
+    service = NewsIngestionService(
+        sources=(
+            StubNewsSource(),
+            StubNewsSource(error=TimeoutError(), source=SEC_PRESS_RELEASES_SOURCE),
+        ),
+        repository=RecordingNewsRepository(),
+    )
+    result = await service.collect(ContractSymbol.BTCUSDT, since=NOW - timedelta(days=7), until=NOW)
+    assert result.successful_source_ids == ("coindesk",)
+    assert result.failed_source_ids == ("sec_press_releases",)
+
+
+@pytest.mark.asyncio
 async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
     duplicate = _news_item(key="same", published_at=NOW - timedelta(hours=1))
     wrong_symbol = _news_item(
@@ -94,6 +108,7 @@ async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
         successful_source_count=2,
         failed_source_count=0,
         error_codes=(),
+        successful_source_ids=("coindesk", "sec_press_releases"),
     )
     assert repository.ingested == [(duplicate, sec_duplicate)]
     assert [source.fetch_times for source in sources] == [[NOW], [NOW]]
@@ -153,6 +168,7 @@ async def test_news_collection_reports_all_source_failures_without_persisting() 
         successful_source_count=0,
         failed_source_count=2,
         error_codes=("news_source_failed", "news_source_failed"),
+        failed_source_ids=("coindesk", "sec_press_releases"),
     )
     assert repository.ingested == []
 

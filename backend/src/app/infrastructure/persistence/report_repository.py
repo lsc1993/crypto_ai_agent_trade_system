@@ -103,16 +103,12 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
                                 list[dict[str, object]],
                                 analysis_payload["resistance_zones"],
                             ),
-                            catalysts=cast(
-                                list[dict[str, object]], analysis_payload["catalysts"]
-                            ),
+                            catalysts=cast(list[dict[str, object]], analysis_payload["catalysts"]),
                             risks_and_invalidation=cast(
                                 list[dict[str, object]],
                                 analysis_payload["risks_and_invalidation"],
                             ),
-                            data_quality=cast(
-                                dict[str, object], analysis_payload["data_quality"]
-                            ),
+                            data_quality=cast(dict[str, object], analysis_payload["data_quality"]),
                             limitations=cast(list[str], analysis_payload["limitations"]),
                             market_overview=(
                                 None
@@ -139,6 +135,11 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
                                 )
                             ),
                             market_metrics=metrics_payload,
+                            factor_analysis=(
+                                None
+                                if creation.agent_analysis.factor_analysis is None
+                                else cast(dict[str, object], analysis_payload["factor_analysis"])
+                            ),
                         )
                     )
         except SQLAlchemyError as error:
@@ -253,11 +254,14 @@ async def _add_report_records(
 async def _get_report_record(
     session: AsyncSession,
     condition: ColumnElement[bool],
-) -> tuple[
-    AnalysisReportRecord,
-    AgentAnalysisRunRecord | None,
-    AgentReportDetailRecord | None,
-] | None:
+) -> (
+    tuple[
+        AnalysisReportRecord,
+        AgentAnalysisRunRecord | None,
+        AgentReportDetailRecord | None,
+    ]
+    | None
+):
     statement = (
         select(
             AnalysisReportRecord,
@@ -357,6 +361,7 @@ def _to_agent_analysis(record: AgentReportDetailRecord) -> AgentAnalysis:
             "limitations": record.limitations,
             "narrative": narrative,
             "market_metrics": record.market_metrics,
+            "factor_analysis": record.factor_analysis,
         }
     )
 

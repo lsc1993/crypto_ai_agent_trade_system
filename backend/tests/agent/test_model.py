@@ -24,10 +24,70 @@ from app.agent.model import (
 from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import ContractSymbol, MarketTimeframe
 from app.reports.contracts import PriceZone, TrendDirection
+from app.reports.factors import FactorAnalysis, FactorTopic
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "agent"
 MARKET_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000001")
 NEWS_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000002")
+
+
+@pytest.mark.asyncio
+async def test_enriched_model_request_reserves_tokens_and_rejects_wrong_topic_citations() -> None:
+    topic = FactorTopic(
+        status="partial",
+        window_end=datetime(2026, 8, 10, tzinfo=UTC),
+        evidence_ids=(NEWS_EVIDENCE_ID,),
+    )
+    missing = FactorTopic(status="missing", window_end=topic.window_end)
+    request = _request().model_copy(
+        update={
+            "factor_analysis": FactorAnalysis(
+                policy=topic,
+                funding=missing,
+                etf=missing,
+            )
+        }
+    )
+    response_payload = _proposal_payload()
+    response_payload["factor_interpretations"] = [
+        {
+            "topic": "policy",
+            "outlook": "neutral",
+            "summary": "政策需要结合实施范围评估。",
+            "short_term": "短期关注市场预期变化。",
+            "long_term": "长期关注实施进程。",
+            "invalidation": "政策撤回时重新评估。",
+            "evidence_ids": [str(MARKET_EVIDENCE_ID)],
+        }
+    ]
+    requests: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        requests.append(req)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(response_payload, ensure_ascii=False),
+                        }
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("test-key"), model="deepseek-v4-flash"
+        )
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(request)
+    assert error.value.code == "model_invalid_evidence"
+    posted = json.loads(requests[0].content)
+    assert posted["max_tokens"] >= 7000
+    user_message = json.loads(posted["messages"][1]["content"])
+    assert user_message["factor_analysis"]["policy"]["evidence_ids"] == [str(NEWS_EVIDENCE_ID)]
 
 
 class RecordingLogger:
@@ -98,6 +158,13 @@ async def test_deepseek_model_explicitly_disables_thinking_for_json_formatting()
         await model.generate(_request())
 
     assert json.loads(requests[0].content)["thinking"] == {"type": "disabled"}
+
+
+def test_system_prompt_requires_safe_text_and_declares_factor_interpretations() -> None:
+    prompt = system_prompt()
+
+    assert "买入、卖出、做多、做空、开仓、建仓、平仓" in prompt
+    assert '"factor_interpretations"' in prompt
 
 
 @pytest.mark.asyncio
@@ -462,16 +529,48 @@ async def test_deepseek_retries_once_and_returns_valid_proposal_after_invalid_sc
     assert proposal.horizon == "dual_horizon"
     assert len(requests) == 2
     retry_payload = json.loads(requests[1].content)
-    assert 'direction 字段只能取 "bullish"、"bearish" 或 "neutral"' in retry_payload[
-        "messages"
-    ][-1]["content"]
-    expected_length_instruction = (
-        "市场概况、两个 thesis 与所有 driver.detail 拼接后必须达到 "
-        "1800 至 2200 个中文字符"
+    assert (
+        'direction 字段只能取 "bullish"、"bearish" 或 "neutral"'
+        in retry_payload["messages"][-1]["content"]
     )
-    assert expected_length_instruction in retry_payload[
-        "messages"
-    ][-1]["content"]
+    expected_length_instruction = (
+        "市场概况、两个 thesis 与所有 driver.detail 拼接后必须达到 1800 至 2200 个中文字符"
+    )
+    assert expected_length_instruction in retry_payload["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_retry_reinforces_the_trade_language_ban_after_text_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = _record_model_logs(monkeypatch)
+    rejected_payload = _proposal_payload()
+    short_term = cast(dict[str, object], rejected_payload["short_term"])
+    short_term["thesis"] = "做多" + str(short_term["thesis"])[2:]
+    requests: list[httpx.Request] = []
+    responses = iter((_model_response(rejected_payload), _fixture("deepseek_completed.json")))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=next(responses))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-pro",
+        )
+
+        proposal = await model.generate(_request())
+
+    rejected = next(
+        entry for entry in logger.entries if entry["event"] == "agent_model_response_rejected"
+    )
+    assert proposal.horizon == "dual_horizon"
+    assert rejected["validation_field_paths"] == ("short_term.thesis",)
+    assert rejected["validation_error_categories"] == ("trading_instruction",)
+    retry_payload = json.loads(requests[1].content)
+    assert "买入、卖出、做多、做空、开仓、建仓、平仓" in retry_payload["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio
@@ -540,6 +639,14 @@ async def test_deepseek_model_logs_safe_validation_summary_after_final_invalid_r
     assert rejected["error_code"] == "model_invalid_response"
     assert isinstance(rejected["validation_issue_count"], int)
     assert rejected["validation_issue_count"] >= 1
+    assert set(cast(tuple[str, ...], rejected["validation_field_paths"])) == {
+        "confidence",
+        "market_overview",
+        "short_term",
+        "long_term",
+        "unexpected",
+    }
+    assert rejected["validation_error_categories"] == ("schema",)
     assert "LEAKED_MODEL_RESPONSE_BODY" not in repr(logger.entries)
     assert "test-key" not in repr(logger.entries)
 

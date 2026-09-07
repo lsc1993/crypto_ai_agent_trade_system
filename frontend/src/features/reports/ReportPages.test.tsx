@@ -284,6 +284,11 @@ class DegradedNoCutoffApi extends ControlledReportDetailApi {
 
 class AgentReportDetailApi extends ControlledReportDetailApi {
   override getReport(): Promise<AnalysisReport> {
+    const topicBase = {
+      windowStart: null, windowEnd: "2026-09-06T12:00:00Z", observedAt: null,
+      fetchedAt: null, facts: [], events: [], evidenceIds: [], interpretation: null,
+      limitations: [],
+    };
     return Promise.resolve(
       analysisReportSchema.parse({
         ...seedReport(),
@@ -293,6 +298,15 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
           horizon: "1_to_3_days",
           narrative: null,
           marketMetrics: null,
+          factorAnalysis: {
+            policy: { ...topicBase, status: "missing" },
+            funding: { ...topicBase, status: "failed" },
+            etf: {
+              ...topicBase, status: "partial",
+              evidenceIds: ["evidence-btc-001"],
+              facts: [{ label: "最新交易日已披露净流量（部分）", value: "-12500000", unit: "usd" }],
+            },
+          },
           outlook: "neutral",
           confidence: "medium",
           trendAlignment: { "1h": "neutral", "4h": "bullish" },
@@ -886,6 +900,11 @@ describe("ReportDetailPage", () => {
 
     expect(report).toHaveTextContent("本次 AI 详尽报告未生成");
     expect(report).toHaveTextContent("模型输出未通过格式校验");
+    const etf = within(report).getByRole("region", { name: "美国现货 ETF 资金流向" });
+    expect(within(etf).getByText("-12,500,000 USD")).toBeVisible();
+    expect(within(etf).getByRole("link", { name: /查看证据/ })).toHaveAttribute(
+      "href", "#evidence-evidence-btc-001",
+    );
     expect(structure).toHaveTextContent("67000.10");
     expect(structure).toHaveTextContent("69100.20");
     expect(screen.queryByRole("heading", { name: "报告详情" })).not.toBeInTheDocument();

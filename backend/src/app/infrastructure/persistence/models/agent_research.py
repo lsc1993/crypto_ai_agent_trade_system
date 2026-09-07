@@ -48,15 +48,14 @@ class AgentReportDetailRecord(Base):
     support_zones: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     resistance_zones: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     catalysts: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
-    risks_and_invalidation: Mapped[list[dict[str, object]]] = mapped_column(
-        JSONB, nullable=False
-    )
+    risks_and_invalidation: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     data_quality: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     limitations: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     market_overview: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     short_term_view: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     long_term_view: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     market_metrics: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    factor_analysis: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -7,6 +7,7 @@ import {
   formatOpenInterest,
 } from "../../shared/format";
 import "./research-report.css";
+import { ReportFactorAnalysis } from "./ReportFactorAnalysis";
 
 type DualHorizonAnalysis = Extract<
   NonNullable<AnalysisReport["agentAnalysis"]>,
@@ -137,6 +138,8 @@ export function AgentResearchReport({ report }: { report: DualHorizonReport }) {
         <EvidenceReferences evidenceIds={narrative.marketOverview.evidenceIds} />
       </section>
 
+      <ReportFactorAnalysis analysis={analysis.factorAnalysis ?? null} />
+
       <PerspectiveSection
         analysis={analysis}
         horizonLabel="数天至两周"
@@ -217,7 +220,7 @@ export function DegradedAgentResearchReport({
         </p>
         <h1>本次 AI 详尽报告未生成</h1>
         <p className="research-report__summary">
-          模型输出未通过格式校验，因此系统没有将其展示为市场观点。以下仅保留可审计的冻结市场结构与数据质量信息；请以新的研究任务重新生成双周期中文报告。
+          模型输出未通过格式校验，因此系统没有将其展示为市场观点。以下保留可审计的专题事实、冻结市场结构与数据质量信息；请以新的研究任务重新生成双周期中文报告。
         </p>
         <dl className="research-report__hero-meta">
           <div>
@@ -246,6 +249,8 @@ export function DegradedAgentResearchReport({
           </div>
         </dl>
       </header>
+
+      <ReportFactorAnalysis analysis={analysis.factorAnalysis ?? null} />
 
       <section
         className="research-report__section research-report__section--overview"

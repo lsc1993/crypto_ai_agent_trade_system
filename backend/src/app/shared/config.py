@@ -39,7 +39,7 @@ class AppSettings(BaseSettings):
     deepseek_api_key: SecretStr | None = None
     deepseek_model: Literal["deepseek-v4-flash", "deepseek-v4-pro"] = "deepseek-v4-pro"
     news_http_timeout_seconds: int = Field(default=8, ge=1, le=20)
-    agent_request_timeout_seconds: int = Field(default=30, ge=5, le=60)
+    agent_request_timeout_seconds: int = Field(default=60, ge=5, le=60)
 
     @field_validator("deepseek_model", mode="before")
     @classmethod
