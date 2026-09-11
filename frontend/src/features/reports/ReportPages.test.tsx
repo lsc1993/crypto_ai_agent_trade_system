@@ -294,6 +294,12 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
         ...seedReport(),
         status: "degraded",
         generatorKind: "langgraph_deepseek",
+        validationFailure: {
+          attemptCount: 3,
+          issueCount: 2,
+          fieldPaths: ["short_term.thesis"],
+          errorCategories: ["trading_instruction"],
+        },
         agentAnalysis: {
           horizon: "1_to_3_days",
           narrative: null,
@@ -900,6 +906,9 @@ describe("ReportDetailPage", () => {
 
     expect(report).toHaveTextContent("本次 AI 详尽报告未生成");
     expect(report).toHaveTextContent("模型输出未通过格式校验");
+    expect(report).toHaveTextContent("已尝试 3 次");
+    expect(report).toHaveTextContent("short_term.thesis");
+    expect(report).toHaveTextContent("交易指令限制");
     const etf = within(report).getByRole("region", { name: "美国现货 ETF 资金流向" });
     expect(within(etf).getByText("-12,500,000 USD")).toBeVisible();
     expect(within(etf).getByRole("link", { name: /查看证据/ })).toHaveAttribute(

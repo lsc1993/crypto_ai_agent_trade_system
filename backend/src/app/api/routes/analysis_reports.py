@@ -106,6 +106,13 @@ class AgentDataQualityResponse(_ApiModel):
     source_coverage: str
 
 
+class ModelValidationFailureResponse(_ApiModel):
+    attempt_count: int
+    issue_count: int
+    field_paths: tuple[str, ...]
+    error_categories: tuple[str, ...]
+
+
 class EvidenceBackedClaimResponse(_ApiModel):
     label: str
     detail: str
@@ -168,6 +175,7 @@ class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
     generated_at: UtcDateTime
     evidence: tuple[AnalysisEvidenceResponse, ...]
     agent_analysis: AgentAnalysisResponse | None
+    validation_failure: ModelValidationFailureResponse | None
 
 
 class AnalysisReportPageResponse(_ApiModel):
@@ -350,6 +358,16 @@ def _to_detail_response(
             None
             if report.agent_analysis is None
             else _to_agent_analysis_response(report.agent_analysis)
+        ),
+        validation_failure=(
+            None
+            if report.validation_failure is None
+            else ModelValidationFailureResponse(
+                attempt_count=report.validation_failure.attempt_count,
+                issue_count=report.validation_failure.issue_count,
+                field_paths=report.validation_failure.field_paths,
+                error_categories=report.validation_failure.error_categories,
+            )
         ),
     )
 

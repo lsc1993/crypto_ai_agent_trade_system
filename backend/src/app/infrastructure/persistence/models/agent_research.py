@@ -28,6 +28,10 @@ class AgentAnalysisRunRecord(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     generator_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(100))
+    model_validation_attempt_count: Mapped[int | None] = mapped_column()
+    model_validation_issue_count: Mapped[int | None] = mapped_column()
+    model_validation_field_paths: Mapped[list[str] | None] = mapped_column(JSONB)
+    model_validation_error_categories: Mapped[list[str] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

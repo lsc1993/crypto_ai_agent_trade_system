@@ -30,6 +30,22 @@ from app.reports.factors import FactorAnalysis
 _MAX_TEXT_LENGTH = 1_000
 _MAX_LIST_ITEMS = 12
 _MAX_PAYLOAD_BYTES = 64 * 1024
+_MAX_VALIDATION_FAILURE_ATTEMPTS = 3
+_MAX_VALIDATION_FAILURE_ISSUES = 99
+_MAX_VALIDATION_FAILURE_FIELDS = 8
+_VALIDATION_FAILURE_FIELD_PATH = re.compile(
+    r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$"
+)
+_VALIDATION_FAILURE_CATEGORIES = frozenset(
+    {
+        "chinese_text_required",
+        "narrative_length",
+        "schema",
+        "text_empty",
+        "text_length",
+        "trading_instruction",
+    }
+)
 _PROHIBITED_PHRASES = (
     "买入",
     "卖出",
@@ -556,11 +572,39 @@ class AgentAnalysis(_ReportModel):
         return self
 
 
+class ModelValidationFailure(_ReportModel):
+    """Bounded, non-content metadata for a rejected model response."""
+
+    attempt_count: Annotated[int, Field(ge=1, le=_MAX_VALIDATION_FAILURE_ATTEMPTS)]
+    issue_count: Annotated[int, Field(ge=0, le=_MAX_VALIDATION_FAILURE_ISSUES)]
+    field_paths: tuple[str, ...] = Field(default=(), max_length=_MAX_VALIDATION_FAILURE_FIELDS)
+    error_categories: tuple[str, ...] = Field(
+        default=(), max_length=_MAX_VALIDATION_FAILURE_FIELDS
+    )
+
+    @field_validator("field_paths")
+    @classmethod
+    def validate_field_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value) or any(
+            _VALIDATION_FAILURE_FIELD_PATH.fullmatch(item) is None for item in value
+        ):
+            raise ValueError("模型校验字段路径无效")
+        return value
+
+    @field_validator("error_categories")
+    @classmethod
+    def validate_error_categories(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value) or not set(value) <= _VALIDATION_FAILURE_CATEGORIES:
+            raise ValueError("模型校验错误类别无效")
+        return tuple(sorted(value))
+
+
 class AgentReportCreation(AnalysisReportCreation):
     started_at: UtcDateTime
     completed_at: UtcDateTime
     generator_kind: ReportGeneratorKind = ReportGeneratorKind.LANGGRAPH_DEEPSEEK
     error_code: Annotated[str | None, Field(max_length=100)] = None
+    validation_failure: ModelValidationFailure | None = None
     agent_analysis: AgentAnalysis
 
     @field_serializer("evidences", when_used="json")
@@ -597,6 +641,11 @@ class AgentReportCreation(AnalysisReportCreation):
             raise ValueError("Agent 报告生成器类型无效")
         if self.completed_at < self.started_at:
             raise ValueError("Agent 完成时间不能早于开始时间")
+        if (
+            self.validation_failure is not None
+            and self.error_code != "model_invalid_response"
+        ):
+            raise ValueError("模型格式失败摘要只能关联格式校验错误")
         evidence_ids = {evidence.id for evidence in self.evidences}
         referenced_ids = _agent_analysis_evidence_ids(self.agent_analysis)
         if not referenced_ids <= evidence_ids:
@@ -657,6 +706,7 @@ class AnalysisReportSummary(AnalysisReportDraft):
 class PersistedAnalysisReport(AnalysisReportSummary):
     evidence: tuple[PersistedAnalysisEvidence, ...]
     agent_analysis: AgentAnalysis | None = None
+    validation_failure: ModelValidationFailure | None = None
 
 
 class ReportPage(_ReportModel):

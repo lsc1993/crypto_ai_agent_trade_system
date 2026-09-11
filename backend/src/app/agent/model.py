@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -26,6 +27,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import ErrorDetails
 
 from app.agent.factors import apply_interpretations
 from app.agent.market_structure import MarketStructure
@@ -46,6 +48,10 @@ _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 _MAX_TOKENS = 4_000
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
 _MAX_VALIDATION_FIELD_PATHS = 8
+_MAX_VALIDATION_ISSUES = 99
+_VALIDATION_FIELD_PATH = re.compile(
+    r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$"
+)
 _MAX_FORMAT_ATTEMPTS = 3
 _FORMAT_RETRY_INSTRUCTION = (
     "上一份候选未通过机器格式校验。请从头重新生成一个完整 JSON 对象："
@@ -167,12 +173,14 @@ class ModelOutputError(RuntimeError):
         validation_issue_count: int = 0,
         validation_field_paths: tuple[str, ...] = (),
         validation_error_categories: tuple[str, ...] = (),
+        format_attempt_count: int = 0,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.validation_issue_count = validation_issue_count
         self.validation_field_paths = validation_field_paths
         self.validation_error_categories = validation_error_categories
+        self.format_attempt_count = format_attempt_count
 
 
 class ResearchLanguageModel(Protocol):
@@ -272,6 +280,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
     ) -> AgentAnalysisProposal:
         """仅对 JSON 格式无效的响应执行有限次格式纠正重试。"""
         # 只对可恢复的“格式无效”响应有限重试；超时和上游故障直接交给降级路径。
+        retry_error: ModelOutputError | None = None
         for attempt in range(1, _MAX_FORMAT_ATTEMPTS + 1):
             try:
                 proposal = await self._generate_once(
@@ -279,13 +288,16 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                     secret_value=secret_value,
                     started_at=started_at,
                     attempt=attempt,
+                    retry_error=retry_error,
                 )
             except ModelOutputError as error:
                 if error.code != "model_invalid_response":
                     raise
                 self._log_response_rejected(error=error, attempt=attempt)
                 if attempt == _MAX_FORMAT_ATTEMPTS:
+                    error.format_attempt_count = attempt
                     raise
+                retry_error = error
                 logger.info(
                     "agent_model_format_retry_started",
                     model=self._model,
@@ -308,6 +320,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         secret_value: str,
         started_at: float,
         attempt: int,
+        retry_error: ModelOutputError | None,
     ) -> AgentAnalysisProposal:
         """发送单次受限请求、提取 JSON 对象并验证其为可引用的提案模型。"""
         messages: tuple[dict[str, str], ...] = (
@@ -316,7 +329,13 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         )
         # 后续尝试只增加格式纠正指令，不改变冻结证据或系统约束。
         if attempt > 1:
-            messages = (*messages, {"role": "user", "content": _FORMAT_RETRY_INSTRUCTION})
+            messages = (
+                *messages,
+                {
+                    "role": "user",
+                    "content": _format_retry_instruction(error=retry_error),
+                },
+            )
         try:
             response = await self._client.post(
                 _DEEPSEEK_COMPLETIONS_URL,
@@ -388,6 +407,22 @@ def _duration_ms(started_at: float) -> int:
     return max(0, round((perf_counter() - started_at) * 1_000))
 
 
+def _format_retry_instruction(*, error: ModelOutputError | None) -> str:
+    """Append only bounded validation metadata to the correction request."""
+    if error is None or (
+        not error.validation_field_paths and not error.validation_error_categories
+    ):
+        return _FORMAT_RETRY_INSTRUCTION
+    field_paths = ", ".join(error.validation_field_paths) or "未定位字段"
+    categories = ", ".join(error.validation_error_categories) or "schema"
+    return (
+        f"{_FORMAT_RETRY_INSTRUCTION}\n"
+        f"上一份候选的校验字段：{field_paths}。"
+        f"校验类别：{categories}。"
+        "请仅修正这些格式问题，仍须完整返回全部 JSON。"
+    )
+
+
 def _invalid_model_response_error(error: Exception) -> ModelOutputError:
     if not isinstance(error, ValidationError):
         return ModelOutputError("model_invalid_response", "DeepSeek 返回了无效研究 JSON")
@@ -399,11 +434,8 @@ def _invalid_model_response_error(error: Exception) -> ModelOutputError:
     return ModelOutputError(
         "model_invalid_response",
         "DeepSeek 返回了无效研究 JSON",
-        validation_issue_count=len(issues),
-        validation_field_paths=tuple(
-            ".".join(str(part) for part in issue["loc"])
-            for issue in issues[:_MAX_VALIDATION_FIELD_PATHS]
-        ),
+        validation_issue_count=min(len(issues), _MAX_VALIDATION_ISSUES),
+        validation_field_paths=_validation_field_paths(issues),
         validation_error_categories=_validation_error_categories(
             str(issue["msg"]) for issue in issues
         ),
@@ -413,6 +445,20 @@ def _invalid_model_response_error(error: Exception) -> ModelOutputError:
 def _validation_error_categories(messages: Iterable[str]) -> tuple[str, ...]:
     """Return bounded error classes without retaining model-generated text."""
     return tuple(sorted({_validation_error_category(message) for message in messages}))
+
+
+def _validation_field_paths(issues: Iterable[ErrorDetails]) -> tuple[str, ...]:
+    """Return bounded field paths without carrying arbitrary model-supplied keys."""
+    paths: list[str] = []
+    for issue in issues:
+        location = issue["loc"]
+        candidate = ".".join(str(part) for part in location)
+        safe_path = candidate if _VALIDATION_FIELD_PATH.fullmatch(candidate) else "schema"
+        if safe_path not in paths:
+            paths.append(safe_path)
+        if len(paths) == _MAX_VALIDATION_FIELD_PATHS:
+            break
+    return tuple(paths)
 
 
 def _validation_error_category(message: str) -> str:

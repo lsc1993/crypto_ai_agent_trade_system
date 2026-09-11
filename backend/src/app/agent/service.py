@@ -62,6 +62,7 @@ from app.reports.contracts import (
     AnalysisReportStatus,
     FrozenMarketMetrics,
     MarketOutlook,
+    ModelValidationFailure,
     PersistedAnalysisReport,
     ReportGeneratorKind,
     report_payload_sha256,
@@ -368,6 +369,7 @@ class _AgentResearchRun:
     persisted_report: PersistedAnalysisReport | None = None
     factor_analysis: FactorAnalysis | None = None
     factor_evidence: tuple[_FrozenEvidence, ...] = ()
+    validation_failure: ModelValidationFailure | None = None
 
     async def collect_market(self, state: AgentRunState) -> dict[str, object]:
         """图节点：采集并校验冻结行情，将可用证据 ID 写入轻量状态。"""
@@ -554,6 +556,16 @@ class _AgentResearchRun:
                 self.proposal = proposal
         except ModelOutputError as error:
             self.degraded_error = _safe_error_code(error.code)
+            if (
+                error.code == AgentErrorCode.MODEL_INVALID_RESPONSE.value
+                and error.format_attempt_count > 0
+            ):
+                self.validation_failure = ModelValidationFailure(
+                    attempt_count=error.format_attempt_count,
+                    issue_count=error.validation_issue_count,
+                    field_paths=error.validation_field_paths,
+                    error_categories=error.validation_error_categories,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -649,6 +661,7 @@ class _AgentResearchRun:
                 completed_at=completed_at,
                 generator_kind=ReportGeneratorKind.LANGGRAPH_DEEPSEEK,
                 error_code=None if completed else _error_code_value(self.degraded_error),
+                validation_failure=None if completed else self.validation_failure,
                 agent_analysis=agent_analysis,
             )
         )

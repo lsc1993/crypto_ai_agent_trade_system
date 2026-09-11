@@ -217,6 +217,26 @@ const agentAnalysisSchema = z.discriminatedUnion("horizon", [
   }),
 ]);
 
+const validationFailureSchema = z
+  .object({
+    attemptCount: z.number().int().min(1).max(3),
+    issueCount: z.number().int().min(0).max(99),
+    fieldPaths: z.array(z.string().regex(/^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$/)).max(8),
+    errorCategories: z
+      .array(
+        z.enum([
+          "chinese_text_required",
+          "narrative_length",
+          "schema",
+          "text_empty",
+          "text_length",
+          "trading_instruction",
+        ]),
+      )
+      .max(8),
+  })
+  .strict();
+
 export const analysisReportSummarySchema = z
   .object({
     id: identifierSchema,
@@ -240,6 +260,7 @@ export const analysisReportSchema = analysisReportSummarySchema
     generatedAt: utcIsoStringSchema,
     evidence: z.array(analysisEvidenceSchema),
     agentAnalysis: agentAnalysisSchema.nullable(),
+    validationFailure: validationFailureSchema.nullable().optional(),
   })
   .superRefine((report, context) => {
     const hasAgentAnalysis = report.agentAnalysis !== null;

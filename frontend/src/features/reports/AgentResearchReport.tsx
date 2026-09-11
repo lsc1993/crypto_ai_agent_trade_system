@@ -57,6 +57,15 @@ const coverageLabels = {
   complete: "完整",
 } as const;
 
+const validationCategoryLabels = {
+  chinese_text_required: "中文文本要求",
+  narrative_length: "正文长度",
+  schema: "字段结构",
+  text_empty: "必填文本",
+  text_length: "单项文本长度",
+  trading_instruction: "交易指令限制",
+} as const;
+
 const statusLabels = {
   queued: "排队中",
   running: "分析中",
@@ -227,6 +236,16 @@ export function DegradedAgentResearchReport({
             <dt>模型输出</dt>
             <dd>未通过格式校验</dd>
           </div>
+          {report.validationFailure === undefined || report.validationFailure === null ? null : (
+            <div>
+              <dt>格式校验摘要</dt>
+              <dd>
+                已尝试 {report.validationFailure.attemptCount} 次 · 发现 {report.validationFailure.issueCount} 项问题
+                {report.validationFailure.fieldPaths.length === 0 ? "" : ` · 字段：${report.validationFailure.fieldPaths.join("、")}`}
+                {report.validationFailure.errorCategories.length === 0 ? "" : ` · 类别：${report.validationFailure.errorCategories.map((category) => validationCategoryLabels[category]).join("、")}`}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>数据截止时间（UTC）</dt>
             <dd>

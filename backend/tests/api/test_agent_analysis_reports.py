@@ -33,6 +33,7 @@ from app.reports.contracts import (
     AnalysisReportStatus,
     Catalyst,
     MarketOutlook,
+    ModelValidationFailure,
     PersistedAnalysisEvidence,
     PersistedAnalysisReport,
     PriceZone,
@@ -193,6 +194,36 @@ async def test_analysis_post_retry_and_detail_preserve_the_http_contract() -> No
     assert payload["agentAnalysis"]["catalysts"][0]["evidenceIds"] == [str(EVIDENCE_ID)]
     assert "api_key" not in detail.text.lower()
     assert "authorization" not in detail.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_degraded_detail_exposes_only_sanitized_validation_failure() -> None:
+    report = _report().model_copy(
+        update={
+            "status": AnalysisReportStatus.DEGRADED,
+            "validation_failure": ModelValidationFailure(
+                attempt_count=3,
+                issue_count=2,
+                field_paths=("short_term.thesis",),
+                error_categories=("trading_instruction",),
+            ),
+        }
+    )
+    app = create_app(
+        analysis_report_repository=ReportReader(report),  # type: ignore[arg-type]
+        agent_research_service=FakeAgentService(report),
+    )
+
+    response = await _request(app, "GET", f"/api/v1/analysis-runs/{REPORT_ID}")
+
+    assert response.status_code == 200
+    assert response.json()["validationFailure"] == {
+        "attemptCount": 3,
+        "issueCount": 2,
+        "fieldPaths": ["short_term.thesis"],
+        "errorCategories": ["trading_instruction"],
+    }
+    assert "LEAKED_MODEL_RESPONSE_BODY" not in response.text
 
 
 @pytest.mark.asyncio

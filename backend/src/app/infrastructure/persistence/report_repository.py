@@ -23,6 +23,7 @@ from app.reports.contracts import (
     AnalysisReportCreation,
     AnalysisReportStatus,
     AnalysisReportSummary,
+    ModelValidationFailure,
     PersistedAnalysisEvidence,
     PersistedAnalysisReport,
     ReportGeneratorKind,
@@ -85,6 +86,26 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
                             completed_at=creation.completed_at,
                             generator_kind=creation.generator_kind.value,
                             error_code=creation.error_code,
+                            model_validation_attempt_count=(
+                                None
+                                if creation.validation_failure is None
+                                else creation.validation_failure.attempt_count
+                            ),
+                            model_validation_issue_count=(
+                                None
+                                if creation.validation_failure is None
+                                else creation.validation_failure.issue_count
+                            ),
+                            model_validation_field_paths=(
+                                None
+                                if creation.validation_failure is None
+                                else list(creation.validation_failure.field_paths)
+                            ),
+                            model_validation_error_categories=(
+                                None
+                                if creation.validation_failure is None
+                                else list(creation.validation_failure.error_categories)
+                            ),
                         )
                     )
                     session.add(
@@ -304,6 +325,7 @@ async def _to_persisted_report(
         **_to_summary(record, run).model_dump(),
         evidence=tuple(_to_evidence(evidence) for evidence in evidence_records),
         agent_analysis=None if detail is None else _to_agent_analysis(detail),
+        validation_failure=_validation_failure(run),
     )
 
 
@@ -330,6 +352,24 @@ def _to_summary(
             if run is None
             else ReportGeneratorKind(run.generator_kind)
         ),
+    )
+
+
+def _validation_failure(run: AgentAnalysisRunRecord | None) -> ModelValidationFailure | None:
+    if (
+        run is None
+        or run.error_code != "model_invalid_response"
+        or run.model_validation_attempt_count is None
+        or run.model_validation_issue_count is None
+        or run.model_validation_field_paths is None
+        or run.model_validation_error_categories is None
+    ):
+        return None
+    return ModelValidationFailure(
+        attempt_count=run.model_validation_attempt_count,
+        issue_count=run.model_validation_issue_count,
+        field_paths=tuple(run.model_validation_field_paths),
+        error_categories=tuple(run.model_validation_error_categories),
     )
 
 

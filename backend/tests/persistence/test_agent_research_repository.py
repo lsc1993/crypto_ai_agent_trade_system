@@ -44,6 +44,7 @@ from app.reports.contracts import (
     AnalysisReportStatus,
     Catalyst,
     MarketOutlook,
+    ModelValidationFailure,
     PriceZone,
     ReportGeneratorKind,
     RiskAndInvalidation,
@@ -137,6 +138,44 @@ async def test_agent_repository_persists_run_frozen_evidence_and_immutable_detai
             )
             await session.commit()
 
+
+@pytest.mark.asyncio
+async def test_agent_repository_persists_sanitized_model_validation_failure(
+    migrated_database: MigratedDatabase,
+) -> None:
+    validation_failure = ModelValidationFailure(
+        attempt_count=3,
+        issue_count=2,
+        field_paths=("short_term.thesis", "factor_interpretations.0.summary"),
+        error_categories=("schema", "trading_instruction"),
+    )
+    creation = _agent_creation_for(
+        report_id=UUID("00000000-0000-0000-0000-000000000308"),
+        evidence_id=UUID("00000000-0000-0000-0000-000000000309"),
+        status=AnalysisReportStatus.DEGRADED,
+        error_code="model_invalid_response",
+        validation_failure=validation_failure,
+    )
+    repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+
+    persisted = await repository.persist_agent(creation)
+
+    assert persisted.validation_failure == validation_failure
+    async with migrated_database.session_factory() as session:
+        run = (
+            await session.execute(
+                select(AgentAnalysisRunRecord).where(
+                    AgentAnalysisRunRecord.analysis_id == persisted.analysis_id
+                )
+            )
+        ).scalar_one()
+    assert run.model_validation_attempt_count == 3
+    assert run.model_validation_issue_count == 2
+    assert run.model_validation_field_paths == [
+        "short_term.thesis",
+        "factor_interpretations.0.summary",
+    ]
+    assert run.model_validation_error_categories == ["schema", "trading_instruction"]
 
 @pytest.mark.asyncio
 async def test_agent_repository_round_trips_dual_horizon_narrative(
@@ -335,6 +374,7 @@ def _agent_creation_for(
     evidence_id: UUID,
     status: AnalysisReportStatus,
     error_code: str | None,
+    validation_failure: ModelValidationFailure | None = None,
 ) -> AgentReportCreation:
     creation = _agent_creation()
     report_updates: dict[str, object] = {
@@ -374,6 +414,7 @@ def _agent_creation_for(
         completed_at=creation.completed_at,
         generator_kind=creation.generator_kind,
         error_code=error_code,
+        validation_failure=validation_failure,
         agent_analysis=analysis,
     )
 

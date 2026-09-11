@@ -307,6 +307,7 @@ class RecordingRepository:
                 for evidence in creation.evidences
             ),
             agent_analysis=creation.agent_analysis,
+            validation_failure=creation.validation_failure,
         )
 
 
@@ -554,6 +555,40 @@ async def test_graph_persists_degraded_for_an_unexpected_model_failure() -> None
     assert report.status is AnalysisReportStatus.DEGRADED
     assert repository.creations[0].error_code == "model_upstream_error"
     assert "secret model failure" not in repr(repository.creations[0])
+
+
+@pytest.mark.asyncio
+async def test_graph_persists_bounded_format_validation_failure_summary() -> None:
+    repository = RecordingRepository()
+    service = _service(
+        market=_market(),
+        news=_collection(),
+        model=RecordingModel(
+            [
+                ModelOutputError(
+                    "model_invalid_response",
+                    "invalid schema",
+                    validation_issue_count=2,
+                    validation_field_paths=("short_term.thesis",),
+                    validation_error_categories=("trading_instruction",),
+                    format_attempt_count=3,
+                )
+            ]
+        ),
+        repository=repository,
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.DEGRADED
+    assert report.validation_failure is not None
+    assert report.validation_failure.model_dump() == {
+        "attempt_count": 3,
+        "issue_count": 2,
+        "field_paths": ("short_term.thesis",),
+        "error_categories": ("trading_instruction",),
+    }
+    assert repository.creations[0].validation_failure == report.validation_failure
 
 
 @pytest.mark.asyncio
