@@ -1,3 +1,9 @@
+"""公开市场快照的 SQLAlchemy 仓储实现。
+
+数据流：MarketCaptureBatch → K 线上传、指标插入、展示快照及完整输入快照 → 单一
+数据库事务。K 线可幂等更新，快照及输入哈希保留一次采集的可复放证据。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -34,12 +40,14 @@ class SqlAlchemyMarketRepository(MarketRepository):
         self,
         batches: tuple[MarketCaptureBatch, ...],
     ) -> tuple[UUID, ...]:
+        """在同一事务中保存一批市场采集并按输入顺序返回生成的快照 ID。"""
         if not batches:
             return ()
 
         snapshot_ids: list[UUID] = []
         async with self._session_factory() as session:
             async with session.begin():
+                # K 线、派生指标、展示快照与完整输入必须同一事务提交，防止报告引用半成品证据。
                 for batch in batches:
                     await session.execute(_upsert_candles(batch.candles))
                     await session.execute(_insert_observations(batch.observations))
@@ -51,6 +59,8 @@ class SqlAlchemyMarketRepository(MarketRepository):
 
 
 def _upsert_candles(candles: Sequence[Candle]):
+    """构造按标的、周期和开盘时刻幂等更新的 K 线 UPSERT 语句。"""
+    # 相同标的/周期/开盘时刻的 K 线可被后续更完整的公开数据修正，但不会产生重复记录。
     statement = insert(MarketCandleRecord).values(
         [
             {
@@ -89,6 +99,7 @@ def _upsert_candles(candles: Sequence[Candle]):
 
 
 def _insert_observations(observations: Sequence[DerivativeObservation]):
+    """构造忽略重复指标观测的 INSERT 语句，保留最先记录的原始观察。"""
     statement = insert(DerivativeObservationRecord).values(
         [
             {
@@ -109,6 +120,7 @@ def _insert_observations(observations: Sequence[DerivativeObservation]):
 
 
 def _insert_snapshot(batch: MarketCaptureBatch, snapshot_id: UUID):
+    """构造展示用市场摘要快照的 INSERT 语句，并保留载荷哈希。"""
     snapshot = batch.snapshot
     return insert(MarketSnapshotRecord).values(
         id=snapshot_id,
@@ -123,6 +135,8 @@ def _insert_snapshot(batch: MarketCaptureBatch, snapshot_id: UUID):
 
 
 def _insert_snapshot_input(batch: MarketCaptureBatch, snapshot_id: UUID):
+    """构造完整 K 线输入快照的 INSERT 语句，用于研究和回测复放。"""
+    # 快照输入保存可复放的完整 K 线集合，并与展示用摘要分开哈希、独立校验。
     candles = _snapshot_input_candles(batch)
     payload = cast(
         dict[str, JsonValue],
@@ -138,6 +152,8 @@ def _insert_snapshot_input(batch: MarketCaptureBatch, snapshot_id: UUID):
 
 
 def _snapshot_input_candles(batch: MarketCaptureBatch) -> tuple[Candle, ...]:
+    """按枚举周期和开盘时间稳定排序，每周期截取最近 200 根作为冻结输入。"""
+    # 每个周期最多保留最近 200 根，并固定按周期和开盘时间排序，使哈希在重复采集时稳定。
     return tuple(
         candle
         for timeframe in MarketTimeframe

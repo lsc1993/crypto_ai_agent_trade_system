@@ -53,6 +53,7 @@ from app.market.contracts import (
     MarketDataUnavailableError,
     MarketTimeframe,
 )
+from app.market.etf_flows import FARSIDE_BASE_URL, FarsideEtfFlowGateway
 from app.market.gateway import HistoricalCandleGateway, PublicMarketGateway
 from app.market.research import (
     MarketResearchQueryService,
@@ -439,6 +440,7 @@ def create_app(
 
     news_client: httpx.AsyncClient | None = None
     alternative_client: httpx.AsyncClient | None = None
+    etf_client: httpx.AsyncClient | None = None
     model_client: httpx.AsyncClient | None = None
     checkpoint_connection: str | None = None
     agent_service_factory: Callable[[AsyncPostgresSaver], AnalysisReportService] | None = None
@@ -454,6 +456,13 @@ def create_app(
         and agent_report_repository is not None
     ):
         news_client = httpx.AsyncClient(headers={"Accept": "application/xml"})
+        etf_client = httpx.AsyncClient(
+            base_url=FARSIDE_BASE_URL,
+            headers={"Accept": "text/html"},
+            timeout=5.0,
+            follow_redirects=False,
+        )
+        etf_gateway = FarsideEtfFlowGateway(client=etf_client, clock=lambda: datetime.now(UTC))
         if isinstance(market_gateway, BinanceUsdmPublicMarketGateway):
             alternative_client = httpx.AsyncClient(
                 base_url=ALTERNATIVE_ME_BASE_URL,
@@ -501,6 +510,15 @@ def create_app(
                     model=model,
                     repository=agent_report_repository,
                     clock=lambda: datetime.now(UTC),
+                    funding=(
+                        market_gateway
+                        if isinstance(
+                            market_gateway,
+                            BinanceUsdmPublicMarketGateway,
+                        )
+                        else None
+                    ),
+                    etf=etf_gateway,
                 ),
                 checkpointer=checkpointer,
             )
@@ -536,6 +554,8 @@ def create_app(
                 await news_client.aclose()
             if alternative_client is not None:
                 await alternative_client.aclose()
+            if etf_client is not None:
+                await etf_client.aclose()
             if market_client is not None:
                 await market_client.aclose()
             if research_engine is not None:

@@ -1,3 +1,9 @@
+"""Agent 市场研究应用服务。
+
+数据流：采集并冻结行情/新闻/公开上下文 → 计算技术结构 → 构造最小证据请求 →
+验证模型引用 → 持久化完成或降级报告。所有异常都归一化为可审计的错误码。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +19,14 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import JsonValue
 
 from app.agent.contracts import AgentErrorCode, AgentRunState
+from app.agent.evidence import FrozenResearchEvidence as _FrozenEvidence
+from app.agent.factor_collection import (
+    EtfFlowReader,
+    FundingHistoryReader,
+    collect_etf,
+    collect_funding,
+)
+from app.agent.factors import POLICY_SOURCES, apply_interpretations, policy_topic, select_news
 from app.agent.graph import build_agent_graph
 from app.agent.market_structure import MarketStructure, calculate_market_structure
 from app.agent.model import (
@@ -48,10 +62,12 @@ from app.reports.contracts import (
     AnalysisReportStatus,
     FrozenMarketMetrics,
     MarketOutlook,
+    ModelValidationFailure,
     PersistedAnalysisReport,
     ReportGeneratorKind,
     report_payload_sha256,
 )
+from app.reports.factors import FactorAnalysis
 
 SourceCoverage = Literal["none", "partial", "complete"]
 
@@ -63,8 +79,8 @@ _TIMEFRAMES = (
 )
 _CANDLE_LIMIT = 200
 _FRESHNESS_THRESHOLD = timedelta(minutes=2)
-_NEWS_WINDOW = timedelta(days=3)
-_MAX_NEWS_EVIDENCE = 28
+_NEWS_WINDOW = timedelta(days=7)
+_MAX_NEWS_EVIDENCE = 26
 _MARKET_SOURCE_URL = "https://www.binance.com/en/futures/"
 _MARKET_CONTEXT_SOURCE_URL = "https://fapi.binance.com/"
 _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
@@ -73,7 +89,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class CapturedAgentMarket:
-    """Frozen Task 4 market snapshot plus closed series, kept out of graph state."""
+    """一次 Agent 运行使用的冻结行情摘要、已收盘 K 线和可选公开上下文。"""
 
     snapshot_id: UUID
     snapshot: PersistedMarketSnapshot
@@ -128,7 +144,7 @@ class AgentReportPersister(Protocol):
 
 
 class PersistedAgentMarketCapture:
-    """Composes Task 4 capture/read ports without accessing a market gateway directly."""
+    """组合采集和读取端口，不让 Agent 服务直接访问市场网关。"""
 
     def __init__(
         self,
@@ -147,6 +163,11 @@ class PersistedAgentMarketCapture:
         *,
         captured_at: datetime,
     ) -> CapturedAgentMarket:
+        """采集一个标的并从刚持久化的快照重建完整研究输入。
+
+        不直接把网关响应交给后续节点，确保市场结构、模型证据和最终报告都引用同一
+        快照 ID 与输入哈希。
+        """
         _require_utc(captured_at)
         snapshot_id = await self._capture_service.capture_symbol(
             symbol,
@@ -164,6 +185,7 @@ class PersistedAgentMarketCapture:
                 AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE.value,
                 "冻结市场 K 线输入不可用",
             )
+        # 研究结构需要完整的冻结序列；仅从刚持久化的输入读取，避免随后行情变化影响本次运行。
         series = tuple(
             [
                 self._closed_series(
@@ -204,6 +226,7 @@ class PersistedAgentMarketCapture:
         *,
         captured_at: datetime,
     ) -> CandleSeries:
+        """从冻结输入筛选一个周期的已收盘 K 线，并按开盘时间排序。"""
         candles = tuple(
             candle
             for candle in snapshot_input.candles
@@ -242,6 +265,8 @@ class AgentResearchDependencies:
     model: ResearchLanguageModel | None
     repository: AgentReportPersister
     clock: Callable[[], datetime]
+    funding: FundingHistoryReader | None = None
+    etf: EtfFlowReader | None = None
 
 
 class AgentResearchService:
@@ -262,7 +287,13 @@ class AgentResearchService:
         *,
         analysis_id: UUID | None = None,
     ) -> PersistedAnalysisReport:
+        """为手动请求运行完整研究图，并返回已持久化的最终或降级报告。
+
+        analysis_id 既是图 checkpoint 的 thread_id，也是整个审计链的关联键；取消会
+        原样传播，其他异常保留为日志和调用方可见的失败。
+        """
         started_at = _require_utc(self._dependencies.clock())
+        # 每次手动请求都是隔离的运行实例，图状态只保存可检查的轻量元数据。
         run = _AgentResearchRun(
             dependencies=self._dependencies,
             analysis_id=uuid4() if analysis_id is None else analysis_id,
@@ -319,21 +350,10 @@ class AgentResearchService:
         return run.persisted_report
 
 
-@dataclass(frozen=True)
-class _FrozenEvidence:
-    id: UUID
-    kind: ModelEvidenceKind
-    source: str
-    source_url: str
-    observed_at: datetime
-    fetched_at: datetime
-    summary: str
-    content: str
-    payload: dict[str, JsonValue]
-
-
 @dataclass
 class _AgentResearchRun:
+    """LangGraph 各节点共享的请求内工作区，不作为持久化领域模型使用。"""
+
     dependencies: AgentResearchDependencies
     analysis_id: UUID
     symbol: ContractSymbol
@@ -347,8 +367,12 @@ class _AgentResearchRun:
     market_context_evidence: _FrozenEvidence | None = None
     news_evidence: tuple[_FrozenEvidence, ...] = ()
     persisted_report: PersistedAnalysisReport | None = None
+    factor_analysis: FactorAnalysis | None = None
+    factor_evidence: tuple[_FrozenEvidence, ...] = ()
+    validation_failure: ModelValidationFailure | None = None
 
     async def collect_market(self, state: AgentRunState) -> dict[str, object]:
+        """图节点：采集并校验冻结行情，将可用证据 ID 写入轻量状态。"""
         try:
             market = await self.dependencies.market.capture(
                 state.symbol,
@@ -369,6 +393,7 @@ class _AgentResearchRun:
                 evidence_ids=self._evidence_ids(),
                 error_code=market.research_context_error,
             )
+        # 节点失败被归一化为受控错误码，由后续分支生成可审计的降级报告。
         except MarketDataUnavailableError as error:
             code = _safe_error_code(error.code)
         except (TypeError, ValueError):
@@ -381,6 +406,8 @@ class _AgentResearchRun:
         return self._update(state, node_name="collect_market", error_code=code)
 
     async def collect_news(self, state: AgentRunState) -> dict[str, object]:
+        """图节点：收集固定时间窗内新闻；失败时保留空集合并进入可审计降级路径。"""
+        collection_failed = False
         try:
             self.news = await self.dependencies.news.collect(
                 state.symbol,
@@ -388,6 +415,7 @@ class _AgentResearchRun:
                 until=self.started_at,
             )
         except Exception:
+            collection_failed = True
             self.news = NewsCollection(
                 items=(),
                 source_count=0,
@@ -395,14 +423,32 @@ class _AgentResearchRun:
                 failed_source_count=0,
                 error_codes=(),
             )
-            return self._update(
-                state,
-                node_name="collect_news",
-                error_code=AgentErrorCode.NEWS_SOURCE_FAILED,
-            )
-
-        self.news_evidence = _news_evidences(self.news.items)
-        error_code = AgentErrorCode.NEWS_SOURCE_FAILED if self.news.failed_source_count else None
+        selected = select_news(
+            self.news.items, symbol=self.symbol, as_of=self.started_at, limit=_MAX_NEWS_EVIDENCE
+        )
+        self.news_evidence = _news_evidences(selected)
+        funding, etf = await asyncio.gather(
+            collect_funding(self.dependencies.funding, symbol=self.symbol, as_of=self.started_at),
+            collect_etf(self.dependencies.etf, symbol=self.symbol, as_of=self.started_at),
+        )
+        self.factor_evidence = tuple(item for item in (funding[1], etf[1]) if item is not None)
+        self.factor_analysis = FactorAnalysis(
+            policy=policy_topic(
+                tuple(
+                    (item, evidence.id)
+                    for item, evidence in zip(selected, self.news_evidence, strict=True)
+                ),
+                as_of=self.started_at,
+                source_coverage=_policy_source_coverage(self.news),
+            ),
+            funding=funding[0],
+            etf=etf[0],
+        )
+        error_code = (
+            AgentErrorCode.NEWS_SOURCE_FAILED
+            if collection_failed or self.news.failed_source_count
+            else None
+        )
         return self._update(
             state,
             node_name="collect_news",
@@ -414,6 +460,7 @@ class _AgentResearchRun:
         )
 
     async def compute_structure(self, state: AgentRunState) -> dict[str, object]:
+        """图节点：确认行情新鲜、K 线完整且模型已配置后计算确定性结构。"""
         if self.market is None:
             return self._update(state, node_name="compute_structure")
         if _is_stale(self.market, self.started_at):
@@ -459,10 +506,12 @@ class _AgentResearchRun:
         self,
         state: AgentRunState,
     ) -> Literal["model", "degraded"]:
+        """图条件边：只有此前节点没有设置降级错误码时才允许进入模型节点。"""
         del state
         return "degraded" if self.degraded_error is not None else "model"
 
     async def generate_model_report(self, state: AgentRunState) -> dict[str, object]:
+        """图节点：以冻结证据请求模型，并拒绝引用未知证据的候选结论。"""
         model = self.dependencies.model
         if model is None or self.structure is None:
             self.degraded_error = AgentErrorCode.MODEL_NOT_CONFIGURED
@@ -471,9 +520,11 @@ class _AgentResearchRun:
                 node_name="generate_model_report",
                 error_code=self.degraded_error,
             )
+        # 传给模型的是本次运行冻结的最小证据集；模型不能自行扩展数据来源。
         request = ResearchModelRequest(
             symbol=self.symbol,
             structure=self.structure,
+            factor_analysis=self.factor_analysis,
             evidences=tuple(
                 ModelEvidence(
                     id=evidence.id,
@@ -487,12 +538,34 @@ class _AgentResearchRun:
         )
         try:
             proposal = await self._generate_with_one_empty_retry(model, request)
+            # 模型结论必须显式引用已冻结的证据 ID，防止凭空生成不可追溯的观点。
             if not _proposal_uses_known_evidence(proposal, self._evidence_ids()):
                 self.degraded_error = AgentErrorCode.MODEL_INVALID_EVIDENCE
             else:
+                if self.factor_analysis is not None:
+                    try:
+                        self.factor_analysis = apply_interpretations(
+                            self.factor_analysis,
+                            proposal.factor_interpretations,
+                        )
+                    except ValueError as error:
+                        raise ModelOutputError(
+                            "model_invalid_evidence",
+                            "模型引用了错误专题证据",
+                        ) from error
                 self.proposal = proposal
         except ModelOutputError as error:
             self.degraded_error = _safe_error_code(error.code)
+            if (
+                error.code == AgentErrorCode.MODEL_INVALID_RESPONSE.value
+                and error.format_attempt_count > 0
+            ):
+                self.validation_failure = ModelValidationFailure(
+                    attempt_count=error.format_attempt_count,
+                    issue_count=error.validation_issue_count,
+                    field_paths=error.validation_field_paths,
+                    error_categories=error.validation_error_categories,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -506,10 +579,12 @@ class _AgentResearchRun:
         return self._update(state, node_name="generate_model_report")
 
     async def persist_degraded_report(self, state: AgentRunState) -> dict[str, object]:
+        """图节点：将已有证据和受控错误码保存为不含市场结论的降级报告。"""
         await self._persist(completed=False)
         return self._update(state, node_name="persist_degraded_report")
 
     async def validate_and_persist_report(self, state: AgentRunState) -> dict[str, object]:
+        """图节点：根据模型提案与运行状态选择完成或降级报告并持久化。"""
         await self._persist(completed=self.proposal is not None and self.degraded_error is None)
         return self._update(state, node_name="validate_and_persist_report")
 
@@ -518,6 +593,7 @@ class _AgentResearchRun:
         model: ResearchLanguageModel,
         request: ResearchModelRequest,
     ) -> AgentAnalysisProposal:
+        """只在模型返回空结果时额外重试一次，避免泛化重试掩盖上游故障。"""
         try:
             return await model.generate(request)
         except ModelOutputError as error:
@@ -533,12 +609,14 @@ class _AgentResearchRun:
         return await model.generate(request)
 
     async def _persist(self, *, completed: bool) -> None:
+        """把冻结证据、报告草稿与结构化 Agent 分析作为一个关联结果交给仓储。"""
         completed_at = _require_utc(self.dependencies.clock())
         report_id = uuid4()
         evidence = tuple(
             _to_report_evidence(item, report_id=report_id, symbol=self.symbol)
             for item in self._evidences()
         )
+        # 无论成功还是降级都落库：失败本身也是需要关联证据和错误码的审计结果。
         report = (
             _completed_report(
                 report_id=report_id,
@@ -569,6 +647,12 @@ class _AgentResearchRun:
             market=self.market,
             error=self.degraded_error,
         )
+        agent_analysis = AgentAnalysis.model_validate(
+            {
+                **agent_analysis.model_dump(),
+                "factor_analysis": self.factor_analysis,
+            }
+        )
         self.persisted_report = await self.dependencies.repository.persist_agent(
             AgentReportCreation(
                 report=report,
@@ -577,6 +661,7 @@ class _AgentResearchRun:
                 completed_at=completed_at,
                 generator_kind=ReportGeneratorKind.LANGGRAPH_DEEPSEEK,
                 error_code=None if completed else _error_code_value(self.degraded_error),
+                validation_failure=None if completed else self.validation_failure,
                 agent_analysis=agent_analysis,
             )
         )
@@ -590,8 +675,7 @@ class _AgentResearchRun:
             market.snapshot.summary.symbol is not symbol
             or market.detail.summary.symbol is not symbol
             or (
-                market.research_context is not None
-                and market.research_context.symbol is not symbol
+                market.research_context is not None and market.research_context.symbol is not symbol
             )
         ):
             raise ValueError("market symbol mismatch")
@@ -603,7 +687,7 @@ class _AgentResearchRun:
         context_evidence = (
             () if self.market_context_evidence is None else (self.market_context_evidence,)
         )
-        return market_evidence + context_evidence + self.news_evidence
+        return market_evidence + context_evidence + self.news_evidence + self.factor_evidence
 
     def _evidence_ids(self) -> tuple[UUID, ...]:
         return tuple(evidence.id for evidence in self._evidences())
@@ -875,12 +959,8 @@ def _frozen_market_metrics(market: CapturedAgentMarket) -> FrozenMarketMetrics:
         funding_rate=summary.funding_rate,
         open_interest=summary.open_interest,
         fear_greed_value=None if context is None else context.fear_greed_value,
-        fear_greed_classification=(
-            None if context is None else context.fear_greed_classification
-        ),
-        fear_greed_change_7d=(
-            None if context is None else context.fear_greed_change_7d
-        ),
+        fear_greed_classification=(None if context is None else context.fear_greed_classification),
+        fear_greed_change_7d=(None if context is None else context.fear_greed_change_7d),
     )
 
 
@@ -908,6 +988,7 @@ def _proposal_uses_known_evidence(
     referenced = {
         evidence_id
         for item in (
+            *proposal.factor_interpretations,
             *proposal.catalysts,
             *proposal.risks_and_invalidation,
             proposal.market_overview,
@@ -925,6 +1006,13 @@ def _source_coverage(news: NewsCollection | None) -> SourceCoverage:
     if news is None or news.successful_source_count == 0:
         return "none"
     return "partial" if news.failed_source_count else "complete"
+
+
+def _policy_source_coverage(news: NewsCollection) -> SourceCoverage:
+    if not news.successful_source_ids and not news.failed_source_ids:
+        return _source_coverage(news)
+    covered = set(news.successful_source_ids) & POLICY_SOURCES
+    return "none" if not covered else "complete" if covered == set(POLICY_SOURCES) else "partial"
 
 
 def _limitations(
@@ -964,6 +1052,7 @@ def _bounded_confidence(
     proposed: Literal["low", "medium", "high"],
     deterministic: Literal["low", "medium", "high"],
 ) -> Literal["low", "medium", "high"]:
+    # 最终置信度只能低于或等于确定性技术结构给出的上限，模型不能自行抬高。
     return (
         proposed if _CONFIDENCE_RANK[proposed] <= _CONFIDENCE_RANK[deterministic] else deterministic
     )

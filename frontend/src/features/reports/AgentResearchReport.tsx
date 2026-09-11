@@ -7,6 +7,7 @@ import {
   formatOpenInterest,
 } from "../../shared/format";
 import "./research-report.css";
+import { ReportFactorAnalysis } from "./ReportFactorAnalysis";
 
 type DualHorizonAnalysis = Extract<
   NonNullable<AnalysisReport["agentAnalysis"]>,
@@ -54,6 +55,15 @@ const coverageLabels = {
   none: "无覆盖",
   partial: "部分覆盖",
   complete: "完整",
+} as const;
+
+const validationCategoryLabels = {
+  chinese_text_required: "中文文本要求",
+  narrative_length: "正文长度",
+  schema: "字段结构",
+  text_empty: "必填文本",
+  text_length: "单项文本长度",
+  trading_instruction: "交易指令限制",
 } as const;
 
 const statusLabels = {
@@ -137,6 +147,8 @@ export function AgentResearchReport({ report }: { report: DualHorizonReport }) {
         <EvidenceReferences evidenceIds={narrative.marketOverview.evidenceIds} />
       </section>
 
+      <ReportFactorAnalysis analysis={analysis.factorAnalysis ?? null} />
+
       <PerspectiveSection
         analysis={analysis}
         horizonLabel="数天至两周"
@@ -217,13 +229,23 @@ export function DegradedAgentResearchReport({
         </p>
         <h1>本次 AI 详尽报告未生成</h1>
         <p className="research-report__summary">
-          模型输出未通过格式校验，因此系统没有将其展示为市场观点。以下仅保留可审计的冻结市场结构与数据质量信息；请以新的研究任务重新生成双周期中文报告。
+          模型输出未通过格式校验，因此系统没有将其展示为市场观点。以下保留可审计的专题事实、冻结市场结构与数据质量信息；请以新的研究任务重新生成双周期中文报告。
         </p>
         <dl className="research-report__hero-meta">
           <div>
             <dt>模型输出</dt>
             <dd>未通过格式校验</dd>
           </div>
+          {report.validationFailure === undefined || report.validationFailure === null ? null : (
+            <div>
+              <dt>格式校验摘要</dt>
+              <dd>
+                已尝试 {report.validationFailure.attemptCount} 次 · 发现 {report.validationFailure.issueCount} 项问题
+                {report.validationFailure.fieldPaths.length === 0 ? "" : ` · 字段：${report.validationFailure.fieldPaths.join("、")}`}
+                {report.validationFailure.errorCategories.length === 0 ? "" : ` · 类别：${report.validationFailure.errorCategories.map((category) => validationCategoryLabels[category]).join("、")}`}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>数据截止时间（UTC）</dt>
             <dd>
@@ -246,6 +268,8 @@ export function DegradedAgentResearchReport({
           </div>
         </dl>
       </header>
+
+      <ReportFactorAnalysis analysis={analysis.factorAnalysis ?? null} />
 
       <section
         className="research-report__section research-report__section--overview"

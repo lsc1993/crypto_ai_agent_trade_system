@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
+import { factorAnalysisSchema } from "./report-factors";
 
 import {
   decimalStringSchema,
@@ -184,6 +185,7 @@ const marketMetricsSchema = z
 
 const agentAnalysisBaseSchema = z
   .object({
+    factorAnalysis: factorAnalysisSchema.nullable().optional(),
     outlook: marketOutlookSchema,
     confidence: z.enum(["low", "medium", "high"]),
     trendAlignment: z.partialRecord(timeframeSchema, trendDirectionSchema),
@@ -215,6 +217,26 @@ const agentAnalysisSchema = z.discriminatedUnion("horizon", [
   }),
 ]);
 
+const validationFailureSchema = z
+  .object({
+    attemptCount: z.number().int().min(1).max(3),
+    issueCount: z.number().int().min(0).max(99),
+    fieldPaths: z.array(z.string().regex(/^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$/)).max(8),
+    errorCategories: z
+      .array(
+        z.enum([
+          "chinese_text_required",
+          "narrative_length",
+          "schema",
+          "text_empty",
+          "text_length",
+          "trading_instruction",
+        ]),
+      )
+      .max(8),
+  })
+  .strict();
+
 export const analysisReportSummarySchema = z
   .object({
     id: identifierSchema,
@@ -238,6 +260,7 @@ export const analysisReportSchema = analysisReportSummarySchema
     generatedAt: utcIsoStringSchema,
     evidence: z.array(analysisEvidenceSchema),
     agentAnalysis: agentAnalysisSchema.nullable(),
+    validationFailure: validationFailureSchema.nullable().optional(),
   })
   .superRefine((report, context) => {
     const hasAgentAnalysis = report.agentAnalysis !== null;
@@ -257,6 +280,15 @@ export const analysisReportSchema = analysisReportSummarySchema
     }
 
     const evidenceIds = new Set(report.evidence.map((evidence) => evidence.id));
+    const factors = report.agentAnalysis.factorAnalysis;
+    if (factors) {
+      for (const kind of ["policy", "funding", "etf"] as const) {
+        if (factors[kind].evidenceIds.some((id) => !evidenceIds.has(id))) {
+          context.addIssue({ code: "custom", path: ["agentAnalysis", "factorAnalysis", kind],
+            message: "Factor references must belong to this report's frozen evidence" });
+        }
+      }
+    }
     const referenceGroups = [
       ...report.agentAnalysis.catalysts.map((item, index) => ({
         path: ["agentAnalysis", "catalysts", index, "evidenceIds"],

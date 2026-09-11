@@ -28,6 +28,7 @@ from app.reports.contracts import (
     RiskAndInvalidation,
     TrendDirection,
 )
+from app.reports.factors import FactorAnalysis
 from app.reports.repository import AnalysisReportRepository
 from app.reports.service import AnalysisReportService
 
@@ -105,6 +106,13 @@ class AgentDataQualityResponse(_ApiModel):
     source_coverage: str
 
 
+class ModelValidationFailureResponse(_ApiModel):
+    attempt_count: int
+    issue_count: int
+    field_paths: tuple[str, ...]
+    error_categories: tuple[str, ...]
+
+
 class EvidenceBackedClaimResponse(_ApiModel):
     label: str
     detail: str
@@ -156,6 +164,7 @@ class AgentAnalysisResponse(_ApiModel):
     limitations: tuple[str, ...]
     narrative: AgentResearchNarrativeResponse | None
     market_metrics: FrozenMarketMetricsResponse | None
+    factor_analysis: FactorAnalysis | None = None
 
 
 class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
@@ -166,6 +175,7 @@ class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
     generated_at: UtcDateTime
     evidence: tuple[AnalysisEvidenceResponse, ...]
     agent_analysis: AgentAnalysisResponse | None
+    validation_failure: ModelValidationFailureResponse | None
 
 
 class AnalysisReportPageResponse(_ApiModel):
@@ -349,6 +359,16 @@ def _to_detail_response(
             if report.agent_analysis is None
             else _to_agent_analysis_response(report.agent_analysis)
         ),
+        validation_failure=(
+            None
+            if report.validation_failure is None
+            else ModelValidationFailureResponse(
+                attempt_count=report.validation_failure.attempt_count,
+                issue_count=report.validation_failure.issue_count,
+                field_paths=report.validation_failure.field_paths,
+                error_categories=report.validation_failure.error_categories,
+            )
+        ),
     )
 
 
@@ -367,6 +387,7 @@ def _to_evidence_response(
 
 def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisResponse:
     return AgentAnalysisResponse(
+        factor_analysis=analysis.factor_analysis,
         horizon=analysis.horizon,
         outlook=analysis.outlook,
         confidence=analysis.confidence,
@@ -374,9 +395,7 @@ def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisRespons
             timeframe.value: trend for timeframe, trend in analysis.trend_alignment.items()
         },
         support_zones=tuple(_to_price_zone_response(zone) for zone in analysis.support_zones),
-        resistance_zones=tuple(
-            _to_price_zone_response(zone) for zone in analysis.resistance_zones
-        ),
+        resistance_zones=tuple(_to_price_zone_response(zone) for zone in analysis.resistance_zones),
         catalysts=tuple(_to_catalyst_response(item) for item in analysis.catalysts),
         risks_and_invalidation=tuple(
             _to_risk_response(item) for item in analysis.risks_and_invalidation
@@ -388,9 +407,7 @@ def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisRespons
         ),
         limitations=analysis.limitations,
         narrative=(
-            None
-            if analysis.narrative is None
-            else _to_narrative_response(analysis.narrative)
+            None if analysis.narrative is None else _to_narrative_response(analysis.narrative)
         ),
         market_metrics=(
             None
@@ -442,9 +459,7 @@ def _to_perspective_response(
         heading=perspective.heading,
         thesis=perspective.thesis,
         drivers=tuple(_to_claim_response(driver) for driver in perspective.drivers),
-        invalidation=tuple(
-            _to_risk_response(item) for item in perspective.invalidation
-        ),
+        invalidation=tuple(_to_risk_response(item) for item in perspective.invalidation),
     )
 
 

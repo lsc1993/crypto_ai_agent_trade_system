@@ -28,6 +28,10 @@ class AgentAnalysisRunRecord(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     generator_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(100))
+    model_validation_attempt_count: Mapped[int | None] = mapped_column()
+    model_validation_issue_count: Mapped[int | None] = mapped_column()
+    model_validation_field_paths: Mapped[list[str] | None] = mapped_column(JSONB)
+    model_validation_error_categories: Mapped[list[str] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -48,15 +52,14 @@ class AgentReportDetailRecord(Base):
     support_zones: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     resistance_zones: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     catalysts: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
-    risks_and_invalidation: Mapped[list[dict[str, object]]] = mapped_column(
-        JSONB, nullable=False
-    )
+    risks_and_invalidation: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
     data_quality: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     limitations: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     market_overview: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     short_term_view: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     long_term_view: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     market_metrics: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    factor_analysis: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

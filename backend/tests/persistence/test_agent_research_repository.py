@@ -44,12 +44,14 @@ from app.reports.contracts import (
     AnalysisReportStatus,
     Catalyst,
     MarketOutlook,
+    ModelValidationFailure,
     PriceZone,
     ReportGeneratorKind,
     RiskAndInvalidation,
     TrendDirection,
     report_payload_sha256,
 )
+from app.reports.factors import FactorAnalysis, FactorFact, FactorTopic
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 REPORT_ID = UUID("00000000-0000-0000-0000-000000000301")
@@ -58,6 +60,35 @@ EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000302")
 
 class MigratedDatabase(Protocol):
     session_factory: async_sessionmaker[AsyncSession]
+
+
+@pytest.mark.asyncio
+async def test_repository_round_trips_frozen_report_factors(
+    migrated_database: MigratedDatabase,
+) -> None:
+    creation = _agent_creation()
+    funding = FactorTopic(
+        status="available",
+        window_end=NOW,
+        evidence_ids=(EVIDENCE_ID,),
+        facts=(FactorFact(label="最新结算费率", value="-0.000125", unit="rate"),),
+    )
+    missing = FactorTopic(status="missing", window_end=NOW)
+    factors = FactorAnalysis(policy=missing, funding=funding, etf=missing)
+    updated = creation.model_copy(
+        update={
+            "agent_analysis": creation.agent_analysis.model_copy(
+                update={"factor_analysis": factors},
+            )
+        }
+    )
+    repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+    saved = await repository.persist_agent(updated)
+    assert saved.agent_analysis is not None
+    assert saved.agent_analysis.factor_analysis == factors
+    fetched = await repository.get_by_id(saved.id)
+    assert fetched is not None and fetched.agent_analysis is not None
+    assert fetched.agent_analysis.factor_analysis == factors
 
 
 @pytest.mark.asyncio
@@ -109,6 +140,44 @@ async def test_agent_repository_persists_run_frozen_evidence_and_immutable_detai
 
 
 @pytest.mark.asyncio
+async def test_agent_repository_persists_sanitized_model_validation_failure(
+    migrated_database: MigratedDatabase,
+) -> None:
+    validation_failure = ModelValidationFailure(
+        attempt_count=3,
+        issue_count=2,
+        field_paths=("short_term.thesis", "factor_interpretations.0.summary"),
+        error_categories=("schema", "trading_instruction"),
+    )
+    creation = _agent_creation_for(
+        report_id=UUID("00000000-0000-0000-0000-000000000308"),
+        evidence_id=UUID("00000000-0000-0000-0000-000000000309"),
+        status=AnalysisReportStatus.DEGRADED,
+        error_code="model_invalid_response",
+        validation_failure=validation_failure,
+    )
+    repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+
+    persisted = await repository.persist_agent(creation)
+
+    assert persisted.validation_failure == validation_failure
+    async with migrated_database.session_factory() as session:
+        run = (
+            await session.execute(
+                select(AgentAnalysisRunRecord).where(
+                    AgentAnalysisRunRecord.analysis_id == persisted.analysis_id
+                )
+            )
+        ).scalar_one()
+    assert run.model_validation_attempt_count == 3
+    assert run.model_validation_issue_count == 2
+    assert run.model_validation_field_paths == [
+        "short_term.thesis",
+        "factor_interpretations.0.summary",
+    ]
+    assert run.model_validation_error_categories == ["schema", "trading_instruction"]
+
+@pytest.mark.asyncio
 async def test_agent_repository_round_trips_dual_horizon_narrative(
     migrated_database: MigratedDatabase,
 ) -> None:
@@ -149,12 +218,8 @@ async def test_deterministic_reports_remain_backward_compatible_without_agent_de
 async def test_agent_report_persistence_appends_harness_terminal_event_atomically(
     migrated_database: MigratedDatabase,
 ) -> None:
-    report_repository = SqlAlchemyAnalysisReportRepository(
-        migrated_database.session_factory
-    )
-    audit_repository = SqlAlchemyHarnessAuditRepository(
-        migrated_database.session_factory
-    )
+    report_repository = SqlAlchemyAnalysisReportRepository(migrated_database.session_factory)
+    audit_repository = SqlAlchemyHarnessAuditRepository(migrated_database.session_factory)
     completed = _agent_creation()
     await _record_admitted_run(audit_repository, completed.report.analysis_id)
 
@@ -309,6 +374,7 @@ def _agent_creation_for(
     evidence_id: UUID,
     status: AnalysisReportStatus,
     error_code: str | None,
+    validation_failure: ModelValidationFailure | None = None,
 ) -> AgentReportCreation:
     creation = _agent_creation()
     report_updates: dict[str, object] = {
@@ -348,6 +414,7 @@ def _agent_creation_for(
         completed_at=creation.completed_at,
         generator_kind=creation.generator_kind,
         error_code=error_code,
+        validation_failure=validation_failure,
         agent_analysis=analysis,
     )
 

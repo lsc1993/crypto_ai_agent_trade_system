@@ -158,6 +158,15 @@ def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
     )
 
 
+def test_nginx_allows_a_report_request_to_outlast_model_format_retries() -> None:
+    nginx = (ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+
+    api_location = re.search(r"location /api/ \{(?P<body>.*?)\n  \}", nginx, re.DOTALL)
+
+    assert api_location is not None
+    assert "proxy_read_timeout 180s;" in api_location.group("body")
+
+
 def test_shell_entrypoint_is_checked_out_with_lf_line_endings() -> None:
     attribute = subprocess.run(
         ["git", "check-attr", "eol", "--", "backend/docker-entrypoint.sh"],
@@ -202,6 +211,7 @@ def test_compose_exposes_only_local_web_ports(tmp_path: Path) -> None:
     api_environment = cast(dict[str, str], api["environment"])
     assert api_environment["APP_ENV"] == "production"
     assert api_environment["CORS_ALLOWED_ORIGINS"] == '["http://localhost:8080"]'
+    assert api_environment["AGENT_REQUEST_TIMEOUT_SECONDS"] == "60"
 
 
 def test_compose_configuration_ignores_host_project_and_application_environment(

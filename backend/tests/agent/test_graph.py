@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal, cast
 from uuid import UUID, uuid4
@@ -30,6 +30,8 @@ from app.market.contracts import (
     MarketSummary,
     MarketTimeframe,
 )
+from app.market.etf_flows import EtfFlowDay, EtfFlowSnapshot
+from app.market.funding_history import FundingHistory, FundingPoint
 from app.market.research import (
     PersistedMarketSnapshot,
     PersistedMarketSnapshotInput,
@@ -58,6 +60,143 @@ from app.reports.contracts import (
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 SNAPSHOT_ID = UUID("00000000-0000-0000-0000-000000000701")
 ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000702")
+
+
+@pytest.mark.asyncio
+async def test_graph_freezes_public_flow_inputs_and_isolates_funding_failure() -> None:
+    class BrokenFunding:
+        async def get_funding_history(
+            self,
+            symbol: ContractSymbol,
+            *,
+            since: datetime,
+            until: datetime,
+        ) -> FundingHistory:
+            raise TimeoutError("upstream details must not appear in report")
+
+    class EtfReader:
+        async def collect(self, symbol: ContractSymbol, *, as_of: datetime) -> EtfFlowSnapshot:
+            return EtfFlowSnapshot(
+                symbol=symbol,
+                fetched_at=as_of,
+                source_url="https://farside.co.uk/btc/",
+                days=tuple(
+                    EtfFlowDay(
+                        trading_date=date(2026, 8, day),
+                        funds={"IBIT": Decimal("-1000000")},
+                        total_net_flow_usd=Decimal("-1000000"),
+                        complete=True,
+                    )
+                    for day in range(3, 8)
+                ),
+            )
+
+    model = RecordingModel()
+    repository = RecordingRepository()
+    service = AgentResearchService(
+        dependencies=AgentResearchDependencies(
+            market=FakeMarketCapture(_market()),
+            news=FakeNewsIngestion(_collection()),
+            model=model,
+            repository=repository,
+            clock=lambda: NOW,
+            funding=BrokenFunding(),
+            etf=EtfReader(),
+        )
+    )
+    report = await service.generate(ContractSymbol.BTCUSDT)
+    assert report.status is AnalysisReportStatus.COMPLETED
+    assert report.agent_analysis is not None and report.agent_analysis.factor_analysis is not None
+    factors = report.agent_analysis.factor_analysis
+    assert factors.funding.status == "failed"
+    assert factors.etf.status == "available"
+    etf_evidence = next(item for item in report.evidence if item.source == "farside_etf_flows")
+    assert etf_evidence.id in factors.etf.evidence_ids
+    assert "upstream details" not in report.model_dump_json()
+    assert "etf" in {item.kind.value for item in model.requests[0].evidences}
+    assert len(repository.creations) == 1
+
+
+@pytest.mark.asyncio
+async def test_graph_freezes_settled_funding_history() -> None:
+    class FundingReader:
+        async def get_funding_history(
+            self,
+            symbol: ContractSymbol,
+            *,
+            since: datetime,
+            until: datetime,
+        ) -> FundingHistory:
+            return FundingHistory(
+                symbol=symbol,
+                since=since,
+                until=until,
+                fetched_at=until,
+                points=tuple(
+                    FundingPoint(
+                        funding_time=since + timedelta(hours=8 * i),
+                        funding_rate=Decimal("0.0001"),
+                    )
+                    for i in range(1, 22)
+                ),
+            )
+
+    service = AgentResearchService(
+        dependencies=AgentResearchDependencies(
+            market=FakeMarketCapture(_market()),
+            news=FakeNewsIngestion(_collection()),
+            model=RecordingModel(),
+            repository=RecordingRepository(),
+            clock=lambda: NOW,
+            funding=FundingReader(),
+        )
+    )
+    report = await service.generate(ContractSymbol.BTCUSDT)
+    assert report.agent_analysis is not None and report.agent_analysis.factor_analysis is not None
+    assert report.agent_analysis.factor_analysis.funding.status == "available"
+    evidence = next(item for item in report.evidence if item.source == "binance_funding_history")
+    assert evidence.observed_at == NOW
+    assert "points" in evidence.payload
+
+
+@pytest.mark.asyncio
+async def test_graph_collects_seven_days_and_freezes_policy_topic_with_missing_flow_data() -> None:
+    policy = _news_item("policy", "The Commission proposed new digital asset rules.").model_copy(
+        update={
+            "source_id": "sec_press_releases",
+            "source_tier": NewsSourceTier.PRIMARY,
+            "event_category": NewsEventCategory.REGULATION,
+            "published_at": NOW - timedelta(days=6),
+        },
+    )
+    old = policy.model_copy(
+        update={"deduplication_key": "old", "published_at": NOW - timedelta(days=8)}
+    )
+    future = policy.model_copy(
+        update={"deduplication_key": "future", "published_at": NOW + timedelta(days=1)}
+    )
+    collector = FakeNewsIngestion(_collection(items=(old, future, policy)))
+    model = RecordingModel()
+    service = AgentResearchService(
+        dependencies=AgentResearchDependencies(
+            market=FakeMarketCapture(_market()),
+            news=collector,
+            model=model,
+            repository=RecordingRepository(),
+            clock=lambda: NOW,
+        )
+    )
+    report = await service.generate(ContractSymbol.BTCUSDT)
+    assert collector.requests[0][1] == NOW - timedelta(days=7)
+    assert len(report.evidence) == 2
+    assert report.agent_analysis is not None
+    factors = report.agent_analysis.factor_analysis
+    assert factors is not None
+    assert len(factors.policy.events) == 1
+    assert factors.policy.events[0].published_at == NOW - timedelta(days=6)
+    assert factors.funding.status == "missing"
+    assert factors.etf.status == "missing"
+    assert model.requests[0].factor_analysis is not None
 
 
 class RecordingLogger:
@@ -168,6 +307,7 @@ class RecordingRepository:
                 for evidence in creation.evidences
             ),
             agent_analysis=creation.agent_analysis,
+            validation_failure=creation.validation_failure,
         )
 
 
@@ -415,6 +555,40 @@ async def test_graph_persists_degraded_for_an_unexpected_model_failure() -> None
     assert report.status is AnalysisReportStatus.DEGRADED
     assert repository.creations[0].error_code == "model_upstream_error"
     assert "secret model failure" not in repr(repository.creations[0])
+
+
+@pytest.mark.asyncio
+async def test_graph_persists_bounded_format_validation_failure_summary() -> None:
+    repository = RecordingRepository()
+    service = _service(
+        market=_market(),
+        news=_collection(),
+        model=RecordingModel(
+            [
+                ModelOutputError(
+                    "model_invalid_response",
+                    "invalid schema",
+                    validation_issue_count=2,
+                    validation_field_paths=("short_term.thesis",),
+                    validation_error_categories=("trading_instruction",),
+                    format_attempt_count=3,
+                )
+            ]
+        ),
+        repository=repository,
+    )
+
+    report = await service.generate(ContractSymbol.BTCUSDT)
+
+    assert report.status is AnalysisReportStatus.DEGRADED
+    assert report.validation_failure is not None
+    assert report.validation_failure.model_dump() == {
+        "attempt_count": 3,
+        "issue_count": 2,
+        "field_paths": ("short_term.thesis",),
+        "error_categories": ("trading_instruction",),
+    }
+    assert repository.creations[0].validation_failure == report.validation_failure
 
 
 @pytest.mark.asyncio
@@ -717,8 +891,9 @@ async def test_graph_degrades_when_model_references_unknown_evidence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_graph_uses_supplied_analysis_id_as_checkpoint_thread_without_research_payloads(
-) -> None:
+async def test_graph_uses_supplied_analysis_id_as_checkpoint_thread_without_research_payloads() -> (
+    None
+):
     checkpointer = InMemorySaver()
     service = _service(
         market=_market(),

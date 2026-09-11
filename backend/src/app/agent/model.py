@@ -1,7 +1,14 @@
+"""语言模型提案边界模块。
+
+数据流：冻结的 ModelEvidence 与确定性 MarketStructure → 受限 JSON 请求 → Pydantic
+格式与证据 ID 校验 → AgentAnalysisProposal。模型输出始终是待业务层验证的提案。
+"""
+
 from __future__ import annotations
 
 import ast
 import json
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -20,7 +27,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import ErrorDetails
 
+from app.agent.factors import apply_interpretations
 from app.agent.market_structure import MarketStructure
 from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import ContractSymbol, UtcDateTime
@@ -33,11 +42,16 @@ from app.reports.contracts import (
     RiskAndInvalidation,
     validate_research_display_text,
 )
+from app.reports.factors import FactorAnalysis, FactorInterpretation
 
 _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 _MAX_TOKENS = 4_000
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
 _MAX_VALIDATION_FIELD_PATHS = 8
+_MAX_VALIDATION_ISSUES = 99
+_VALIDATION_FIELD_PATH = re.compile(
+    r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$"
+)
 _MAX_FORMAT_ATTEMPTS = 3
 _FORMAT_RETRY_INSTRUCTION = (
     "上一份候选未通过机器格式校验。请从头重新生成一个完整 JSON 对象："
@@ -46,6 +60,9 @@ _FORMAT_RETRY_INSTRUCTION = (
     "市场概况、两个 thesis 与所有 driver.detail 拼接后必须达到 1800 至 2200 个中文字符；"
     "市场概况不少于 350 个中文字符，两个 thesis 各不少于 350 个中文字符，"
     "短期和长期各列出二至三个 driver，每个 driver.detail 不少于 175 个中文字符；"
+    "所有面向读者的字符串字段均不得出现买入、卖出、做多、做空、开仓、建仓、平仓等操作词，"
+    "也不得使用 buy/sell/long/short、入场、出场、止损、加仓或减仓等操作表述；"
+    "改用多头或空头仓位、上行或下行风险、需要复核等中性研究表述；"
     'direction 字段只能取 "bullish"、"bearish" 或 "neutral"，'
     "不得使用 positive、negative、up、down 等同义值。"
 )
@@ -55,6 +72,8 @@ logger = structlog.get_logger(__name__)
 class ModelEvidenceKind(StrEnum):
     MARKET = "market"
     NEWS = "news"
+    FUNDING = "funding"
+    ETF = "etf"
 
 
 class _AgentModel(BaseModel):
@@ -62,6 +81,8 @@ class _AgentModel(BaseModel):
 
 
 class ModelEvidence(_AgentModel):
+    """可传递给模型的单条冻结证据，包含来源、时间和受长度限制的内容。"""
+
     id: UUID
     kind: ModelEvidenceKind
     source: str = Field(min_length=1, max_length=100)
@@ -85,11 +106,14 @@ class ModelEvidence(_AgentModel):
 
 
 class ResearchModelRequest(_AgentModel):
+    """一次模型研究请求：目标标的、确定性结构和去重后的证据集合。"""
+
     symbol: ContractSymbol
     structure: MarketStructure
     evidences: tuple[ModelEvidence, ...] = Field(min_length=1, max_length=30)
     report_language: Literal["zh-CN"] = "zh-CN"
     horizon: Literal["dual_horizon"] = "dual_horizon"
+    factor_analysis: FactorAnalysis | None = None
 
     @model_validator(mode="after")
     def require_unique_evidence_ids(self) -> ResearchModelRequest:
@@ -99,6 +123,8 @@ class ResearchModelRequest(_AgentModel):
 
 
 class AgentAnalysisProposal(_AgentModel):
+    """模型返回的候选研究结论，必须引用本次请求中已知的证据 ID。"""
+
     horizon: Literal["dual_horizon"] = "dual_horizon"
     outlook: MarketOutlook
     confidence: Literal["low", "medium", "high"]
@@ -108,6 +134,7 @@ class AgentAnalysisProposal(_AgentModel):
     catalysts: tuple[Catalyst, ...] = ()
     risks_and_invalidation: tuple[RiskAndInvalidation, ...] = ()
     limitations: tuple[str, ...] = ()
+    factor_interpretations: tuple[FactorInterpretation, ...] = Field(default=(), max_length=3)
 
     @field_validator("limitations")
     @classmethod
@@ -136,6 +163,8 @@ class AgentAnalysisProposal(_AgentModel):
 
 
 class ModelOutputError(RuntimeError):
+    """将上游、格式和校验失败折叠为可安全记录的稳定模型错误码。"""
+
     def __init__(
         self,
         code: str,
@@ -143,11 +172,15 @@ class ModelOutputError(RuntimeError):
         *,
         validation_issue_count: int = 0,
         validation_field_paths: tuple[str, ...] = (),
+        validation_error_categories: tuple[str, ...] = (),
+        format_attempt_count: int = 0,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.validation_issue_count = validation_issue_count
         self.validation_field_paths = validation_field_paths
+        self.validation_error_categories = validation_error_categories
+        self.format_attempt_count = format_attempt_count
 
 
 class ResearchLanguageModel(Protocol):
@@ -155,7 +188,10 @@ class ResearchLanguageModel(Protocol):
 
 
 class DeepSeekResearchLanguageModel(ResearchLanguageModel):
-    """受限的单次 DeepSeek JSON 研究提案适配器。"""
+    """受限的 DeepSeek JSON 研究提案适配器。
+
+    它只产出待验证的提案；证据引用校验和最终持久化仍由确定性业务层完成。
+    """
 
     def __init__(
         self,
@@ -169,6 +205,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         self._model = model
 
     async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal:
+        """请求 DeepSeek 生成 JSON 提案，并只记录不含密钥和正文的运行元数据。"""
         started_at = perf_counter()
         logger.info(
             "agent_model_request_started",
@@ -181,6 +218,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             evidence_count=len(request.evidences),
         )
         api_key = self._api_key
+        # 密钥只在构造请求头时暂存于局部变量，日志始终只记录模型名和受控错误码。
         secret_value = "" if api_key is None else api_key.get_secret_value().strip()
         if not secret_value:
             logger.info(
@@ -216,6 +254,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                 duration_ms=_duration_ms(started_at),
                 validation_issue_count=error.validation_issue_count,
                 validation_field_paths=error.validation_field_paths,
+                validation_error_categories=error.validation_error_categories,
             )
             raise
         else:
@@ -239,6 +278,9 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         secret_value: str,
         started_at: float,
     ) -> AgentAnalysisProposal:
+        """仅对 JSON 格式无效的响应执行有限次格式纠正重试。"""
+        # 只对可恢复的“格式无效”响应有限重试；超时和上游故障直接交给降级路径。
+        retry_error: ModelOutputError | None = None
         for attempt in range(1, _MAX_FORMAT_ATTEMPTS + 1):
             try:
                 proposal = await self._generate_once(
@@ -246,13 +288,16 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                     secret_value=secret_value,
                     started_at=started_at,
                     attempt=attempt,
+                    retry_error=retry_error,
                 )
             except ModelOutputError as error:
                 if error.code != "model_invalid_response":
                     raise
                 self._log_response_rejected(error=error, attempt=attempt)
                 if attempt == _MAX_FORMAT_ATTEMPTS:
+                    error.format_attempt_count = attempt
                     raise
+                retry_error = error
                 logger.info(
                     "agent_model_format_retry_started",
                     model=self._model,
@@ -275,13 +320,22 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         secret_value: str,
         started_at: float,
         attempt: int,
+        retry_error: ModelOutputError | None,
     ) -> AgentAnalysisProposal:
+        """发送单次受限请求、提取 JSON 对象并验证其为可引用的提案模型。"""
         messages: tuple[dict[str, str], ...] = (
             {"role": "system", "content": system_prompt()},
             {"role": "user", "content": research_user_message(request)},
         )
+        # 后续尝试只增加格式纠正指令，不改变冻结证据或系统约束。
         if attempt > 1:
-            messages = (*messages, {"role": "user", "content": _FORMAT_RETRY_INSTRUCTION})
+            messages = (
+                *messages,
+                {
+                    "role": "user",
+                    "content": _format_retry_instruction(error=retry_error),
+                },
+            )
         try:
             response = await self._client.post(
                 _DEEPSEEK_COMPLETIONS_URL,
@@ -291,7 +345,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                     "messages": messages,
                     "response_format": {"type": "json_object"},
                     "thinking": {"type": "disabled"},
-                    "max_tokens": _MAX_TOKENS,
+                    "max_tokens": _MAX_TOKENS if request.factor_analysis is None else 7_000,
                 },
             )
             response.raise_for_status()
@@ -321,6 +375,13 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                 validation_field_paths=("horizon",),
             )
         _require_known_evidence_ids(proposal, request.evidences)
+        if request.factor_analysis is not None:
+            try:
+                apply_interpretations(request.factor_analysis, proposal.factor_interpretations)
+            except ValueError as error:
+                raise ModelOutputError(
+                    "model_invalid_evidence", "模型引用了错误专题证据"
+                ) from error
         return proposal
 
     def _log_response_rejected(self, *, error: ModelOutputError, attempt: int) -> None:
@@ -330,17 +391,36 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             attempt=attempt,
             error_code=error.code,
             validation_issue_count=error.validation_issue_count,
+            validation_field_paths=error.validation_field_paths,
+            validation_error_categories=error.validation_error_categories,
         )
         logger.debug(
             "agent_model_response_rejection_details",
             model=self._model,
             attempt=attempt,
             validation_field_paths=error.validation_field_paths,
+            validation_error_categories=error.validation_error_categories,
         )
 
 
 def _duration_ms(started_at: float) -> int:
     return max(0, round((perf_counter() - started_at) * 1_000))
+
+
+def _format_retry_instruction(*, error: ModelOutputError | None) -> str:
+    """Append only bounded validation metadata to the correction request."""
+    if error is None or (
+        not error.validation_field_paths and not error.validation_error_categories
+    ):
+        return _FORMAT_RETRY_INSTRUCTION
+    field_paths = ", ".join(error.validation_field_paths) or "未定位字段"
+    categories = ", ".join(error.validation_error_categories) or "schema"
+    return (
+        f"{_FORMAT_RETRY_INSTRUCTION}\n"
+        f"上一份候选的校验字段：{field_paths}。"
+        f"校验类别：{categories}。"
+        "请仅修正这些格式问题，仍须完整返回全部 JSON。"
+    )
 
 
 def _invalid_model_response_error(error: Exception) -> ModelOutputError:
@@ -354,15 +434,49 @@ def _invalid_model_response_error(error: Exception) -> ModelOutputError:
     return ModelOutputError(
         "model_invalid_response",
         "DeepSeek 返回了无效研究 JSON",
-        validation_issue_count=len(issues),
-        validation_field_paths=tuple(
-            ".".join(str(part) for part in issue["loc"])
-            for issue in issues[:_MAX_VALIDATION_FIELD_PATHS]
+        validation_issue_count=min(len(issues), _MAX_VALIDATION_ISSUES),
+        validation_field_paths=_validation_field_paths(issues),
+        validation_error_categories=_validation_error_categories(
+            str(issue["msg"]) for issue in issues
         ),
     )
 
 
+def _validation_error_categories(messages: Iterable[str]) -> tuple[str, ...]:
+    """Return bounded error classes without retaining model-generated text."""
+    return tuple(sorted({_validation_error_category(message) for message in messages}))
+
+
+def _validation_field_paths(issues: Iterable[ErrorDetails]) -> tuple[str, ...]:
+    """Return bounded field paths without carrying arbitrary model-supplied keys."""
+    paths: list[str] = []
+    for issue in issues:
+        location = issue["loc"]
+        candidate = ".".join(str(part) for part in location)
+        safe_path = candidate if _VALIDATION_FIELD_PATH.fullmatch(candidate) else "schema"
+        if safe_path not in paths:
+            paths.append(safe_path)
+        if len(paths) == _MAX_VALIDATION_FIELD_PATHS:
+            break
+    return tuple(paths)
+
+
+def _validation_error_category(message: str) -> str:
+    if "交易指令" in message:
+        return "trading_instruction"
+    if "报告文本不能超过" in message:
+        return "text_length"
+    if "报告文本不能为空" in message:
+        return "text_empty"
+    if "中文市场研究章节必须包含中文" in message:
+        return "chinese_text_required"
+    if "模型双层市场报告正文" in message:
+        return "narrative_length"
+    return "schema"
+
+
 def _response_content(response: httpx.Response) -> str:
+    """从上游响应中安全提取非空文本内容，并将异常形态映射为模型错误。"""
     try:
         body: object = response.json()
     except (json.JSONDecodeError, ValueError) as error:
@@ -389,6 +503,7 @@ def _response_content(response: httpx.Response) -> str:
 
 
 def _normalize_json_object_content(content: str) -> str:
+    """去除 Markdown 围栏并确认模型回复是一个 JSON 对象，而非任意文本。"""
     """Unwrap a model's quoted JSON-object string without evaluating code."""
     candidate = content.strip()
     if not (candidate.startswith("'") and candidate.endswith("'")):
@@ -407,6 +522,7 @@ def _require_known_evidence_ids(
     proposal: AgentAnalysisProposal,
     evidences: Iterable[ModelEvidence],
 ) -> None:
+    """验证提案引用的全部证据都属于本次冻结请求。"""
     known_ids = {evidence.id for evidence in evidences}
     referenced_ids = _proposal_evidence_ids(proposal)
     if not referenced_ids <= known_ids:
@@ -417,6 +533,7 @@ def _proposal_evidence_ids(proposal: AgentAnalysisProposal) -> set[UUID]:
     return {
         evidence_id
         for item in (
+            *proposal.factor_interpretations,
             *proposal.catalysts,
             *proposal.risks_and_invalidation,
             proposal.market_overview,
