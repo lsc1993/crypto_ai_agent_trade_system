@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.market.contracts import ContractSymbol, UtcDateTime
+from app.api.routes.research_symbols import get_symbol_repository, require_research_symbol
+from app.market.contracts import UtcDateTime
+from app.market.symbols import ResearchSymbol
 from app.reports.contracts import (
     AgentAnalysis,
     AgentResearchNarrative,
@@ -31,6 +33,7 @@ from app.reports.contracts import (
 from app.reports.factors import FactorAnalysis
 from app.reports.repository import AnalysisReportRepository
 from app.reports.service import AnalysisReportService
+from app.symbols.repository import SymbolRepository
 
 router = APIRouter(prefix="/analysis-runs", tags=["analysis-reports"])
 
@@ -50,7 +53,7 @@ class _ApiModel(BaseModel):
 
 
 class StartAnalysisRequest(_ApiModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
 
 
 class AnalysisRunCreatedResponse(_ApiModel):
@@ -61,7 +64,7 @@ class AnalysisRunCreatedResponse(_ApiModel):
 class AnalysisReportSummaryResponse(_ApiModel):
     id: UUID
     analysis_id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     status: AnalysisReportStatus
     title: str
     summary: str
@@ -72,7 +75,7 @@ class AnalysisReportSummaryResponse(_ApiModel):
 
 class AnalysisEvidenceResponse(_ApiModel):
     id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     source: str
     source_url: str
     observed_at: UtcDateTime
@@ -179,7 +182,7 @@ class AnalysisReportPageResponse(_ApiModel):
 
 class AnalysisRunEvent(_ApiModel):
     analysis_id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     status: AnalysisReportStatus
     occurred_at: UtcDateTime
     message: str
@@ -204,7 +207,9 @@ async def create_analysis_run(
         AnalysisReportService,
         Depends(get_analysis_report_service),
     ],
+    repository: Annotated[SymbolRepository, Depends(get_symbol_repository)],
 ) -> AnalysisRunCreatedResponse:
+    await require_research_symbol(repository, request.symbol)
     report = await service.generate(request.symbol)
     return AnalysisRunCreatedResponse(
         analysis_id=report.analysis_id,
@@ -218,11 +223,14 @@ async def list_analysis_runs(
         AnalysisReportRepository,
         Depends(get_analysis_report_repository),
     ],
+    symbol_repository: Annotated[SymbolRepository, Depends(get_symbol_repository)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-    symbol: ContractSymbol | None = None,
+    symbol: ResearchSymbol | None = None,
     status_filter: Annotated[AnalysisReportStatus | None, Query(alias="status")] = None,
 ) -> AnalysisReportPageResponse:
+    if symbol is not None:
+        await require_research_symbol(symbol_repository, symbol)
     reports = await repository.list(
         page=page,
         page_size=page_size,

@@ -16,7 +16,6 @@ from app.infrastructure.persistence.models.market import (
 )
 from app.market.contracts import (
     Candle,
-    ContractSymbol,
     MarketDataUnavailableError,
     MarketSummary,
     MarketTimeframe,
@@ -27,6 +26,7 @@ from app.market.research import (
     PersistedMarketSnapshot,
     PersistedMarketSnapshotInput,
 )
+from app.market.symbols import ResearchSymbol
 
 _MAX_CANDLES = 200
 _UNAVAILABLE_CODE = "market_research_unavailable"
@@ -46,11 +46,11 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
 
     async def load_latest_snapshot(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
     ) -> PersistedMarketSnapshot | None:
         statement = (
             select(MarketSnapshotRecord)
-            .where(MarketSnapshotRecord.symbol == symbol.value)
+            .where(MarketSnapshotRecord.symbol == symbol)
             .order_by(MarketSnapshotRecord.captured_at.desc())
             .limit(1)
         )
@@ -73,7 +73,7 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
 
     async def load_recent_candles(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
         limit: int,
     ) -> tuple[Candle, ...]:
@@ -82,7 +82,7 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
         statement = (
             select(MarketCandleRecord)
             .where(
-                MarketCandleRecord.symbol == symbol.value,
+                MarketCandleRecord.symbol == symbol,
                 MarketCandleRecord.timeframe == timeframe.value,
             )
             .order_by(MarketCandleRecord.open_at.desc())
@@ -120,7 +120,7 @@ def _to_snapshot(record: MarketSnapshotRecord) -> PersistedMarketSnapshot:
         summary = MarketSummary.model_validate(
             dict(cast(Mapping[str, object], payload_summary)),
         )
-        if summary.symbol.value != record.symbol:
+        if summary.symbol != record.symbol:
             raise ValueError("快照标的与摘要载荷不一致")
         return PersistedMarketSnapshot(
             summary=summary,
@@ -132,7 +132,7 @@ def _to_snapshot(record: MarketSnapshotRecord) -> PersistedMarketSnapshot:
 
 def _to_candle(record: MarketCandleRecord) -> Candle:
     return Candle(
-        symbol=ContractSymbol(record.symbol),
+        symbol=record.symbol,
         timeframe=MarketTimeframe(record.timeframe),
         open_at=record.open_at,
         close_at=record.close_at,
@@ -156,7 +156,7 @@ def _to_snapshot_input(
     if not isinstance(raw_candles, list) or len(raw_candles) != record.candle_count:
         raise ValueError("冻结市场 K 线输入载荷无效")
     candles = tuple(Candle.model_validate(candle) for candle in raw_candles)
-    if not candles or any(candle.symbol.value != record.symbol for candle in candles):
+    if not candles or any(candle.symbol != record.symbol for candle in candles):
         raise ValueError("冻结市场 K 线输入标的不一致")
     return PersistedMarketSnapshotInput(
         candles=candles,

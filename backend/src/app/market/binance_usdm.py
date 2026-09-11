@@ -20,7 +20,6 @@ from app.market.cache import AsyncTtlCache
 from app.market.contracts import (
     Candle,
     CandleSeries,
-    ContractSymbol,
     DataFreshness,
     FreshnessStatus,
     MarketDataUnavailableError,
@@ -29,6 +28,7 @@ from app.market.contracts import (
     MarketTimeframe,
 )
 from app.market.funding_history import FundingHistory, FundingPoint
+from app.market.symbols import ResearchSymbol
 
 BINANCE_USDM_BASE_URL = "https://fapi.binance.com"
 SOURCE_NAME = "binance_usdm_public_rest"
@@ -36,6 +36,7 @@ ALLOWED_PATHS = frozenset(
     # 适配器只能调用这些公开只读端点；没有账户、订单或资金相关路径。
     {
         "/fapi/v1/ticker/24hr",
+        "/fapi/v1/exchangeInfo",
         "/fapi/v1/klines",
         "/fapi/v1/openInterest",
         "/fapi/v1/premiumIndex",
@@ -47,6 +48,7 @@ ALLOWED_PATHS = frozenset(
 )
 SUMMARY_TTL = timedelta(seconds=10)
 CANDLE_TTL = timedelta(seconds=60)
+EXCHANGE_INFO_TTL = timedelta(minutes=5)
 MAX_ATTEMPTS = 2
 MAX_BACKTEST_CANDLES = 1049
 MAX_PUBLIC_JSON_BYTES = 1_000_000
@@ -89,10 +91,51 @@ class BinanceUsdmPublicMarketGateway:
         self._sleep = sleep
         self._summary_cache: AsyncTtlCache[MarketSummary] = AsyncTtlCache(clock)
         self._candle_cache: AsyncTtlCache[CandleSeries] = AsyncTtlCache(clock)
+        self._exchange_info_cache: AsyncTtlCache[dict[str, str] | None] = AsyncTtlCache(clock)
+
+    async def get_exchange_info(self, symbol: str) -> dict[str, str] | None:
+        """Read only contract metadata used to admit an eligible research symbol."""
+        return await self._exchange_info_cache.get_or_load(
+            f"exchange-info:{symbol}",
+            lambda: self._fetch_exchange_info(symbol),
+            EXCHANGE_INFO_TTL,
+        )
+
+    async def _fetch_exchange_info(self, symbol: str) -> dict[str, str] | None:
+        payload = _mapping_payload(await self._get_public_json("/fapi/v1/exchangeInfo", {}))
+        rows = payload.get("symbols")
+        if not isinstance(rows, list):
+            raise MarketDataUnavailableError("market_data_invalid_response", "公开合约信息响应无效")
+        rows = cast(list[object], rows)
+        matches: list[Mapping[str, object]] = []
+        for candidate in rows:
+            if not isinstance(candidate, Mapping):
+                continue
+            row = cast(Mapping[str, object], candidate)
+            if row.get("symbol") == symbol:
+                matches.append(row)
+        if len(matches) > 1:
+            raise MarketDataUnavailableError(
+                "market_data_invalid_response",
+                "公开合约信息包含重复标的",
+            )
+        if not matches:
+            return None
+        row = matches[0]
+        values: dict[str, str] = {}
+        for field in ("symbol", "baseAsset", "quoteAsset", "marginAsset", "contractType", "status"):
+            value = row.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise MarketDataUnavailableError(
+                    "market_data_invalid_response",
+                    "公开合约信息字段无效",
+                )
+            values[field] = value.strip()
+        return values
 
     async def get_summaries(
         self,
-        symbols: tuple[ContractSymbol, ...],
+        symbols: tuple[ResearchSymbol, ...],
     ) -> tuple[MarketSummary, ...]:
         """并发获取多个白名单标的的缓存行情摘要。"""
         summaries = await asyncio.gather(
@@ -102,7 +145,7 @@ class BinanceUsdmPublicMarketGateway:
 
     async def get_market(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframes: tuple[MarketTimeframe, ...],
     ) -> MarketDetail:
         """获取一个标的的摘要与指定周期 K 线，并由各缓存独立控制新鲜度。"""
@@ -114,22 +157,22 @@ class BinanceUsdmPublicMarketGateway:
 
     async def get_research_metrics(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
     ) -> PublicDerivativesMetrics:
         """读取基差、多空账户比与主动买卖比，并以最早观测时间标识数据截止点。"""
         # 三个互不依赖的公开衍生品指标并发读取，最终按最早观测时间标记数据截止点。
         basis, long_short, taker = await asyncio.gather(
             self._get_public_json(
                 "/futures/data/basis",
-                {"symbol": symbol.value, "period": "1h", "limit": "1"},
+                {"pair": symbol, "contractType": "PERPETUAL", "period": "1h", "limit": "1"},
             ),
             self._get_public_json(
                 "/futures/data/globalLongShortAccountRatio",
-                {"symbol": symbol.value, "period": "1h", "limit": "1"},
+                {"symbol": symbol, "period": "1h", "limit": "1"},
             ),
             self._get_public_json(
                 "/futures/data/takerlongshortRatio",
-                {"symbol": symbol.value, "period": "1h", "limit": "1"},
+                {"symbol": symbol, "period": "1h", "limit": "1"},
             ),
         )
         basis_payload = _latest_metric_payload(basis)
@@ -150,7 +193,7 @@ class BinanceUsdmPublicMarketGateway:
 
     async def get_funding_history(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         *,
         since: datetime,
         until: datetime,
@@ -160,7 +203,7 @@ class BinanceUsdmPublicMarketGateway:
         payload = await self._get_public_json(
             "/fapi/v1/fundingRate",
             {
-                "symbol": symbol.value,
+                "symbol": symbol,
                 "startTime": str(int(since.timestamp() * 1000)),
                 "endTime": str(int(until.timestamp() * 1000)),
                 "limit": "1000",
@@ -182,7 +225,7 @@ class BinanceUsdmPublicMarketGateway:
         response_times: list[datetime] = []
         for raw_row in rows:
             row = _mapping_payload(raw_row)
-            if row.get("symbol") != symbol.value:
+            if row.get("symbol") != symbol:
                 raise MarketDataUnavailableError(
                     "market_data_invalid_response",
                     "公开资金费率响应标的无效",
@@ -218,7 +261,7 @@ class BinanceUsdmPublicMarketGateway:
 
     async def load_closed_candles(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
         *,
         start_at: datetime,
@@ -235,7 +278,7 @@ class BinanceUsdmPublicMarketGateway:
         payload = await self._get_public_json(
             "/fapi/v1/klines",
             {
-                "symbol": symbol.value,
+                "symbol": symbol,
                 "interval": timeframe.value,
                 "startTime": str(int(start_at.timestamp() * 1000)),
                 "endTime": str(int(end_at.timestamp() * 1000)),
@@ -265,20 +308,20 @@ class BinanceUsdmPublicMarketGateway:
             )
         return requested_candles
 
-    async def _get_summary(self, symbol: ContractSymbol) -> MarketSummary:
+    async def _get_summary(self, symbol: ResearchSymbol) -> MarketSummary:
         """通过摘要缓存读取一个标的，缓存未命中时调用 _fetch_summary。"""
         return await self._summary_cache.get_or_load(
-            f"summary:{symbol.value}",
+            f"summary:{symbol}",
             lambda: self._fetch_summary(symbol),
             SUMMARY_TTL,
         )
 
-    async def _fetch_summary(self, symbol: ContractSymbol) -> MarketSummary:
+    async def _fetch_summary(self, symbol: ResearchSymbol) -> MarketSummary:
         """并发读取 ticker、资金费率和未平仓量，并组装为带来源时间的摘要。"""
         ticker, premium, open_interest = await asyncio.gather(
-            self._get_public_json("/fapi/v1/ticker/24hr", {"symbol": symbol.value}),
-            self._get_public_json("/fapi/v1/premiumIndex", {"symbol": symbol.value}),
-            self._get_public_json("/fapi/v1/openInterest", {"symbol": symbol.value}),
+            self._get_public_json("/fapi/v1/ticker/24hr", {"symbol": symbol}),
+            self._get_public_json("/fapi/v1/premiumIndex", {"symbol": symbol}),
+            self._get_public_json("/fapi/v1/openInterest", {"symbol": symbol}),
         )
         ticker_payload = _mapping_payload(ticker)
         premium_payload = _mapping_payload(premium)
@@ -306,25 +349,25 @@ class BinanceUsdmPublicMarketGateway:
 
     async def _get_candles(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
     ) -> CandleSeries:
         """通过周期缓存读取 K 线序列，避免页面轮询频繁访问上游。"""
         return await self._candle_cache.get_or_load(
-            f"candles:{symbol.value}:{timeframe.value}",
+            f"candles:{symbol}:{timeframe.value}",
             lambda: self._fetch_candles(symbol, timeframe),
             CANDLE_TTL,
         )
 
     async def _fetch_candles(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
     ) -> CandleSeries:
         """请求最多 200 根 K 线，并只保留采集时已经结束的行。"""
         payload = await self._get_public_json(
             "/fapi/v1/klines",
-            {"symbol": symbol.value, "interval": timeframe.value, "limit": "200"},
+            {"symbol": symbol, "interval": timeframe.value, "limit": "200"},
         )
         candles = _closed_candles_from_payload(
             payload,
@@ -447,7 +490,7 @@ def _validate_funding_range(since: datetime, until: datetime) -> None:
 def _closed_candles_from_payload(
     payload: object,
     *,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     timeframe: MarketTimeframe,
     fetched_at: datetime,
 ) -> tuple[Candle, ...]:

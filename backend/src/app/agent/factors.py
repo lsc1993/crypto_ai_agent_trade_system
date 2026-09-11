@@ -8,9 +8,9 @@ from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from app.market.contracts import ContractSymbol
 from app.market.etf_flows import EtfFlowSnapshot
 from app.market.funding_history import FundingHistory
+from app.market.symbols import ResearchSymbol
 from app.news.contracts import ALLOWED_NEWS_SOURCES, NewsEventCategory, NewsItemDraft
 from app.reports.factors import (
     FactorAnalysis,
@@ -41,7 +41,7 @@ def is_policy(item: NewsItemDraft) -> bool:
 def select_news(
     items: tuple[NewsItemDraft, ...],
     *,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     as_of: datetime,
     limit: int,
 ) -> tuple[NewsItemDraft, ...]:

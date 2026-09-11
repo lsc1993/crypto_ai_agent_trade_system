@@ -20,7 +20,7 @@ class AnalysisReportRecord(Base):
     analysis_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), nullable=False, unique=True
     )
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     title: Mapped[str] = mapped_column(String(1000), nullable=False)
     summary: Mapped[str] = mapped_column(String(1000), nullable=False)
@@ -43,7 +43,7 @@ class AnalysisEvidenceRecord(Base):
     analysis_report_id: Mapped[UUID] = mapped_column(
         ForeignKey("analysis_reports.id", name="fk_analysis_evidences_report"), nullable=False
     )
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -10,7 +10,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-from app.market.contracts import Candle, ContractSymbol
+from app.market.contracts import Candle
+from app.market.symbols import ResearchSymbol
 
 _MAX_SNAPSHOT_PAYLOAD_BYTES = 64 * 1024
 
@@ -77,7 +78,7 @@ def _validate_decimal(value: object) -> Decimal:
 
 
 class DerivativeObservation(_PersistenceModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     metric_type: MetricType
     value: Decimal
     source: str
@@ -117,7 +118,7 @@ class DerivativeObservation(_PersistenceModel):
 
 class MarketSnapshotDraft(_PersistenceModel):
     id: UUID = Field(default_factory=uuid4)
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     source: str
     captured_at: datetime
     data_as_of: datetime
@@ -169,7 +170,7 @@ class MarketSnapshotDraft(_PersistenceModel):
 
 
 class MarketCaptureBatch(_PersistenceModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     candles: tuple[Candle, ...]
     observations: tuple[DerivativeObservation, ...]
     snapshot: MarketSnapshotDraft

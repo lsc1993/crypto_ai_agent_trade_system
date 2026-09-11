@@ -6,12 +6,12 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict
 from app.market.contracts import (
     Candle,
     CandleSeries,
-    ContractSymbol,
     DecimalValue,
     MarketSummary,
     MarketTimeframe,
     UtcDateTime,
 )
+from app.market.symbols import ResearchSymbol
 
 
 class MarketSummaryListResponse(BaseModel):
@@ -40,7 +40,7 @@ class MarketNewsItem(BaseModel):
     source_url: AnyHttpUrl
     published_at: UtcDateTime
     fetched_at: UtcDateTime
-    symbols: tuple[ContractSymbol, ...]
+    symbols: tuple[ResearchSymbol, ...]
 
 
 class MarketCandleResponse(BaseModel):
@@ -58,7 +58,7 @@ class MarketCandleResponse(BaseModel):
         serialize_by_alias=True,
     )
 
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     timeframe: MarketTimeframe
     open_time: UtcDateTime
     close_time: UtcDateTime

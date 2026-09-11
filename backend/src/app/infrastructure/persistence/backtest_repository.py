@@ -263,7 +263,7 @@ def _candle_records(
         BacktestCandleRecord(
             run_id=run_id,
             sequence=sequence,
-            symbol=candle.symbol.value,
+            symbol=str(candle.symbol),
             timeframe=candle.timeframe.value,
             open_at=candle.open_at,
             close_at=candle.close_at,

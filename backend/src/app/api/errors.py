@@ -22,6 +22,7 @@ from app.research.backtests.contracts import (
     BacktestNotFoundError,
     BacktestStorageUnavailableError,
 )
+from app.symbols.contracts import SymbolError
 from app.trades.contracts import TradeStorageUnavailableError
 from app.trades.service import TradeNotFoundError
 
@@ -263,6 +264,18 @@ async def _trade_not_found_handler(
     )
 
 
+async def _symbol_error_handler(
+    _request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    if not isinstance(exception, SymbolError):
+        raise TypeError("研究币对异常处理器收到了不支持的异常类型")
+    return _response(
+        exception.status_code,
+        ErrorEnvelope(code=exception.code, message=str(exception)),
+    )
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         StarletteHTTPException,
@@ -315,6 +328,10 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         TradeNotFoundError,
         _trade_not_found_handler,
+    )
+    app.add_exception_handler(
+        SymbolError,
+        _symbol_error_handler,
     )
     app.add_exception_handler(
         Exception,

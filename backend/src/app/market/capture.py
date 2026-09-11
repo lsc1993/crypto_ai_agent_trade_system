@@ -1,7 +1,14 @@
+"""公开行情快照采集模块。
+
+数据流：白名单标的的公开行情 → 过滤未收盘 K 线 → 构造观察值与规范化快照载荷 →
+单事务持久化。快照是报告、研究和回测可复核的输入边界。
+"""
+
 from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import cast
 from uuid import UUID
@@ -25,8 +32,10 @@ from app.market.repository import (
     MetricType,
     snapshot_payload_sha256,
 )
+from app.market.symbols import ResearchSymbol
 
 CAPTURE_SYMBOLS = (ContractSymbol.BTCUSDT, ContractSymbol.ETHUSDT)
+# 采集范围是显式白名单，而不是由调用方任意指定，保证快照输入可预期、可审计。
 CAPTURE_TIMEFRAMES = (
     MarketTimeframe.M15,
     MarketTimeframe.H1,
@@ -42,12 +51,16 @@ class MarketCaptureService:
         self,
         gateway: PublicMarketGateway,
         repository: MarketRepository,
+        admission: Callable[[ResearchSymbol], Awaitable[bool]] | None = None,
     ) -> None:
         self._gateway = gateway
         self._repository = repository
+        self._admission = admission
 
     async def capture(self, captured_at: datetime) -> tuple[UUID, ...]:
+        """并发采集全部白名单标的，并在所有读取成功后返回其快照 ID。"""
         _require_utc(captured_at)
+        # 各标的可并发读取；持久化在全部读取成功后统一执行，避免产生半批次快照。
         batches = await asyncio.gather(
             *(
                 self._capture_symbol_batch(symbol, captured_at=captured_at)
@@ -58,12 +71,15 @@ class MarketCaptureService:
 
     async def capture_symbol(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         *,
         captured_at: datetime,
     ) -> UUID:
+        """采集一个获准标的并持久化恰好一个可审计快照。"""
         _require_utc(captured_at)
-        if symbol not in CAPTURE_SYMBOLS:
+        if self._admission is None and symbol not in CAPTURE_SYMBOLS:
+            raise ValueError("标的未获准进行公开行情采集")
+        if self._admission is not None and not await self._admission(symbol):
             raise ValueError("标的未获准进行公开行情采集")
         snapshot_ids = await self._repository.persist_batches(
             (await self._capture_symbol_batch(symbol, captured_at=captured_at),),
@@ -74,12 +90,13 @@ class MarketCaptureService:
 
     async def _capture_symbol_batch(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         *,
         captured_at: datetime,
     ) -> MarketCaptureBatch:
+        """从网关读取一个标的的多周期详情，并验证上游返回的标的一致。"""
         detail = await self._gateway.get_market(symbol, CAPTURE_TIMEFRAMES)
-        if detail.summary.symbol is not symbol:
+        if detail.summary.symbol != symbol:
             raise MarketDataUnavailableError(
                 "market_data_invalid",
                 "公开行情返回的标的不一致",
@@ -88,6 +105,8 @@ class MarketCaptureService:
 
 
 def _capture_batch(detail: MarketDetail, captured_at: datetime) -> MarketCaptureBatch:
+    """把网关模型转换成仓储一次提交所需的 K 线、指标和快照草稿。"""
+    # 仅冻结已经收盘的 K 线；未收盘 K 线会随着时间变化，不能作为研究或回测证据。
     candles = tuple(
         candle
         for series in detail.series
@@ -101,6 +120,7 @@ def _capture_batch(detail: MarketDetail, captured_at: datetime) -> MarketCapture
         )
 
     observations = _observations(detail.summary)
+    # 数据截止时刻取所有证据中最早的观测时间，防止报告误称拥有更新的数据。
     data_as_of = min(
         *(candle.observed_at for candle in candles),
         *(observation.observed_at for observation in observations),
@@ -124,6 +144,7 @@ def _capture_batch(detail: MarketDetail, captured_at: datetime) -> MarketCapture
 
 
 def _observations(summary: MarketSummary) -> tuple[DerivativeObservation, ...]:
+    """将行情摘要拆分为可按指标类型查询的派生品观察记录。"""
     freshness = summary.freshness
     metric_values = (
         (MetricType.PRICE, summary.price),
@@ -149,6 +170,8 @@ def _snapshot_payload(
     detail: MarketDetail,
     candles: tuple[Candle, ...],
 ) -> dict[str, JsonValue]:
+    """生成字段排序稳定、禁止 NaN 的摘要载荷，供哈希和后续证据展示使用。"""
+    # 审计载荷只保留每个周期最新的已收盘 K 线，完整序列由独立快照输入表保存。
     latest_closed_candles = tuple(
         max(
             (candle for candle in candles if candle.timeframe is series.timeframe),

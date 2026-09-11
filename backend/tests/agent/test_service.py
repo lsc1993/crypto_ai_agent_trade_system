@@ -19,6 +19,7 @@ from app.news.contracts import (
     parse_http_url,
 )
 from app.news.service import NewsCollection, NewsIngestionService
+from app.symbols.contracts import ResearchSymbolEntry
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
 ANALYSIS_ID = UUID("00000000-0000-0000-0000-000000000601")
@@ -59,6 +60,15 @@ class RecordingNewsRepository:
         for item in items:
             unique.setdefault(item.deduplication_key, item)
         return tuple(unique.values())
+
+
+class StubResearchSymbolDirectory:
+    def __init__(self, entries: tuple[ResearchSymbolEntry, ...]) -> None:
+        self.entries = entries
+
+    async def list(self, *, include_archived: bool = False) -> tuple[ResearchSymbolEntry, ...]:
+        assert not include_archived
+        return self.entries
 
 
 @pytest.mark.asyncio
@@ -112,6 +122,36 @@ async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
     )
     assert repository.ingested == [(duplicate, sec_duplicate)]
     assert [source.fetch_times for source in sources] == [[NOW], [NOW]]
+
+
+@pytest.mark.asyncio
+async def test_news_collection_applies_registered_symbol_aliases() -> None:
+    item = _news_item(key="sol", published_at=NOW - timedelta(hours=1)).model_copy(
+        update={"title": "Solana protocol update", "summary": "SOL ecosystem market context."}
+    )
+    solana = ResearchSymbolEntry(
+        symbol="SOLUSDT",
+        base_asset="SOL",
+        quote_asset="USDT",
+        margin_asset="USDT",
+        contract_type="PERPETUAL",
+        enabled=True,
+        keywords=("Solana",),
+        version=1,
+        created_at=NOW,
+        can_research=True,
+    )
+    repository = RecordingNewsRepository()
+    service = NewsIngestionService(
+        sources=(StubNewsSource((item,)),),
+        repository=repository,
+        symbol_repository=StubResearchSymbolDirectory((solana,)),
+    )
+
+    result = await service.collect("SOLUSDT", since=NOW - timedelta(days=1), until=NOW)
+
+    assert result.items[0].related_symbols == (ContractSymbol.BTCUSDT, "SOLUSDT")
+    assert repository.ingested[0][0].related_symbols == (ContractSymbol.BTCUSDT, "SOLUSDT")
 
 
 @pytest.mark.asyncio

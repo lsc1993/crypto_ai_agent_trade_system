@@ -15,6 +15,7 @@ import type {
   BacktestRunSummary,
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
+import type { ResearchSymbolEntry } from "../../domain/research-symbol";
 import type {
   ManualPaperIntent,
   PaperAccountCreate,
@@ -38,6 +39,12 @@ import { MockWorkbenchApi } from "./mock-workbench-api";
 import type { ReportRunCreated, WorkbenchApi } from "./workbench-api";
 
 export interface RemoteWorkbenchApi {
+  listResearchSymbols?(): Promise<ResearchSymbolEntry[]>;
+  addResearchSymbol?(input: {
+    symbol: string;
+    keywords?: string[];
+  }): Promise<ResearchSymbolEntry>;
+  archiveResearchSymbol?(symbol: Symbol): Promise<ResearchSymbolEntry>;
   listMarketSummaries(): Promise<MarketSummary[]>;
   getMarket(input: {
     symbol: Symbol;
@@ -82,9 +89,24 @@ export class HybridWorkbenchApi implements WorkbenchApi {
     private readonly remoteApi: RemoteWorkbenchApi,
   ) {}
 
-  async getDashboard(): Promise<DashboardSnapshot> {
+  listResearchSymbols(): Promise<ResearchSymbolEntry[]> {
+    return this.remoteApi.listResearchSymbols?.() ?? this.mockApi.listResearchSymbols();
+  }
+
+  addResearchSymbol(input: {
+    symbol: string;
+    keywords?: string[];
+  }): Promise<ResearchSymbolEntry> {
+    return this.remoteApi.addResearchSymbol?.(input) ?? this.mockApi.addResearchSymbol(input);
+  }
+
+  archiveResearchSymbol(symbol: Symbol): Promise<ResearchSymbolEntry> {
+    return this.remoteApi.archiveResearchSymbol?.(symbol) ?? this.mockApi.archiveResearchSymbol(symbol);
+  }
+
+  async getDashboard(input?: { symbol: Symbol }): Promise<DashboardSnapshot> {
     const [mockDashboard, markets, reports] = await Promise.all([
-      this.mockApi.getDashboard(),
+      this.mockApi.getDashboard(input),
       this.remoteApi.listMarketSummaries(),
       this.remoteApi.listReports({ page: 1, pageSize: 20 }),
     ]);

@@ -3,6 +3,7 @@ import { NavLink, useMatch } from "react-router-dom";
 const navigationItems = [
   { to: "/", label: "研究工作台", end: true },
   { to: "/reports", label: "分析报告", end: false },
+  { to: "/research-symbols", label: "研究币对管理", end: false },
   { to: "/backtests", label: "策略回测", end: false },
   { to: "/paper-trading", label: "模拟盘", end: false },
   { to: "/trades", label: "交易日志", end: false },
@@ -17,8 +18,7 @@ export interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const marketMatch = useMatch("/market/:symbol");
-  const marketSymbol =
-    marketMatch?.params.symbol === "ETHUSDT" ? "ETHUSDT" : "BTCUSDT";
+  const marketSymbol = marketMatch?.params.symbol ?? "BTCUSDT";
   const sidebarItems = [
     navigationItems[0],
     {

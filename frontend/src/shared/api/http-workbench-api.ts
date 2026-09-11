@@ -25,6 +25,11 @@ import {
   type Timeframe,
 } from "../../domain/primitives";
 import {
+  researchSymbolEntrySchema,
+  researchSymbolListSchema,
+  type ResearchSymbolEntry,
+} from "../../domain/research-symbol";
+import {
   manualPaperIntentSchema,
   paperAccountCreateSchema,
   paperAccountDetailSchema,
@@ -97,13 +102,19 @@ export interface HttpWorkbenchApiOptions extends HttpTransportOptions {
 }
 
 const marketInputSchema = z.object({
-  symbol: z.enum(["BTCUSDT", "ETHUSDT"]),
+  symbol: identifierSchema.regex(/^[A-Z0-9]{1,28}USDT$/),
   timeframes: z.array(z.enum(["15m", "1h", "4h", "1d"])).min(1),
 });
 const marketSummaryListSchema = z.object({
   items: z.array(marketSummarySchema),
 });
-const reportStartSchema = z.object({ symbol: z.enum(["BTCUSDT", "ETHUSDT"]) });
+const reportStartSchema = z.object({
+  symbol: identifierSchema.regex(/^[A-Z0-9]{1,28}USDT$/),
+});
+const researchSymbolInputSchema = z.object({
+  symbol: identifierSchema.regex(/^[A-Z0-9]{1,28}USDT$/),
+  keywords: z.array(z.string()).max(20).optional(),
+});
 const analysisRunResultSchema = z.object({
   analysisId: identifierSchema,
   reportId: identifierSchema,
@@ -188,8 +199,53 @@ export class HttpWorkbenchApi implements WorkbenchApi {
     ).items;
   }
 
-  getDashboard(): Promise<DashboardSnapshot> {
-    return this.transport.request("/api/v1/dashboard", dashboardSnapshotSchema);
+  async listResearchSymbols(): Promise<ResearchSymbolEntry[]> {
+    return (
+      await this.transport.request(
+        "/api/v1/research-symbols",
+        researchSymbolListSchema,
+      )
+    ).items;
+  }
+
+  addResearchSymbol(input: {
+    symbol: string;
+    keywords?: string[];
+  }): Promise<ResearchSymbolEntry> {
+    const payload = researchSymbolInputSchema.parse({
+      ...input,
+      symbol: input.symbol.trim().toUpperCase(),
+    });
+    return this.transport.request(
+      "/api/v1/research-symbols",
+      researchSymbolEntrySchema,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+  }
+
+  archiveResearchSymbol(symbol: Symbol): Promise<ResearchSymbolEntry> {
+    const parsedSymbol = identifierSchema
+      .regex(/^[A-Z0-9]{1,28}USDT$/)
+      .parse(symbol);
+    return this.transport.request(
+      `/api/v1/research-symbols/${encodeURIComponent(parsedSymbol)}`,
+      researchSymbolEntrySchema,
+      { method: "DELETE" },
+    );
+  }
+
+  getDashboard(input?: { symbol: Symbol }): Promise<DashboardSnapshot> {
+    const query = input === undefined
+      ? ""
+      : `?${new URLSearchParams({ symbol: input.symbol }).toString()}`;
+    return this.transport.request(
+      `/api/v1/dashboard${query}`,
+      dashboardSnapshotSchema,
+    );
   }
 
   getMarket(input: {

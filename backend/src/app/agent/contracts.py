@@ -7,7 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.market.contracts import ContractSymbol, UtcDateTime
+from app.market.contracts import UtcDateTime
+from app.market.symbols import ResearchSymbol
 
 AgentNodeName = Literal[
     "started",
@@ -45,7 +46,7 @@ class AgentRunState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     analysis_id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     started_at: UtcDateTime
     snapshot_id: UUID | None = None
     evidence_ids: tuple[UUID, ...] = Field(default=(), max_length=30)

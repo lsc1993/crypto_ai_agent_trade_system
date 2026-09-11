@@ -7,15 +7,21 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol, TypeGuard, cast
+from typing import Any, Literal, Protocol, TypeGuard, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.market.contracts import ContractSymbol
-from app.news.contracts import ALLOWED_NEWS_SOURCES, NewsItemDraft, NewsSourceDefinition
+from app.news.contracts import (
+    ALLOWED_NEWS_SOURCES,
+    NewsEventCategory,
+    NewsItemDraft,
+    NewsSourceDefinition,
+)
+from app.symbols.contracts import ResearchSymbolEntry
 
 
 class NewsSourceAdapter(Protocol):
@@ -30,6 +36,10 @@ class NewsRepository(Protocol):
         self,
         items: tuple[NewsItemDraft, ...],
     ) -> tuple[NewsItemDraft, ...]: ...
+
+
+class ResearchSymbolDirectory(Protocol):
+    async def list(self, *, include_archived: bool = False) -> tuple[ResearchSymbolEntry, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -86,6 +96,7 @@ class NewsIngestionService:
         *,
         sources: Iterable[NewsSourceAdapter],
         repository: NewsRepository,
+        symbol_repository: ResearchSymbolDirectory | None = None,
     ) -> None:
         """验证所有适配器与静态来源白名单匹配，并冻结其运行时顺序。"""
         bounded_sources = tuple(sources)
@@ -112,10 +123,11 @@ class NewsIngestionService:
             raise ValueError("新闻来源不能重复")
         self._sources = tuple(approved_sources)
         self._repository = repository
+        self._symbol_repository = symbol_repository
 
     async def collect(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         since: datetime,
         until: datetime,
@@ -150,10 +162,12 @@ class NewsIngestionService:
                 continue
             successful.append(result)
             success_ids.append(source.source.source_id)
+        attributed = await self._attribute_research_symbols(
+            tuple(item for items in successful for item in items)
+        )
         candidates = tuple(
             item
-            for items in successful
-            for item in items
+            for item in attributed
             if normalized_since <= item.published_at <= normalized_until
             and symbol in item.related_symbols
         )
@@ -167,6 +181,17 @@ class NewsIngestionService:
             successful_source_ids=tuple(success_ids),
             failed_source_ids=tuple(failure_ids),
         )
+
+    async def _attribute_research_symbols(
+        self,
+        items: tuple[NewsItemDraft, ...],
+    ) -> tuple[NewsItemDraft, ...]:
+        if self._symbol_repository is None or not items:
+            return items
+        entries = tuple(entry for entry in await self._symbol_repository.list() if entry.enabled)
+        if not entries:
+            return items
+        return tuple(_with_research_symbols(item, entries) for item in items)
 
 
 def _require_utc(value: datetime) -> datetime:
@@ -190,3 +215,38 @@ def _has_expected_attribution(
         and item.source_tier is source.tier
         for item in values
     )
+
+
+_BROAD_POLICY_SOURCES = frozenset(
+    {
+        "federal_reserve_press_releases",
+        "us_treasury_press_releases",
+        "cftc_press_releases",
+        "sec_press_releases",
+    }
+)
+
+
+def _with_research_symbols(
+    item: NewsItemDraft,
+    entries: tuple[ResearchSymbolEntry, ...],
+) -> NewsItemDraft:
+    """Add registered symbols only when a bounded alias or policy scope matches."""
+    related = list(item.related_symbols)
+    content = f"{item.title} {item.summary}".casefold()
+    if item.source_id in _BROAD_POLICY_SOURCES and item.event_category in {
+        NewsEventCategory.MACRO,
+        NewsEventCategory.REGULATION,
+    }:
+        related.extend(entry.symbol for entry in entries)
+    else:
+        for entry in entries:
+            aliases = (entry.base_asset, *entry.keywords)
+            if any(_contains_alias(content, alias) for alias in aliases):
+                related.append(entry.symbol)
+    return item.model_copy(update={"related_symbols": tuple(dict.fromkeys(related))})
+
+
+def _contains_alias(content: str, alias: str) -> bool:
+    normalized = alias.casefold()
+    return bool(re.search(rf"(?<![\w]){re.escape(normalized)}(?![\w])", content))

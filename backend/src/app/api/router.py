@@ -10,6 +10,7 @@ from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.market import router as market_router
 from app.api.routes.paper_accounts import router as paper_accounts_router
 from app.api.routes.research_market import router as research_market_router
+from app.api.routes.research_symbols import router as research_symbols_router
 from app.api.routes.trades import router as trades_router
 
 API_NAME = "AI 加密合约研究工作台"
@@ -30,6 +31,7 @@ async def get_version_document() -> VersionDocument:
 router.include_router(market_router)
 router.include_router(dashboard_router)
 router.include_router(research_market_router)
+router.include_router(research_symbols_router)
 router.include_router(analysis_reports_router)
 router.include_router(backtests_router)
 router.include_router(paper_accounts_router)

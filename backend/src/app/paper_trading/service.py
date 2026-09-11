@@ -1,3 +1,9 @@
+"""模拟盘应用服务。
+
+数据流：账户请求或策略评估 → 公开市场报价/已收盘 K 线校验 → PaperTradingEngine
+transition → 带幂等键的仓储事务。系统只支持 BTCUSDT 模拟盘，不连接真实下单接口。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -55,15 +61,19 @@ class PaperTradingService:
         self._strategy = SmaCrossoverStrategy() if strategy is None else strategy
 
     async def create_account(self, request: PaperAccountCreate) -> PaperAccountDetail:
+        """创建模拟账户及其初始仓位、估值和审计状态。"""
         return await self._repository.create_account(request, occurred_at=self._now())
 
     async def list_accounts(self, filters: PaperAccountFilters) -> PaperAccountPage:
+        """按筛选条件分页读取模拟账户，不计算额外市场数据。"""
         return await self._repository.list(filters)
 
     async def get_account(self, account_id: UUID) -> PaperAccountDetail:
+        """读取一个模拟账户的当前领域状态，不存在时抛出领域未找到错误。"""
         return await self._require_account(account_id)
 
     async def get_performance(self, account_id: UUID) -> PaperPerformanceSnapshot:
+        """聚合账户估值、账本、成交与事件为只读绩效快照。"""
         data = await self._repository.get_performance_data(account_id)
         if data is None:
             raise PaperAccountNotFoundError("未找到模拟账户")
@@ -74,6 +84,12 @@ class PaperTradingService:
         account_id: UUID,
         request: ManualPaperIntent,
     ) -> PaperAccountDetail:
+        """提交一条用户手工开/平仓意图并以客户端请求 ID 实现幂等。
+
+        行情读取失败会记录独立市场失败事件；读取成功后由领域引擎执行风控和模拟
+        撮合，服务层不绕过任何风险规则。
+        """
+        # 客户端重试同一请求时返回原账户状态，防止网络重试重复开仓或平仓。
         idempotency_key = f"{account_id}:manual:{request.client_request_id}"
         if await self._repository.find_outcome(account_id, idempotency_key) is not None:
             return await self._require_account(account_id)
@@ -111,10 +127,12 @@ class PaperTradingService:
         )
 
     async def evaluate_strategy(self, account_id: UUID) -> PaperAccountDetail:
+        """对最新已收盘 1h K 线运行 SMA 策略，并将无信号也作为可审计结果保存。"""
         detail = await self._require_account(account_id)
         try:
             quote = await self._quote()
             latest_closed_candle_at = _latest_closed_candle_at(quote)
+            # 同一账户、同一根已收盘 K 线最多评估一次，策略任务可安全重试。
             idempotency_key = _strategy_idempotency_key(account_id, latest_closed_candle_at)
             if await self._repository.find_outcome(account_id, idempotency_key) is not None:
                 return await self._require_account(account_id)
@@ -142,6 +160,7 @@ class PaperTradingService:
             candles=candles,
             position_is_open=detail.position.quantity > 0,
         )
+        # 策略产出的临时键不能跨服务边界；这里统一替换成按 K 线确定的持久化幂等键。
         if intent is not None:
             intent = intent.model_copy(update={"idempotency_key": idempotency_key})
         transition = self._engine.apply(
@@ -161,15 +180,18 @@ class PaperTradingService:
         )
 
     async def archive_account(self, account_id: UUID) -> PaperAccountDetail:
+        """归档模拟账户，阻止其后续接收新的手工或策略意图。"""
         return await self._repository.archive(account_id, occurred_at=self._now())
 
     async def _require_account(self, account_id: UUID) -> PaperAccountDetail:
+        """读取账户详情，并将空结果统一转换为 PaperAccountNotFoundError。"""
         detail = await self._repository.get_by_id(account_id)
         if detail is None:
             raise PaperAccountNotFoundError("未找到模拟账户")
         return detail
 
     async def _quote(self) -> ExecutionQuote:
+        """读取 BTCUSDT 的新鲜公开摘要并转换为模拟撮合使用的冻结报价。"""
         detail = await self._market.get_market(
             ContractSymbol.BTCUSDT,
             (MarketTimeframe.H1,),
@@ -184,6 +206,7 @@ class PaperTradingService:
 
 
 def _quote_from_market(detail: MarketDetail) -> ExecutionQuote:
+    """验证公开市场详情的标的和新鲜度，再提取可用于模拟盘的报价。"""
     summary = detail.summary
     if summary.symbol is not ContractSymbol.BTCUSDT:
         raise MarketDataUnavailableError("market_data_invalid_response", "公开行情标的不匹配")
@@ -199,10 +222,12 @@ def _quote_from_market(detail: MarketDetail) -> ExecutionQuote:
 
 
 def _latest_closed_candle_at(quote: ExecutionQuote) -> datetime:
+    """将行情观测时刻截断到小时边界，作为策略输入和幂等键对应的最近收盘 K 线。"""
     return quote.observed_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
 def _strategy_idempotency_key(account_id: UUID, latest_closed_candle_at: datetime) -> str:
+    """为账户、策略版本和单根已收盘 K 线生成稳定的策略评估幂等键。"""
     return (
         f"{account_id}:{_SMA_STRATEGY_ID}:{_SMA_STRATEGY_VERSION}:"
         f"{latest_closed_candle_at.isoformat()}:evaluation"
@@ -213,6 +238,7 @@ def _validate_strategy_candles(
     candles: tuple[Candle, ...],
     latest_closed_candle_at: datetime,
 ) -> None:
+    # SMA(20/50) 依赖连续的已收盘 1h K 线；缺失、跳跃或未来 K 线都使本次评估失效。
     expected_start = latest_closed_candle_at - timedelta(hours=_SMA_CANDLE_COUNT)
     if len(candles) != _SMA_CANDLE_COUNT:
         raise MarketDataUnavailableError("market_data_missing", "公开行情缺少足够的已收盘 1h K 线")

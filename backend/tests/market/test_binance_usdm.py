@@ -31,7 +31,7 @@ def fixture_handler(requests: list[httpx.Request]) -> Callable[[httpx.Request], 
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        symbol = request.url.params["symbol"]
+        symbol = request.url.params.get("symbol") or request.url.params["pair"]
         if request.url.path == "/fapi/v1/ticker/24hr":
             return httpx.Response(
                 200,

@@ -5,6 +5,7 @@ import { BacktestDetailPage } from "../features/backtests/BacktestDetailPage";
 import { BacktestListPage } from "../features/backtests/BacktestListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { MarketPage } from "../features/market/MarketPage";
+import { ResearchSymbolManagementPage } from "../features/research-symbols/ResearchSymbolManagementPage";
 import { PaperAccountDetailPage } from "../features/paper-trading/PaperAccountDetailPage";
 import { PaperAccountListPage } from "../features/paper-trading/PaperAccountListPage";
 import { ReportDetailPage } from "../features/reports/ReportDetailPage";
@@ -32,7 +33,8 @@ export function AppRouter() {
       path: "/",
       element: <DashboardPage />,
     },
-    { path: "/market/:symbol", element: <MarketPage /> },
+    { path: "/market/:symbol?", element: <MarketPage /> },
+    { path: "/research-symbols", element: <ResearchSymbolManagementPage /> },
     {
       path: "/reports",
       element: <ReportListPage />,

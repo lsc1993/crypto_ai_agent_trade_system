@@ -101,7 +101,7 @@ def system_prompt() -> str:
 
 def research_user_message(request: ResearchModelRequest) -> str:
     payload = {
-        "symbol": request.symbol.value,
+        "symbol": request.symbol,
         "report_language": request.report_language,
         "horizon": request.horizon,
         "factor_analysis": (

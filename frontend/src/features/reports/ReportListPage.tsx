@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
 import type { ReportStatus } from "../../domain/report";
+import { ResearchSymbolSelect } from "../research-symbols/ResearchSymbolSelect";
+import { useResearchSymbolSelection } from "../research-symbols/useResearchSymbolSelection";
 import { ReportGenerator } from "./ReportGenerator";
 
 const statusLabels: Record<ReportStatus, string> = {
@@ -16,13 +18,27 @@ const statusLabels: Record<ReportStatus, string> = {
 
 export function ReportListPage() {
   const api = useWorkbenchApi();
+  const selection = useResearchSymbolSelection();
   const reportsQuery = useQuery({
-    queryKey: ["reports", { page: 1, pageSize: 20 }],
-    queryFn: () => api.listReports({ page: 1, pageSize: 20 }),
+    queryKey: ["reports", { page: 1, pageSize: 20, symbol: selection.selected }],
+    enabled:
+      selection.catalogQuery.isSuccess &&
+      selection.selected !== undefined &&
+      !selection.invalid,
+    queryFn: () => {
+      if (selection.selected === undefined) {
+        throw new Error("Research symbol is unavailable");
+      }
+      return api.listReports({ page: 1, pageSize: 20, symbol: selection.selected });
+    },
   });
 
-  if (reportsQuery.isPending) {
+  if (selection.catalogQuery.isPending || reportsQuery.isPending) {
     return <PageState state="loading" />;
+  }
+
+  if (selection.catalogQuery.isError || selection.invalid || selection.selected === undefined) {
+    return <PageState state="unavailable" message="当前币对未登记或尚未完成数据同步。" />;
   }
 
   if (reportsQuery.isError) {
@@ -44,9 +60,15 @@ export function ReportListPage() {
             报告提供短期与长期市场观点，并区分事实、推断、风险与限制；不构成交易指令。
           </p>
         </div>
+        <ResearchSymbolSelect
+          entries={selection.entries}
+          value={selection.selected}
+          pending={selection.catalogQuery.isPending}
+          onValueChange={selection.select}
+        />
       </header>
 
-      <ReportGenerator symbol="BTCUSDT" />
+      <ReportGenerator symbol={selection.selected} />
 
       <section
         className="reports-page__history"

@@ -242,6 +242,26 @@ async def test_runtime_rejects_symbol_omitted_by_policy_before_delegation() -> N
 
 
 @pytest.mark.asyncio
+async def test_runtime_allows_a_ready_symbol_from_the_research_directory() -> None:
+    request = REQUEST.model_copy(update={"symbol": "SOLUSDT"})
+    workflow = _workflow()
+    audit = RecordingAuditRepository()
+    runtime = HarnessRuntime(
+        policies=(MARKET_RESEARCH_POLICY,),
+        workflows=(workflow,),
+        audit_repository=audit,
+        symbol_authorizer=lambda symbol: _is_ready_directory_symbol(symbol),
+    )
+
+    assert await runtime.run(request) == "completed"
+    assert workflow.calls == [request]
+
+
+async def _is_ready_directory_symbol(symbol: str) -> bool:
+    return symbol == "SOLUSDT"
+
+
+@pytest.mark.asyncio
 async def test_runtime_rejects_unregistered_kind() -> None:
     audit = RecordingAuditRepository()
     runtime = HarnessRuntime(policies=(), workflows=(), audit_repository=audit)

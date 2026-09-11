@@ -1,3 +1,9 @@
+"""受控 Agent 研究图编排模块。
+
+数据流：采集冻结行情与新闻 → 计算确定性市场结构 → 证据门控 → 模型提案验证或
+降级报告持久化。图状态只保存 ID、计数和错误码，原始载荷保留在请求运行对象中。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +22,7 @@ AgentGraphNode = Callable[[AgentRunState], Awaitable[dict[str, object]]]
 
 
 class AgentGraphRun(Protocol):
-    """Request-scoped node implementation; payloads never become graph state."""
+    """单次请求的节点实现接口；大载荷始终保留在运行对象中，不写入图状态。"""
 
     async def collect_market(self, state: AgentRunState) -> dict[str, object]: ...
 
@@ -41,7 +47,11 @@ def build_agent_graph(
     *,
     checkpointer: BaseCheckpointSaver[Any] | None,
 ) -> Any:
-    """Compile the only permitted market-research control flow."""
+    """编译唯一允许的市场研究控制流。
+
+        收集节点按固定顺序运行；只有 evidence_gate 放行才调用模型，否则直接持久化
+        降级报告。checkpointer 仅保存轻量状态，以便审计或恢复而不复制不可信正文。
+    """
 
     builder: Any = StateGraph(AgentRunState)
     builder.add_node("collect_market", _logged_node("collect_market", run.collect_market))
@@ -64,6 +74,7 @@ def build_agent_graph(
     builder.add_edge("collect_news", "compute_structure")
     builder.add_conditional_edges(
         "compute_structure",
+        # 只有冻结证据和确定性结构分析均有效时才允许调用模型；否则直接生成降级报告。
         run.evidence_gate,
         {
             "model": "generate_model_report",
@@ -77,12 +88,13 @@ def build_agent_graph(
 
 
 def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNode:
+    """为节点包裹受控生命周期日志，并保留取消和原始异常的传播语义。"""
     async def invoke(state: AgentRunState) -> dict[str, object]:
         started_at = perf_counter()
         logger.info(
             "agent_research_node_started",
             analysis_id=str(state.analysis_id),
-            symbol=state.symbol.value,
+            symbol=state.symbol,
             node_name=node_name,
         )
         try:
@@ -93,7 +105,7 @@ def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNo
             logger.info(
                 "agent_research_node_failed",
                 analysis_id=str(state.analysis_id),
-                symbol=state.symbol.value,
+                symbol=state.symbol,
                 node_name=node_name,
             )
             logger.debug(
@@ -105,11 +117,12 @@ def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNo
                 duration_ms=_duration_ms(started_at),
             )
             raise
+        # 运行日志只记录受控的统计字段和错误码，不记录模型、新闻或行情正文。
         error_code = _new_error_code(state, update)
         logger.info(
             "agent_research_node_completed",
             analysis_id=str(state.analysis_id),
-            symbol=state.symbol.value,
+            symbol=state.symbol,
             node_name=node_name,
             error_code=error_code,
         )
@@ -131,6 +144,7 @@ def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNo
 
 
 def _new_error_code(state: AgentRunState, update: dict[str, object]) -> str | None:
+    """找出本节点新增的受控错误码，供日志记录而不解析或回显原始异常。"""
     error_codes = update.get("error_codes")
     if not isinstance(error_codes, (list, tuple)):
         return None

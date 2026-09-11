@@ -16,7 +16,7 @@ from app.infrastructure.persistence.models.reports import (
     AnalysisEvidenceRecord,
     AnalysisReportRecord,
 )
-from app.market.contracts import ContractSymbol
+from app.market.symbols import ResearchSymbol
 from app.reports.contracts import (
     AgentAnalysis,
     AgentReportCreation,
@@ -79,7 +79,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
                         AgentAnalysisRunRecord(
                             id=uuid4(),
                             analysis_id=report.analysis_id,
-                            symbol=report.symbol.value,
+                            symbol=report.symbol,
                             status=report.status.value,
                             started_at=creation.started_at,
                             completed_at=creation.completed_at,
@@ -177,7 +177,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         *,
         page: int,
         page_size: int,
-        symbol: ContractSymbol | None,
+        symbol: ResearchSymbol | None,
         status: AnalysisReportStatus | None,
     ) -> ReportPage:
         if page < 1 or not 1 <= page_size <= 100:
@@ -218,7 +218,7 @@ async def _add_report_records(
         AnalysisReportRecord(
             id=report.id,
             analysis_id=report.analysis_id,
-            symbol=report.symbol.value,
+            symbol=report.symbol,
             status=report.status.value,
             title=report.title,
             summary=report.summary,
@@ -238,7 +238,7 @@ async def _add_report_records(
         AnalysisEvidenceRecord(
             id=evidence.id,
             analysis_report_id=evidence.report_id,
-            symbol=evidence.symbol.value,
+            symbol=evidence.symbol,
             source=evidence.source,
             source_url=evidence.source_url,
             observed_at=evidence.observed_at,
@@ -314,7 +314,7 @@ def _to_summary(
     return AnalysisReportSummary(
         id=record.id,
         analysis_id=record.analysis_id,
-        symbol=ContractSymbol(record.symbol),
+        symbol=record.symbol,
         status=AnalysisReportStatus(record.status),
         title=record.title,
         summary=record.summary,
@@ -370,7 +370,7 @@ def _to_evidence(record: AnalysisEvidenceRecord) -> PersistedAnalysisEvidence:
     return PersistedAnalysisEvidence(
         id=record.id,
         report_id=record.analysis_report_id,
-        symbol=ContractSymbol(record.symbol),
+        symbol=record.symbol,
         source=record.source,
         source_url=record.source_url,
         observed_at=record.observed_at,
@@ -384,12 +384,12 @@ def _to_evidence(record: AnalysisEvidenceRecord) -> PersistedAnalysisEvidence:
 
 def _filters(
     *,
-    symbol: ContractSymbol | None,
+    symbol: ResearchSymbol | None,
     status: AnalysisReportStatus | None,
 ) -> tuple[ColumnElement[bool], ...]:
     filters: list[ColumnElement[bool]] = []
     if symbol is not None:
-        filters.append(AnalysisReportRecord.symbol == symbol.value)
+        filters.append(AnalysisReportRecord.symbol == symbol)
     if status is not None:
         filters.append(AnalysisReportRecord.status == status.value)
     return tuple(filters)

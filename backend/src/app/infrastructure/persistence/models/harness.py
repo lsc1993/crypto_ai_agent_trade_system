@@ -18,7 +18,7 @@ class HarnessAuditRunRecord(Base):
     run_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
     policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     initiator_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     request_sha256: Mapped[str] = mapped_column(String(64), nullable=False)

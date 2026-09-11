@@ -5,13 +5,14 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
-from typing import Self, cast
+from typing import Any, Self, cast
 from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from app.market.contracts import ContractSymbol, MarketDataUnavailableError
+from app.market.symbols import ResearchSymbol
 
 FARSIDE_BASE_URL = "https://farside.co.uk"
 FARSIDE_COMPATIBILITY_USER_AGENT = (
@@ -80,7 +81,7 @@ class EtfFlowDay(_EtfFlowModel):
 
 
 class EtfFlowSnapshot(_EtfFlowModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     fetched_at: datetime
     source_url: str
     days: tuple[EtfFlowDay, ...]
@@ -132,7 +133,7 @@ class FarsideEtfFlowGateway:
 
     async def collect(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         as_of: datetime,
     ) -> EtfFlowSnapshot:
@@ -433,17 +434,17 @@ def _parse_date(value: str) -> date | None:
         return None
 
 
-def _source_url(symbol: ContractSymbol) -> str:
-    paths = {
-        ContractSymbol.BTCUSDT: "/btc/",
-        ContractSymbol.ETHUSDT: "/eth/",
+def _source_url(symbol: ResearchSymbol) -> str:
+    paths: dict[str, str] = {
+        ContractSymbol.BTCUSDT.value: "/btc/",
+        ContractSymbol.ETHUSDT.value: "/eth/",
     }
     try:
         path = paths[symbol]
     except (KeyError, TypeError) as error:
         raise MarketDataUnavailableError(
-            "market_data_invalid_request",
-            "ETF 资金流不支持该标的",
+            "market_data_unsupported",
+            "当前数据源不支持",
         ) from error
     return f"{FARSIDE_BASE_URL}{path}"
 

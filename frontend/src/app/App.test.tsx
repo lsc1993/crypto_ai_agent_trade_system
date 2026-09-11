@@ -168,7 +168,10 @@ describe("application shell routes", () => {
       screen.getByRole("link", { name: "BTCUSDT 市场" }),
     ).toHaveClass("app-sidebar__link--active");
 
-    await user.click(screen.getByRole("link", { name: "ETHUSDT" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "研究币对" }),
+      "ETHUSDT",
+    );
 
     expect(window.location.pathname).toBe("/market/ETHUSDT");
     expect(

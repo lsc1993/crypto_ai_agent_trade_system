@@ -1,3 +1,9 @@
+"""回测应用服务。
+
+数据流：BacktestRequest → 先创建 pending 审计记录 → 加载受限历史 K 线 → 纯回放
+引擎 → complete 或 fail 终态。服务负责 I/O、时间和运行生命周期，计算在引擎内完成。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -35,6 +41,8 @@ class BacktestService:
         self._clock = clock
 
     async def start(self, request: BacktestRequest) -> PersistedBacktestRun:
+        """启动一个可审计回测，并保证市场或输入失败也会将 pending 运行结束为失败。"""
+        # 先创建 pending 记录，确保数据加载或回放失败也拥有可追踪的运行 ID 和终态。
         pending = await self._repository.create_pending(
             request,
             occurred_at=self._now(),
@@ -53,6 +61,7 @@ class BacktestService:
                 candles,
                 occurred_at=self._now(),
             )
+        # 外部历史数据故障保留稳定错误码后继续向上抛出，调用方可区分“失败”与正常降级。
         except MarketDataUnavailableError as error:
             await self._repository.fail(
                 pending.id,
@@ -61,6 +70,7 @@ class BacktestService:
                 occurred_at=self._now(),
             )
             raise
+        # 可预期的输入/策略约束失败被安全地持久化为失败结果，而不是暴露为服务异常。
         except ExpectedBacktestFailure as error:
             return await self._repository.fail(
                 pending.id,
@@ -70,15 +80,18 @@ class BacktestService:
             )
 
     async def list(self, filters: BacktestFilters) -> BacktestPage:
+        """分页读取已保存回测运行及其筛选结果。"""
         return await self._repository.list(filters)
 
     async def get(self, run_id: UUID) -> PersistedBacktestRun:
+        """按 ID 读取一条回测运行，缺失时返回领域未找到错误。"""
         run = await self._repository.get_by_id(run_id)
         if run is None:
             raise BacktestNotFoundError("回测运行不存在")
         return run
 
     def _now(self) -> datetime:
+        """读取并验证服务时钟为 UTC，确保仓储生命周期事件可排序。"""
         value = self._clock()
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise ValueError("回测服务时钟必须返回 UTC 带时区时间")

@@ -10,12 +10,11 @@ from app.api.routes.market_responses import (
     MarketSummaryListResponse,
     require_unique,
 )
-from app.market.contracts import (
-    ContractSymbol,
-    MarketDetail,
-    MarketTimeframe,
-)
+from app.api.routes.research_symbols import get_symbol_repository, require_research_symbol
+from app.market.contracts import MarketDetail, MarketTimeframe
 from app.market.service import MarketQueryService
+from app.market.symbols import ResearchSymbol
+from app.symbols.repository import SymbolRepository
 
 router = APIRouter(tags=["market"])
 
@@ -26,19 +25,25 @@ def get_market_service(request: Request) -> MarketQueryService:
 
 @router.get("/markets", response_model=MarketSummaryListResponse)
 async def list_markets(
-    symbols: Annotated[list[ContractSymbol], Query(min_length=1, max_length=2)],
+    symbols: Annotated[list[ResearchSymbol], Query(min_length=1, max_length=20)],
     service: Annotated[MarketQueryService, Depends(get_market_service)],
+    repository: Annotated[SymbolRepository, Depends(get_symbol_repository)],
 ) -> MarketSummaryListResponse:
-    summaries = await service.get_summaries(require_unique(symbols, "symbols"))
+    requested = require_unique(symbols, "symbols")
+    for symbol in requested:
+        await require_research_symbol(repository, symbol)
+    summaries = await service.get_summaries(requested)
     return MarketSummaryListResponse(items=summaries)
 
 
 @router.get("/market/{symbol}", response_model=MarketDetailResponse)
 async def get_market(
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     timeframes: Annotated[list[MarketTimeframe], Query(min_length=1, max_length=4)],
     service: Annotated[MarketQueryService, Depends(get_market_service)],
+    repository: Annotated[SymbolRepository, Depends(get_symbol_repository)],
 ) -> MarketDetailResponse:
+    await require_research_symbol(repository, symbol)
     detail: MarketDetail = await service.get_market(
         symbol,
         require_unique(timeframes, "timeframes"),

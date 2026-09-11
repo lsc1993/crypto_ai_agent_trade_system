@@ -40,7 +40,6 @@ from app.agent.model import (
 from app.market.capture import MarketCaptureService
 from app.market.contracts import (
     CandleSeries,
-    ContractSymbol,
     FreshnessStatus,
     MarketDataUnavailableError,
     MarketDetail,
@@ -51,6 +50,7 @@ from app.market.research import (
     PersistedMarketSnapshotInput,
 )
 from app.market.research_context import PublicResearchContext
+from app.market.symbols import ResearchSymbol
 from app.news.contracts import ALLOWED_NEWS_SOURCES, NewsItemDraft
 from app.news.service import NewsCollection
 from app.reports.contracts import (
@@ -101,7 +101,7 @@ class CapturedAgentMarket:
 class AgentMarketCapture(Protocol):
     async def capture(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         captured_at: datetime,
     ) -> CapturedAgentMarket: ...
@@ -119,7 +119,7 @@ class AgentSnapshotInputReader(Protocol):
 class AgentNewsCollector(Protocol):
     async def collect(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         since: datetime,
         until: datetime,
@@ -129,7 +129,7 @@ class AgentNewsCollector(Protocol):
 class AgentResearchContextCollector(Protocol):
     async def collect(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         captured_at: datetime,
     ) -> PublicResearchContext: ...
@@ -158,7 +158,7 @@ class PersistedAgentMarketCapture:
 
     async def capture(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         *,
         captured_at: datetime,
     ) -> CapturedAgentMarket:
@@ -173,7 +173,7 @@ class PersistedAgentMarketCapture:
             captured_at=captured_at,
         )
         snapshot = await self._reader.load_snapshot(snapshot_id)
-        if snapshot is None or snapshot.summary.symbol is not symbol:
+        if snapshot is None or snapshot.summary.symbol != symbol:
             raise MarketDataUnavailableError(
                 AgentErrorCode.MARKET_RESEARCH_UNAVAILABLE.value,
                 "冻结市场快照不可用",
@@ -220,7 +220,7 @@ class PersistedAgentMarketCapture:
     def _closed_series(
         self,
         snapshot_input: PersistedMarketSnapshotInput,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
         *,
         captured_at: datetime,
@@ -229,10 +229,10 @@ class PersistedAgentMarketCapture:
         candles = tuple(
             candle
             for candle in snapshot_input.candles
-            if candle.symbol is symbol and candle.timeframe is timeframe
+            if candle.symbol == symbol and candle.timeframe is timeframe
         )
         if any(
-            candle.symbol is not symbol or candle.timeframe is not timeframe for candle in candles
+            candle.symbol != symbol or candle.timeframe is not timeframe for candle in candles
         ):
             raise MarketDataUnavailableError(
                 AgentErrorCode.MARKET_DATA_INVALID.value,
@@ -242,7 +242,7 @@ class PersistedAgentMarketCapture:
             candle
             for candle in candles
             if candle.close_at <= captured_at
-            and candle.symbol is symbol
+            and candle.symbol == symbol
             and candle.timeframe is timeframe
         )
         if not closed:
@@ -282,7 +282,7 @@ class AgentResearchService:
 
     async def generate(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         *,
         analysis_id: UUID | None = None,
     ) -> PersistedAnalysisReport:
@@ -304,7 +304,7 @@ class AgentResearchService:
         logger.info(
             "agent_research_started",
             analysis_id=str(run.analysis_id),
-            symbol=symbol.value,
+            symbol=symbol,
         )
         try:
             await graph.ainvoke(
@@ -323,7 +323,7 @@ class AgentResearchService:
             logger.info(
                 "agent_research_failed",
                 analysis_id=str(run.analysis_id),
-                symbol=symbol.value,
+                symbol=symbol,
             )
             logger.debug(
                 "agent_research_run_details",
@@ -336,7 +336,7 @@ class AgentResearchService:
         logger.info(
             "agent_research_completed",
             analysis_id=str(run.analysis_id),
-            symbol=symbol.value,
+            symbol=symbol,
             report_id=str(run.persisted_report.id),
             status=run.persisted_report.status.value,
         )
@@ -355,7 +355,7 @@ class _AgentResearchRun:
 
     dependencies: AgentResearchDependencies
     analysis_id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     started_at: datetime
     market: CapturedAgentMarket | None = None
     news: NewsCollection | None = None
@@ -590,7 +590,7 @@ class _AgentResearchRun:
         logger.info(
             "agent_model_empty_response_retry",
             analysis_id=str(self.analysis_id),
-            symbol=self.symbol.value,
+            symbol=self.symbol,
             attempt=2,
             error_code=AgentErrorCode.MODEL_EMPTY_RESPONSE.value,
         )
@@ -656,13 +656,13 @@ class _AgentResearchRun:
     def _validate_market(
         self,
         market: CapturedAgentMarket,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
     ) -> None:
         if (
-            market.snapshot.summary.symbol is not symbol
-            or market.detail.summary.symbol is not symbol
+            market.snapshot.summary.symbol != symbol
+            or market.detail.summary.symbol != symbol
             or (
-                market.research_context is not None and market.research_context.symbol is not symbol
+                market.research_context is not None and market.research_context.symbol != symbol
             )
         ):
             raise ValueError("market symbol mismatch")
@@ -732,12 +732,12 @@ def _market_evidence(market: CapturedAgentMarket) -> _FrozenEvidence:
         id=uuid4(),
         kind=ModelEvidenceKind.MARKET,
         source=summary.freshness.source,
-        source_url=f"{_MARKET_SOURCE_URL}{summary.symbol.value}",
+        source_url=f"{_MARKET_SOURCE_URL}{summary.symbol}",
         observed_at=summary.freshness.observed_at,
         fetched_at=summary.freshness.fetched_at,
         summary="冻结的公开市场快照。",
         content=(
-            f"Frozen market snapshot for {summary.symbol.value}: price={summary.price}, "
+            f"Frozen market snapshot for {summary.symbol}: price={summary.price}, "
             f"change_24h={summary.change_24h}, volume_24h={summary.volume_24h}, "
             f"funding_rate={summary.funding_rate}, open_interest={summary.open_interest}."
         ),
@@ -812,7 +812,7 @@ def _to_report_evidence(
     evidence: _FrozenEvidence,
     *,
     report_id: UUID,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
 ) -> AnalysisEvidenceDraft:
     return AnalysisEvidenceDraft(
         id=evidence.id,
@@ -832,7 +832,7 @@ def _completed_report(
     *,
     report_id: UUID,
     analysis_id: UUID,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     generated_at: datetime,
     data_cutoff_at: datetime | None,
     proposal: AgentAnalysisProposal | None,
@@ -849,7 +849,7 @@ def _completed_report(
         analysis_id=analysis_id,
         symbol=symbol,
         status=AnalysisReportStatus.COMPLETED,
-        title=f"{symbol.value} {narrative.market_overview.headline}",
+        title=f"{symbol} {narrative.market_overview.headline}",
         summary=narrative.market_overview.summary,
         facts=(f"冻结市场快照价格：{market.snapshot.summary.price}。",),
         inferences=(narrative.short_term.heading, narrative.long_term.heading),
@@ -864,7 +864,7 @@ def _degraded_report(
     *,
     report_id: UUID,
     analysis_id: UUID,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     generated_at: datetime,
     data_cutoff_at: datetime | None,
     error: AgentErrorCode | None,
@@ -874,7 +874,7 @@ def _degraded_report(
         analysis_id=analysis_id,
         symbol=symbol,
         status=AnalysisReportStatus.DEGRADED,
-        title=f"{symbol.value} 市场研究已降级",
+        title=f"{symbol} 市场研究已降级",
         summary="当前证据不足，无法形成市场研究结论。",
         facts=(),
         inferences=(),

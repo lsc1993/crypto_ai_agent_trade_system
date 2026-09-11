@@ -481,6 +481,70 @@
   font-weight: 800;
 }
 
+.research-symbol-select {
+  display: grid;
+  min-width: 11rem;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.research-symbol-select select,
+.research-symbol-form input {
+  min-height: 2.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  color: var(--text);
+  background: var(--surface);
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+}
+
+.research-symbol-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.research-symbol-card,
+.research-symbol-form {
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.research-symbol-card header,
+.research-symbol-form {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.research-symbol-card h2,
+.research-symbol-card p {
+  margin: 0;
+}
+
+.research-symbol-card p {
+  margin-top: 0.65rem;
+  color: var(--muted);
+}
+
+.research-symbol-card .secondary-action {
+  margin-top: 0.9rem;
+}
+
+.research-symbol-form label {
+  display: grid;
+  flex: 1;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .timeframe-tabs__tab {
   cursor: pointer;
 }

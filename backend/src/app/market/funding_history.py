@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from app.market.contracts import ContractSymbol
+from app.market.symbols import ResearchSymbol
 
 
 class _FundingModel(BaseModel):
@@ -38,7 +38,7 @@ class FundingPoint(_FundingModel):
 
 
 class FundingHistory(_FundingModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     since: datetime
     until: datetime
     fetched_at: datetime

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
-from app.market.contracts import ContractSymbol
 from app.reports.contracts import (
     AgentReportCreation,
     AnalysisReportCreation,
@@ -31,7 +30,7 @@ class AnalysisReportRepository(Protocol):
         *,
         page: int,
         page_size: int,
-        symbol: ContractSymbol | None,
+        symbol: Any | None,
         status: AnalysisReportStatus | None,
     ) -> ReportPage: ...
 

@@ -26,7 +26,6 @@ from app.infrastructure.persistence.models.harness import (
     HarnessAuditRunRecord,
     HarnessEvaluationRecord,
 )
-from app.market.contracts import ContractSymbol
 
 
 class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
@@ -114,7 +113,7 @@ def _run_record(run: HarnessAuditRun) -> HarnessAuditRunRecord:
         run_kind=run.run_kind.value,
         policy_version=run.policy_version,
         policy_sha256=run.policy_sha256,
-        symbol=run.symbol.value,
+        symbol=run.symbol,
         requested_at=run.requested_at,
         initiator_kind=run.initiator_kind.value,
         request_sha256=run.request_sha256,
@@ -152,7 +151,7 @@ def _to_run(record: HarnessAuditRunRecord) -> HarnessAuditRun:
         run_kind=HarnessRunKind(record.run_kind),
         policy_version=record.policy_version,
         policy_sha256=record.policy_sha256,
-        symbol=ContractSymbol(record.symbol),
+        symbol=record.symbol,
         requested_at=record.requested_at,
         initiator_kind=HarnessInitiatorKind(record.initiator_kind),
         request_sha256=record.request_sha256,

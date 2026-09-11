@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Annotated, Protocol
+from typing import Annotated, Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.market.contracts import ContractSymbol, UtcDateTime
+from app.market.contracts import UtcDateTime
+from app.market.symbols import ResearchSymbol
 
 
 class HarnessRunKind(StrEnum):
@@ -26,7 +27,7 @@ class HarnessRunRequest(BaseModel):
 
     run_id: UUID
     kind: HarnessRunKind
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     requested_at: UtcDateTime
 
     @field_validator("requested_at")
@@ -42,15 +43,16 @@ class HarnessPolicy(BaseModel):
 
     version: Annotated[str, Field(pattern=r"^[a-z0-9_]{1,64}$")]
     run_kind: HarnessRunKind
-    allowed_symbols: tuple[ContractSymbol, ...]
+    allowed_symbols: tuple[ResearchSymbol, ...]
+    symbol_admission: Literal["static", "research_directory"] = "static"
     allowed_capabilities: tuple[HarnessCapability, ...]
 
     @field_validator("allowed_symbols", "allowed_capabilities")
     @classmethod
     def validate_nonempty_and_deduplicated(
         cls,
-        value: tuple[ContractSymbol, ...] | tuple[HarnessCapability, ...],
-    ) -> tuple[ContractSymbol, ...] | tuple[HarnessCapability, ...]:
+        value: tuple[ResearchSymbol, ...] | tuple[HarnessCapability, ...],
+    ) -> tuple[ResearchSymbol, ...] | tuple[HarnessCapability, ...]:
         if not value:
             raise ValueError("策略允许列表不能为空")
         if len(value) != len(set(value)):

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infrastructure.persistence.models.news import NewsItemRecord
-from app.market.contracts import ContractSymbol
+from app.infrastructure.persistence.models.symbols import ResearchNewsLinkRecord
 from app.news.contracts import (
     NewsEventCategory,
     NewsItemDraft,
@@ -45,8 +45,44 @@ class SqlAlchemyNewsRepository:
                         )
                     ).scalars()
                 )
+                records_by_key = {record.deduplication_key: record for record in records}
+                links = [
+                    {
+                        "news_id": records_by_key[key].id,
+                        "symbol": symbol,
+                        "scope": _link_scope(unique_items[key]),
+                        "created_at": unique_items[key].fetched_at,
+                    }
+                    for key in keys
+                    for symbol in unique_items[key].related_symbols
+                ]
+                if links:
+                    await session.execute(
+                        insert(ResearchNewsLinkRecord)
+                        .values(links)
+                        .on_conflict_do_nothing()
+                    )
+                links_by_news_id = _links_by_news_id(
+                    tuple(
+                        (
+                            await session.execute(
+                                select(ResearchNewsLinkRecord).where(
+                                    ResearchNewsLinkRecord.news_id.in_(
+                                        tuple(record.id for record in records)
+                                    )
+                                )
+                            )
+                        ).scalars()
+                    )
+                )
         records_by_key = {record.deduplication_key: record for record in records}
-        return tuple(_to_draft(records_by_key[key]) for key in keys)
+        return tuple(
+            _to_draft(
+                records_by_key[key],
+                links_by_news_id.get(records_by_key[key].id, ()),
+            )
+            for key in keys
+        )
 
 
 def _first_items_by_key(items: tuple[NewsItemDraft, ...]) -> dict[str, NewsItemDraft]:
@@ -69,13 +105,13 @@ def _to_values(item: NewsItemDraft) -> dict[str, object]:
         "language": item.language,
         "title": item.title,
         "summary": item.summary,
-        "related_symbols": [symbol.value for symbol in item.related_symbols],
+        "related_symbols": list(item.related_symbols),
         "event_category": item.event_category.value,
         "content_hash": item.content_hash,
     }
 
 
-def _to_draft(record: NewsItemRecord) -> NewsItemDraft:
+def _to_draft(record: NewsItemRecord, linked_symbols: tuple[str, ...] = ()) -> NewsItemDraft:
     return NewsItemDraft(
         source_id=record.source_id,
         source_tier=NewsSourceTier(record.source_tier),
@@ -88,8 +124,24 @@ def _to_draft(record: NewsItemRecord) -> NewsItemDraft:
         language="en",
         title=record.title,
         summary=record.summary,
-        related_symbols=tuple(ContractSymbol(symbol) for symbol in record.related_symbols),
+        related_symbols=tuple(dict.fromkeys((*record.related_symbols, *linked_symbols))),
         event_category=NewsEventCategory(record.event_category),
         content_hash=record.content_hash,
         deduplication_key=record.deduplication_key,
     )
+
+
+def _link_scope(item: NewsItemDraft) -> str:
+    return "market_context" if item.event_category in {
+        NewsEventCategory.MACRO,
+        NewsEventCategory.REGULATION,
+    } else "asset"
+
+
+def _links_by_news_id(
+    links: tuple[ResearchNewsLinkRecord, ...],
+) -> dict[UUID, tuple[str, ...]]:
+    grouped: dict[UUID, list[str]] = {}
+    for link in links:
+        grouped.setdefault(link.news_id, []).append(link.symbol)
+    return {news_id: tuple(symbols) for news_id, symbols in grouped.items()}

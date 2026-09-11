@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from app.harness.contracts import (
@@ -13,14 +13,14 @@ from app.harness.contracts import (
 )
 from app.harness.policy import MARKET_RESEARCH_POLICY
 from app.harness.runtime import HarnessRuntime
-from app.market.contracts import ContractSymbol
+from app.market.symbols import ResearchSymbol
 from app.reports.contracts import PersistedAnalysisReport
 
 
 class AgentResearchGenerator(Protocol):
     async def generate(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         analysis_id: UUID | None = None,
     ) -> PersistedAnalysisReport: ...
@@ -54,7 +54,7 @@ class HarnessedMarketResearchService:
         self._clock = clock
         self._new_run_id = new_run_id
 
-    async def generate(self, symbol: ContractSymbol) -> PersistedAnalysisReport:
+    async def generate(self, symbol: ResearchSymbol) -> PersistedAnalysisReport:
         request = HarnessRunRequest(
             run_id=self._new_run_id(),
             kind=HarnessRunKind.MARKET_RESEARCH,

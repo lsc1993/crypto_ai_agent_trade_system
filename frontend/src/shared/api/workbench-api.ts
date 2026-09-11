@@ -13,6 +13,7 @@ import type {
   BacktestRunSummary,
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
+import type { ResearchSymbolEntry } from "../../domain/research-symbol";
 import type {
   ManualPaperIntent,
   PaperAccountCreate,
@@ -39,7 +40,13 @@ export interface ReportRunCreated {
 }
 
 export interface WorkbenchApi {
-  getDashboard(): Promise<DashboardSnapshot>;
+  listResearchSymbols(): Promise<ResearchSymbolEntry[]>;
+  addResearchSymbol(input: {
+    symbol: string;
+    keywords?: string[];
+  }): Promise<ResearchSymbolEntry>;
+  archiveResearchSymbol(symbol: Symbol): Promise<ResearchSymbolEntry>;
+  getDashboard(input?: { symbol: Symbol }): Promise<DashboardSnapshot>;
   getMarket(input: {
     symbol: Symbol;
     timeframes: Timeframe[];

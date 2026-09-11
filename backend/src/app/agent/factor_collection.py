@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from pydantic import JsonValue
@@ -13,16 +13,16 @@ from pydantic import JsonValue
 from app.agent.evidence import FrozenResearchEvidence
 from app.agent.factors import etf_topic, funding_topic
 from app.agent.model import ModelEvidenceKind
-from app.market.contracts import ContractSymbol
 from app.market.etf_flows import EtfFlowSnapshot
 from app.market.funding_history import FundingHistory
+from app.market.symbols import ResearchSymbol
 from app.reports.factors import FactorTopic, unavailable_topic
 
 
 class FundingHistoryReader(Protocol):
     async def get_funding_history(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         *,
         since: datetime,
         until: datetime,
@@ -30,13 +30,18 @@ class FundingHistoryReader(Protocol):
 
 
 class EtfFlowReader(Protocol):
-    async def collect(self, symbol: ContractSymbol, *, as_of: datetime) -> EtfFlowSnapshot: ...
+    async def collect(
+        self,
+        symbol: Any,
+        *,
+        as_of: datetime,
+    ) -> EtfFlowSnapshot: ...
 
 
 async def collect_funding(
     reader: FundingHistoryReader | None,
     *,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     as_of: datetime,
 ) -> tuple[FactorTopic, FrozenResearchEvidence | None]:
     if reader is None:
@@ -80,9 +85,11 @@ async def collect_funding(
 async def collect_etf(
     reader: EtfFlowReader | None,
     *,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     as_of: datetime,
 ) -> tuple[FactorTopic, FrozenResearchEvidence | None]:
+    if symbol not in {"BTCUSDT", "ETHUSDT"}:
+        return unavailable_topic(as_of=as_of, reason="当前数据源不支持"), None
     if reader is None:
         return unavailable_topic(as_of=as_of, reason="尚未获取 ETF 日度净流量。"), None
     try:

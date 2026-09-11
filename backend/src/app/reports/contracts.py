@@ -18,13 +18,13 @@ from pydantic import (
 )
 
 from app.market.contracts import (
-    ContractSymbol,
     DecimalValue,
     FreshnessStatus,
     MarketTimeframe,
     UtcDateTime,
 )
 from app.market.repository import snapshot_payload_sha256
+from app.market.symbols import ResearchSymbol
 from app.reports.factors import FactorAnalysis
 
 _MAX_TEXT_LENGTH = 1_000
@@ -188,7 +188,7 @@ def _validate_source_url(value: str) -> str:
 class AnalysisEvidenceDraft(_ReportModel):
     id: UUID = Field(default_factory=uuid4, exclude=True)
     report_id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     source: Annotated[str, Field(min_length=1, max_length=100)]
     source_url: str
     observed_at: UtcDateTime
@@ -240,7 +240,7 @@ class AnalysisEvidenceDraft(_ReportModel):
 class AnalysisReportDraft(_ReportModel):
     id: UUID = Field(default_factory=uuid4)
     analysis_id: UUID = Field(default_factory=uuid4)
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     status: AnalysisReportStatus
     title: str
     summary: str

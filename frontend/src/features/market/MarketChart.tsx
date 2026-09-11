@@ -78,16 +78,19 @@ export function MarketChart({
     candleSeries.setData(toChartSeries(series));
     chart.timeScale().fitContent();
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry !== undefined) {
-        chart.applyOptions({ width: Math.floor(entry.contentRect.width) });
-      }
-    });
-    resizeObserver.observe(chartContainer);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry !== undefined) {
+              chart.applyOptions({ width: Math.floor(entry.contentRect.width) });
+            }
+          });
+    resizeObserver?.observe(chartContainer);
 
     return () => {
-      resizeObserver.disconnect();
+      resizeObserver?.disconnect();
       chart.remove();
     };
   }, [series]);

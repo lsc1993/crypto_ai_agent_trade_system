@@ -1,21 +1,27 @@
+"""持久化市场研究读取模块。
+
+数据流：已保存的快照与 K 线输入 → 新鲜度重算和范围校验 → 只读 MarketSummary/
+MarketDetail 响应；该模块绝不在用户查询时回源获取实时行情。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import NoReturn, Protocol
+from typing import Any, NoReturn, Protocol
 from uuid import UUID
 
 from app.market.contracts import (
     Candle,
     CandleSeries,
-    ContractSymbol,
     FreshnessStatus,
     MarketDataUnavailableError,
     MarketDetail,
     MarketSummary,
     MarketTimeframe,
 )
+from app.market.symbols import ResearchSymbol
 
 _FRESHNESS_THRESHOLD = timedelta(minutes=2)
 _CANDLE_LIMIT = 200
@@ -25,6 +31,7 @@ _UNAVAILABLE_MESSAGE = "持久化市场研究数据不可用"
 
 @dataclass(frozen=True)
 class PersistedMarketSnapshot:
+    """已持久化市场摘要及其冻结时刻的轻量读取模型。"""
     summary: MarketSummary
     captured_at: datetime
 
@@ -34,10 +41,13 @@ class PersistedMarketSnapshot:
 
 @dataclass(frozen=True)
 class PersistedMarketSnapshotInput:
+    """生成研究结论时使用的、带哈希的冻结 K 线输入。"""
+
     candles: tuple[Candle, ...]
     payload_sha256: str
 
     def __post_init__(self) -> None:
+        """校验哈希格式、标的一致性和每周期 K 线数量上限。"""
         if not self.candles:
             raise ValueError("冻结市场快照输入不能为空")
         if len(self.candles) > len(MarketTimeframe) * _CANDLE_LIMIT:
@@ -47,7 +57,7 @@ class PersistedMarketSnapshotInput:
         ):
             raise ValueError("冻结市场快照输入哈希无效")
         symbol = self.candles[0].symbol
-        if any(candle.symbol is not symbol for candle in self.candles):
+        if any(candle.symbol != symbol for candle in self.candles):
             raise ValueError("冻结市场快照输入标的必须一致")
         for timeframe in MarketTimeframe:
             series_candles = tuple(
@@ -64,12 +74,12 @@ class PersistedMarketReader(Protocol):
 
     async def load_latest_snapshot(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
     ) -> PersistedMarketSnapshot | None: ...
 
     async def load_recent_candles(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         timeframe: MarketTimeframe,
         limit: int,
     ) -> tuple[Candle, ...]: ...
@@ -89,8 +99,9 @@ class MarketResearchQueryService:
 
     async def get_summaries(
         self,
-        symbols: tuple[ContractSymbol, ...],
+        symbols: tuple[ResearchSymbol, ...],
     ) -> tuple[MarketSummary, ...]:
+        """按请求顺序读取多个标的的最新已保存摘要，并统一以当前 UTC 时钟标注新鲜度。"""
         now = self._now()
         summaries: list[MarketSummary] = []
         for symbol in symbols:
@@ -99,11 +110,13 @@ class MarketResearchQueryService:
 
     async def get_market(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframes: tuple[MarketTimeframe, ...],
     ) -> MarketDetail:
+        """读取一个标的指定周期的排序 K 线序列及其最新冻结摘要。"""
         summary = await self._summary_for(symbol, now=self._now())
         series: list[CandleSeries] = []
+        # 读取路径只访问已持久化的快照，不回源请求实时行情，确保页面可复现。
         for timeframe in timeframes:
             candles = await self._reader.load_recent_candles(
                 symbol,
@@ -111,7 +124,7 @@ class MarketResearchQueryService:
                 _CANDLE_LIMIT,
             )
             if not candles or any(
-                candle.symbol is not symbol or candle.timeframe is not timeframe
+                candle.symbol != symbol or candle.timeframe is not timeframe
                 for candle in candles
             ):
                 _raise_unavailable()
@@ -125,13 +138,15 @@ class MarketResearchQueryService:
 
     async def _summary_for(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         *,
         now: datetime,
     ) -> MarketSummary:
+        """读取最近快照并仅更新 freshness 状态，不改变已冻结的行情数值。"""
         snapshot = await self._reader.load_latest_snapshot(symbol)
-        if snapshot is None or snapshot.summary.symbol is not symbol:
+        if snapshot is None or snapshot.summary.symbol != symbol:
             _raise_unavailable()
+        # 新鲜度在读取时计算：同一快照本身不变，但其对当前用户是否仍可用会随时间改变。
         freshness = snapshot.summary.freshness.model_copy(
             update={
                 "status": (
@@ -144,6 +159,7 @@ class MarketResearchQueryService:
         return snapshot.summary.model_copy(update={"freshness": freshness})
 
     def _now(self) -> datetime:
+        """取得并验证服务时钟，保证过期判断始终使用带时区的 UTC 时间。"""
         now = self._clock()
         _require_utc(now)
         return now

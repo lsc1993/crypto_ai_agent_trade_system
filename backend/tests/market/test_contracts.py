@@ -29,9 +29,9 @@ def valid_candle(**overrides: object) -> Candle:
     return Candle.model_validate(values)
 
 
-def test_candle_rejects_unsupported_symbol_and_naive_time() -> None:
-    with pytest.raises(ValidationError):
-        valid_candle(symbol="SOLUSDT")
+def test_candle_accepts_research_symbol_and_rejects_naive_time() -> None:
+    candle = valid_candle(symbol="SOLUSDT")
+    assert candle.symbol == "SOLUSDT"
 
     with pytest.raises(ValidationError):
         valid_candle(open_at=datetime(2026, 7, 28, 0, 0))

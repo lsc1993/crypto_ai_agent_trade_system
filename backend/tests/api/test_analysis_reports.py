@@ -210,7 +210,7 @@ class InMemoryAnalysisReportRepository:
         reports = tuple(
             report
             for report in self._reports.values()
-            if (symbol is None or report.symbol is symbol)
+            if (symbol is None or report.symbol == symbol)
             and (status is None or report.status is status)
         )
         return ReportPage(

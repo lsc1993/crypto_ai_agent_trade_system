@@ -65,7 +65,7 @@ def _upsert_candles(candles: Sequence[Candle]):
         [
             {
                 "id": uuid4(),
-                "symbol": candle.symbol.value,
+                "symbol": candle.symbol,
                 "timeframe": candle.timeframe.value,
                 "open_at": candle.open_at,
                 "close_at": candle.close_at,
@@ -104,7 +104,7 @@ def _insert_observations(observations: Sequence[DerivativeObservation]):
         [
             {
                 "id": uuid4(),
-                "symbol": observation.symbol.value,
+                "symbol": observation.symbol,
                 "metric_type": observation.metric_type.value,
                 "value": observation.value,
                 "source": observation.source,
@@ -124,7 +124,7 @@ def _insert_snapshot(batch: MarketCaptureBatch, snapshot_id: UUID):
     snapshot = batch.snapshot
     return insert(MarketSnapshotRecord).values(
         id=snapshot_id,
-        symbol=snapshot.symbol.value,
+        symbol=snapshot.symbol,
         source=snapshot.source,
         captured_at=snapshot.captured_at,
         data_as_of=snapshot.data_as_of,
@@ -144,7 +144,7 @@ def _insert_snapshot_input(batch: MarketCaptureBatch, snapshot_id: UUID):
     )
     return insert(MarketSnapshotInputRecord).values(
         snapshot_id=snapshot_id,
-        symbol=batch.symbol.value,
+        symbol=batch.symbol,
         payload=cast(dict[str, object], payload),
         payload_sha256=snapshot_payload_sha256(payload),
         candle_count=len(candles),

@@ -6,8 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator
 
-from app.market.contracts import ContractSymbol, MarketSummary, UtcDateTime
+from app.market.contracts import MarketSummary, UtcDateTime
 from app.market.service import MarketQueryService
+from app.market.symbols import ResearchSymbol
 from app.reports.contracts import (
     AnalysisReportStatus,
     AnalysisReportSummary,
@@ -44,7 +45,7 @@ class _DashboardModel(BaseModel):
 class DashboardReportSummary(_DashboardModel):
     id: UUID
     analysis_id: UUID
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     status: AnalysisReportStatus
     title: str
     summary: str
@@ -93,15 +94,16 @@ class DashboardService:
         self._reports = reports
         self._clock = clock
 
-    async def get_snapshot(self) -> DashboardSnapshot:
+    async def get_snapshot(self, symbol: ResearchSymbol | None = None) -> DashboardSnapshot:
+        symbols: tuple[ResearchSymbol, ...] = (
+            (symbol,) if symbol is not None else ("BTCUSDT", "ETHUSDT")
+        )
         markets, reports = await asyncio.gather(
-            self._market.get_summaries(
-                (ContractSymbol.BTCUSDT, ContractSymbol.ETHUSDT),
-            ),
+            self._market.get_summaries(symbols),
             self._reports.list(
                 page=1,
                 page_size=5,
-                symbol=None,
+                symbol=symbol,
                 status=None,
             ),
         )

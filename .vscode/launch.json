@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "调试研究 API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app",
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "env": {
+        "LOG_LEVEL": "DEBUG",
+        "PYDEVD_USE_SYS_MONITORING": "no"
+      },
+      "justMyCode": true
+    }
+  ]
+}

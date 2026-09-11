@@ -28,6 +28,10 @@ import {
   type Symbol,
   type Timeframe,
 } from "../../domain/primitives";
+import {
+  researchSymbolEntrySchema,
+  type ResearchSymbolEntry,
+} from "../../domain/research-symbol";
 import type {
   ManualPaperIntent,
   PaperAccountCreate,
@@ -267,12 +271,48 @@ function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
 
 export class MockWorkbenchApi implements WorkbenchApi {
   private state: MockState;
+  private readonly researchSymbols = new Map<string, ResearchSymbolEntry>();
 
   constructor() {
     this.state = loadState();
+    for (const symbol of ["BTCUSDT", "ETHUSDT"]) {
+      this.researchSymbols.set(symbol, offlineSymbolEntry(symbol));
+    }
   }
 
-  async getDashboard(): Promise<DashboardSnapshot> {
+  listResearchSymbols(): Promise<ResearchSymbolEntry[]> {
+    return Promise.resolve(
+      [...this.researchSymbols.values()].filter((entry) => entry.enabled),
+    );
+  }
+
+  addResearchSymbol(input: {
+    symbol: string;
+    keywords?: string[];
+  }): Promise<ResearchSymbolEntry> {
+    const symbol = symbolSchema.parse(input.symbol.trim().toUpperCase());
+    const entry = offlineSymbolEntry(symbol, input.keywords ?? []);
+    this.researchSymbols.set(symbol, entry);
+    return Promise.resolve(entry);
+  }
+
+  archiveResearchSymbol(symbol: Symbol): Promise<ResearchSymbolEntry> {
+    const entry = this.researchSymbols.get(symbol);
+    if (entry === undefined) {
+      throw new Error(`Mock research symbol not found: ${symbol}`);
+    }
+    const archived = researchSymbolEntrySchema.parse({
+      ...entry,
+      enabled: false,
+      canResearch: false,
+      archivedAt: "2025-02-01T00:00:00Z",
+    });
+    this.researchSymbols.set(symbol, archived);
+    return Promise.resolve(archived);
+  }
+
+  async getDashboard(_input?: { symbol: Symbol }): Promise<DashboardSnapshot> {
+    void _input;
     return Promise.resolve(dashboardSnapshotSchema.parse(mockDashboard));
   }
 
@@ -283,7 +323,7 @@ export class MockWorkbenchApi implements WorkbenchApi {
     const parsedInput = marketInputSchema.parse(input);
     const detail = mockMarketDetails.find(
       (candidate) => candidate.summary.symbol === parsedInput.symbol,
-    );
+    ) ?? offlineMarketDetail(parsedInput.symbol);
     if (detail === undefined) {
       throw new Error(`Mock market not found: ${parsedInput.symbol}`);
     }
@@ -583,4 +623,51 @@ export class MockWorkbenchApi implements WorkbenchApi {
     this.state = createMockSeed();
     persistState(this.state);
   }
+}
+
+function offlineSymbolEntry(
+  symbol: Symbol,
+  keywords: string[] = [],
+): ResearchSymbolEntry {
+  const baseAsset = symbol.slice(0, -4);
+  return researchSymbolEntrySchema.parse({
+    symbol,
+    baseAsset,
+    quoteAsset: "USDT",
+    marginAsset: "USDT",
+    contractType: "PERPETUAL",
+    enabled: true,
+    keywords,
+    capabilities: [
+      { name: "market", status: "supported", message: "离线示例行情可用。" },
+      { name: "candles", status: "supported", message: "离线示例 K 线可用。" },
+      { name: "derivatives", status: "supported", message: "离线示例衍生品指标可用。" },
+      { name: "funding", status: "supported", message: "离线示例资金费率可用。" },
+      { name: "news", status: "supported", message: "离线示例资讯可用。" },
+      { name: "sentiment", status: "supported", message: "离线示例情绪数据可用。" },
+      { name: "etf", status: "unsupported", message: "当前数据源不支持" },
+    ],
+    version: 1,
+    createdAt: "2025-02-01T00:00:00Z",
+    archivedAt: null,
+    canResearch: true,
+    lastSync: { id: `offline-${symbol}`, status: "partial" },
+  });
+}
+
+function offlineMarketDetail(symbol: Symbol): MarketDetail | undefined {
+  const btc = mockMarketDetails.find(
+    (candidate) => candidate.summary.symbol === "BTCUSDT",
+  );
+  if (btc === undefined) {
+    return undefined;
+  }
+  return marketDetailSchema.parse({
+    ...btc,
+    summary: { ...btc.summary, symbol },
+    series: btc.series.map((series) => ({
+      ...series,
+      candles: series.candles.map((candle) => ({ ...candle, symbol })),
+    })),
+  });
 }

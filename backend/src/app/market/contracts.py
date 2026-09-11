@@ -7,6 +7,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator, model_validator
 
+from app.market.symbols import ResearchSymbol
+
 
 class ContractSymbol(StrEnum):
     BTCUSDT = "BTCUSDT"
@@ -89,7 +91,7 @@ class DataFreshness(_MarketModel):
 
 
 class Candle(_MarketModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     timeframe: MarketTimeframe
     open_at: UtcDateTime
     close_at: UtcDateTime
@@ -156,7 +158,7 @@ class CandleSeries(_MarketModel):
 
 
 class MarketSummary(_MarketModel):
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     price: DecimalValue
     change_24h: DecimalValue
     volume_24h: DecimalValue

@@ -3,18 +3,74 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
 import { WorkbenchHttpError } from "../../shared/api/http-transport";
+import { ResearchSymbolSelect } from "../research-symbols/ResearchSymbolSelect";
+import { useResearchSymbolSelection } from "../research-symbols/useResearchSymbolSelection";
 import { DashboardMarketCards } from "./DashboardMarketCards";
 import { RecentReportCard } from "./RecentReportCard";
 
 export function DashboardPage() {
   const api = useWorkbenchApi();
+  const selection = useResearchSymbolSelection();
   const dashboardQuery = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: () => api.getDashboard(),
+    queryKey: ["dashboard", selection.selected],
+    enabled:
+      selection.catalogQuery.isSuccess &&
+      selection.selected !== undefined &&
+      !selection.invalid,
+    queryFn: () => {
+      if (selection.selected === undefined) {
+        throw new Error("Research symbol is unavailable");
+      }
+      return api.getDashboard({ symbol: selection.selected });
+    },
   });
+  const symbolSelector = (
+    <ResearchSymbolSelect
+      entries={selection.entries}
+      value={selection.selected}
+      pending={selection.catalogQuery.isPending}
+      onValueChange={selection.select}
+    />
+  );
+
+  if (selection.catalogQuery.isPending) {
+    return (
+      <section className="research-page dashboard-page">
+        <header className="research-page__heading">
+          <div><p className="route-page__kicker">研究与模拟工作台</p><h1>研究工作台</h1></div>
+          {symbolSelector}
+        </header>
+        <PageState state="loading" />
+      </section>
+    );
+  }
+
+  if (
+    selection.catalogQuery.isError ||
+    selection.invalid ||
+    selection.selected === undefined
+  ) {
+    return (
+      <section className="research-page dashboard-page">
+        <header className="research-page__heading">
+          <div><p className="route-page__kicker">研究与模拟工作台</p><h1>研究工作台</h1></div>
+          {symbolSelector}
+        </header>
+        <PageState state="unavailable" message="URL 中的研究币对未登记或无效，请从下拉列表选择。" />
+      </section>
+    );
+  }
 
   if (dashboardQuery.isPending) {
-    return <PageState state="loading" />;
+    return (
+      <section className="research-page dashboard-page">
+        <header className="research-page__heading">
+          <div><p className="route-page__kicker">研究与模拟工作台</p><h1>研究工作台</h1></div>
+          {symbolSelector}
+        </header>
+        <PageState state="loading" />
+      </section>
+    );
   }
 
   if (dashboardQuery.isError) {
@@ -63,6 +119,7 @@ export function DashboardPage() {
             {dashboard.generatedAt}
           </time>
         </p>
+        {symbolSelector}
       </header>
 
       {dashboard.markets.length > 0 ? (

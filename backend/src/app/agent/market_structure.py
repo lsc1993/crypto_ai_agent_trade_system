@@ -1,3 +1,9 @@
+"""确定性市场结构计算模块。
+
+数据流：冻结且已收盘的多周期 K 线 → SMA 趋势、ATR 容差和枢轴价格区间 → 结构化
+趋势、支撑阻力与置信度。此模块不访问网络，也不调用语言模型。
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -16,6 +22,7 @@ _MAX_ZONES_PER_TIMEFRAME = 3
 
 
 class MarketStructure(BaseModel):
+    """供报告和模型提案使用的确定性技术结构快照。"""
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     trend_alignment: dict[MarketTimeframe, TrendDirection]
@@ -29,11 +36,17 @@ def calculate_market_structure(
     *,
     captured_at: datetime,
 ) -> MarketStructure:
+    """从多周期市场详情计算趋势、支撑/阻力区间和数据覆盖置信度。
+
+        每个周期独立过滤采集时刻后的 K 线；数据不足时输出 UNKNOWN/空区间，而不是
+        用猜测值补全。
+    """
     _require_utc(captured_at)
     trend_alignment = {timeframe: TrendDirection.UNKNOWN for timeframe in MarketTimeframe}
     support_zones: list[PriceZone] = []
     resistance_zones: list[PriceZone] = []
 
+    # 每个周期只使用采集时刻前已收盘的数据；这与回测的无未来数据泄漏约束一致。
     for series in detail.series:
         closed = tuple(candle for candle in series.candles if candle.close_at <= captured_at)
         trend_alignment[series.timeframe] = _trend_from_sma_20_50(closed)
@@ -54,6 +67,7 @@ def calculate_market_structure(
 
 
 def _trend_from_sma_20_50(candles: tuple[Candle, ...]) -> TrendDirection:
+    """比较 SMA20 与 SMA50，数据不足时明确返回 UNKNOWN。"""
     if len(candles) < _SMA_LONG_PERIOD:
         return TrendDirection.UNKNOWN
     short_sma = sum(candle.close_price for candle in candles[-_SMA_SHORT_PERIOD:]) / Decimal(
@@ -75,6 +89,8 @@ def _pivot_zones(
     timeframe: MarketTimeframe,
     current_price: Decimal,
 ) -> tuple[tuple[PriceZone, ...], tuple[PriceZone, ...]]:
+    """识别当前价格两侧的三点枢轴，并返回经波动率聚类后的区间。"""
+    # ATR 用作聚类容差，让价格区间随标的近期波动自动调整，而不是使用固定金额。
     tolerance = _atr14(candles)
     if tolerance is None:
         return (), ()
@@ -104,6 +120,7 @@ def _pivot_zones(
 
 
 def _atr14(candles: tuple[Candle, ...]) -> Decimal | None:
+    """计算最近 14 个真实波幅的均值，作为价格区间的动态容差。"""
     if len(candles) < _ATR_PERIOD + 1:
         return None
     true_ranges = tuple(
@@ -124,6 +141,7 @@ def _cluster_pivot_zones(
     timeframe: MarketTimeframe,
     rationale: str,
 ) -> tuple[PriceZone, ...]:
+    """合并相近枢轴并保留最近有限个价格区间，避免报告被历史噪声淹没。"""
     if not pivots:
         return ()
     clusters: list[list[tuple[datetime, Decimal]]] = []
@@ -144,6 +162,7 @@ def _cluster_pivot_zones(
         )
         for cluster in clusters
     )
+    # 相近枢轴先合并，再只保留最近的有限个区间，避免陈旧支撑阻力主导报告。
     most_recent = sorted(zones, key=lambda item: item[0], reverse=True)[:_MAX_ZONES_PER_TIMEFRAME]
     return tuple(zone for _, zone in sorted(most_recent, key=lambda item: item[0]))
 
@@ -151,6 +170,7 @@ def _cluster_pivot_zones(
 def _confidence(
     trends: dict[MarketTimeframe, TrendDirection],
 ) -> Literal["low", "medium", "high"]:
+    """根据有足够 K 线的周期数量给出数据覆盖等级，而非预测准确率。"""
     known = sum(trend is not TrendDirection.UNKNOWN for trend in trends.values())
     if known == len(MarketTimeframe):
         return "high"

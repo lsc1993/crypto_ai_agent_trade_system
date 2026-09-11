@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -41,6 +42,7 @@ from app.infrastructure.persistence.report_repository import (
 )
 from app.infrastructure.persistence.repository import SqlAlchemyMarketRepository
 from app.infrastructure.persistence.research_reader import SqlAlchemyPersistedMarketReader
+from app.infrastructure.persistence.symbol_repository import SqlAlchemySymbolRepository
 from app.infrastructure.persistence.trade_repository import SqlAlchemyTradeRepository
 from app.market.binance_usdm import (
     BINANCE_USDM_BASE_URL,
@@ -65,6 +67,7 @@ from app.market.research_context import (
     PublicResearchContextCollector,
 )
 from app.market.service import MarketQueryService
+from app.market.symbols import ResearchSymbol
 from app.news.contracts import ALLOWED_NEWS_SOURCES
 from app.news.rss import RssNewsSourceAdapter
 from app.news.service import NewsIngestionService
@@ -100,6 +103,10 @@ from app.shared.database import (
     create_session_factory,
 )
 from app.shared.logging import configure_logging
+from app.symbols.memory import StaticSymbolRepository
+from app.symbols.repository import SymbolRepository
+from app.symbols.service import SymbolProbeGateway, SymbolService
+from app.symbols.sync import ResearchSymbolSyncWorker
 from app.trades.analytics import PerformanceAnalyticsService
 from app.trades.calculator import TradePnl
 from app.trades.contracts import (
@@ -118,14 +125,14 @@ class _UnavailablePersistedMarketReader(PersistedMarketReader):
 
     async def load_latest_snapshot(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
     ) -> NoReturn:
         del symbol
         _raise_market_research_unavailable()
 
     async def load_recent_candles(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
         limit: int,
     ) -> NoReturn:
@@ -367,9 +374,27 @@ def create_app(
     paper_repository: PaperTradingRepository | None = None,
     paper_clock: Callable[[], datetime] | None = None,
     dashboard_clock: Callable[[], datetime] | None = None,
+    symbol_repository: SymbolRepository | None = None,
+    symbol_service: SymbolService | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
+    # Dependency-injected apps are used for tests and local component wiring;
+    # they deliberately keep the legacy BTC/ETH read-only directory in memory.
+    # The default production composition uses the durable PostgreSQL directory.
+    use_durable_symbol_directory = all(
+        dependency is None
+        for dependency in (
+            market_gateway,
+            market_research_reader,
+            analysis_report_repository,
+            agent_research_service,
+            trade_repository,
+            historical_candle_gateway,
+            backtest_repository,
+            paper_repository,
+        )
+    )
 
     market_client: httpx.AsyncClient | None = None
     if market_gateway is None:
@@ -397,6 +422,7 @@ def create_app(
         or trade_repository is None
         or backtest_repository is None
         or paper_repository is None
+        or symbol_repository is None
     ):
         if settings.database_url is not None:
             research_engine = create_database_engine(settings.database_url)
@@ -438,6 +464,47 @@ def create_app(
             else SqlAlchemyPaperTradingRepository(session_factory)
         )
 
+    if symbol_repository is None:
+        symbol_repository = (
+            StaticSymbolRepository()
+            if session_factory is None
+            or not use_durable_symbol_directory
+            else SqlAlchemySymbolRepository(session_factory)
+        )
+    if symbol_service is None:
+        symbol_service = SymbolService(
+            symbol_repository,
+            cast(SymbolProbeGateway, market_gateway),
+            clock=lambda: datetime.now(UTC),
+        )
+
+    market_capture_service: MarketCaptureService | None = None
+    symbol_sync_worker: ResearchSymbolSyncWorker | None = None
+    if session_factory is not None:
+        market_capture_service = MarketCaptureService(
+            market_gateway,
+            SqlAlchemyMarketRepository(session_factory),
+            admission=(
+                (lambda symbol: _is_enabled_research_symbol(symbol_repository, symbol))
+                if isinstance(symbol_repository, SqlAlchemySymbolRepository)
+                else None
+            ),
+        )
+    if (
+        market_capture_service is not None
+        and isinstance(symbol_repository, SqlAlchemySymbolRepository)
+    ):
+        symbol_sync_worker = ResearchSymbolSyncWorker(
+            repository=symbol_repository,
+            capture=market_capture_service,
+            funding=(
+                market_gateway
+                if isinstance(market_gateway, BinanceUsdmPublicMarketGateway)
+                else None
+            ),
+            clock=lambda: datetime.now(UTC),
+        )
+
     news_client: httpx.AsyncClient | None = None
     alternative_client: httpx.AsyncClient | None = None
     etf_client: httpx.AsyncClient | None = None
@@ -472,11 +539,10 @@ def create_app(
         model_client = httpx.AsyncClient(
             timeout=httpx.Timeout(settings.agent_request_timeout_seconds),
         )
+        if market_capture_service is None:
+            raise RuntimeError("研究币对同步服务未初始化")
         market_capture = PersistedAgentMarketCapture(
-            capture_service=MarketCaptureService(
-                market_gateway,
-                SqlAlchemyMarketRepository(session_factory),
-            ),
+            capture_service=market_capture_service,
             reader=cast(AgentSnapshotInputReader, market_research_reader),
             research_context=(
                 None
@@ -494,6 +560,7 @@ def create_app(
                 timeout_seconds=settings.news_http_timeout_seconds,
             ),
             repository=SqlAlchemyNewsRepository(session_factory),
+            symbol_repository=symbol_repository,
         )
         model = DeepSeekResearchLanguageModel(
             client=model_client,
@@ -526,6 +593,10 @@ def create_app(
                 policies=(MARKET_RESEARCH_POLICY,),
                 workflows=(MarketResearchWorkflow(agent_service),),
                 audit_repository=harness_audit_repository,
+                symbol_authorizer=lambda symbol: _is_research_ready_symbol(
+                    symbol_repository,
+                    symbol,
+                ),
             )
             return HarnessedMarketResearchService(
                 runtime,
@@ -537,6 +608,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        stop_sync = asyncio.Event()
+        sync_task = (
+            None
+            if symbol_sync_worker is None
+            else asyncio.create_task(symbol_sync_worker.run_forever(stop_sync))
+        )
         try:
             if agent_service_factory is not None and checkpoint_connection is not None:
                 async with AsyncPostgresSaver.from_conn_string(
@@ -548,6 +625,9 @@ def create_app(
             else:
                 yield
         finally:
+            stop_sync.set()
+            if sync_task is not None:
+                await sync_task
             if model_client is not None:
                 await model_client.aclose()
             if news_client is not None:
@@ -567,6 +647,8 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.market_service = MarketQueryService(market_gateway)
+    app.state.symbol_repository = symbol_repository
+    app.state.symbol_service = symbol_service
     app.state.dashboard_service = DashboardService(
         app.state.market_service,
         analysis_report_repository,
@@ -614,7 +696,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(settings.cors_allowed_origins),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Accept", "Content-Type"],
     )
     app.include_router(health_router)
@@ -623,6 +705,22 @@ def create_app(
 
 
 app = create_app()
+
+
+async def _is_enabled_research_symbol(
+    repository: SymbolRepository,
+    symbol: ResearchSymbol,
+) -> bool:
+    entry = await repository.get(symbol)
+    return entry is not None and entry.enabled
+
+
+async def _is_research_ready_symbol(
+    repository: SymbolRepository,
+    symbol: ResearchSymbol,
+) -> bool:
+    entry = await repository.get(symbol)
+    return entry is not None and entry.enabled and entry.can_research
 
 
 def _raise_market_research_unavailable() -> NoReturn:

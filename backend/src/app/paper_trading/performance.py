@@ -1,3 +1,9 @@
+"""模拟盘绩效聚合模块。
+
+数据流：账户当前状态、连续估值历史、账本、成交和审计事件 → 盈亏/回撤/胜率/决策
+统计及权益曲线。所有金额保持 Decimal，所有时间按 UTC 解释。
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -21,7 +27,9 @@ def aggregate_paper_performance(
     *,
     generated_at: datetime,
 ) -> PaperPerformanceSnapshot:
+    """将一个账户的原始模拟盘历史汇总为供 API 和前端展示的绩效快照。"""
     _require_utc(generated_at)
+    # 绩效曲线以审计序号而非数据库返回顺序为准，先校验连续性再计算派生指标。
     valuations = tuple(sorted(data.valuations, key=lambda value: value.sequence))
     _validate_valuation_history(valuations)
 
@@ -62,6 +70,7 @@ def aggregate_paper_performance(
             else Decimal("0")
         ),
         decision_stats=_decision_stats(data),
+        # 迁移生成的基线没有逐笔历史，前端须显示“部分历史”而不能当作完整业绩。
         history_status=(
             PaperHistoryStatus.PARTIAL
             if any(
@@ -87,6 +96,7 @@ def aggregate_paper_performance(
 
 
 def _validate_valuation_history(values: tuple[PaperAccountValuation, ...]) -> None:
+    """确保估值历史非空、从初始值开始且 sequence 连续，避免指标基于残缺时间线。"""
     if not values:
         raise ValueError("模拟盘绩效缺少估值历史")
     sequences = tuple(value.sequence for value in values)
@@ -99,9 +109,11 @@ def _validate_valuation_history(values: tuple[PaperAccountValuation, ...]) -> No
 def _maximum_drawdown(
     values: tuple[PaperAccountValuation, ...],
 ) -> tuple[Decimal, Decimal]:
+    """扫描估值权益的历史高水位，返回最大金额回撤与最大比例回撤。"""
     peak_equity = Decimal("0")
     maximum_amount = Decimal("0")
     maximum_fraction = Decimal("0")
+    # 高水位随时间单向更新；每个时点只和此前峰值比较，符合最大回撤定义。
     for value in values:
         equity = value.equity
         peak_equity = max(peak_equity, equity)
@@ -115,6 +127,7 @@ def _maximum_drawdown(
 
 
 def _close_counts(data: PaperPerformanceData) -> tuple[int, int, int]:
+    """按账本中已实现平仓盈亏统计盈利、亏损和持平次数。"""
     profitable = 0
     unprofitable = 0
     break_even = 0
@@ -131,6 +144,7 @@ def _close_counts(data: PaperPerformanceData) -> tuple[int, int, int]:
 
 
 def _decision_stats(data: PaperPerformanceData) -> PaperDecisionStats:
+    """从审计事件重建手工/策略决策、无信号、拒绝、风险退出和订单统计。"""
     manual_intent_count = 0
     strategy_evaluation_count = 0
     no_signal_count = 0

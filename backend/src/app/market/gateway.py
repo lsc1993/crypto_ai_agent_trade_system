@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.market.contracts import (
     Candle,
@@ -13,12 +13,12 @@ from app.market.contracts import (
 class PublicMarketGateway(Protocol):
     async def get_summaries(
         self,
-        symbols: tuple[ContractSymbol, ...],
+        symbols: tuple[Any, ...],
     ) -> tuple[MarketSummary, ...]: ...
 
     async def get_market(
         self,
-        symbol: ContractSymbol,
+        symbol: Any,
         timeframes: tuple[MarketTimeframe, ...],
     ) -> MarketDetail: ...
 

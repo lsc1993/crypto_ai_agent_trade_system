@@ -6,7 +6,8 @@ from typing import Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from app.market.contracts import ContractSymbol, UtcDateTime
+from app.market.contracts import UtcDateTime
+from app.market.symbols import ResearchSymbol
 
 
 class NewsSourceTier(StrEnum):
@@ -158,7 +159,7 @@ class NewsItemDraft(_NewsModel):
     language: Literal["en"]
     title: str = Field(min_length=1, max_length=300)
     summary: str = Field(min_length=1, max_length=1_600)
-    related_symbols: tuple[ContractSymbol, ...]
+    related_symbols: tuple[ResearchSymbol, ...]
     event_category: NewsEventCategory
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     deduplication_key: str = Field(min_length=1, max_length=2_000)

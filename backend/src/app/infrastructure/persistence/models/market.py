@@ -18,7 +18,7 @@ class MarketCandleRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     timeframe: Mapped[str] = mapped_column(String(3), nullable=False)
     open_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     close_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -52,7 +52,7 @@ class DerivativeObservationRecord(Base):
     )
 
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     metric_type: Mapped[str] = mapped_column(String(20), nullable=False)
     value: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -68,7 +68,7 @@ class MarketSnapshotRecord(Base):
     __table_args__ = (Index("ix_market_snapshots_symbol_captured_at", "symbol", "captured_at"),)
 
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     data_as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -88,7 +88,7 @@ class MarketSnapshotInputRecord(Base):
         ForeignKey("market_snapshots.id"),
         primary_key=True,
     )
-    symbol: Mapped[str] = mapped_column(String(12), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     candle_count: Mapped[int] = mapped_column(Integer, nullable=False)

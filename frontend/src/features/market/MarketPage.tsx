@@ -1,10 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
-import type { Symbol, Timeframe } from "../../domain/primitives";
+import type { Timeframe } from "../../domain/primitives";
 import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import {
   formatDailyChange,
@@ -17,23 +17,23 @@ import { MarketChart } from "./MarketChart";
 import { NewsTimeline } from "./NewsTimeline";
 import { TimeframeTabs } from "./TimeframeTabs";
 import { MARKET_TIMEFRAMES } from "./market-timeframes";
-
-function parseSupportedSymbol(value: string | undefined): Symbol | undefined {
-  return value === "BTCUSDT" || value === "ETHUSDT"
-    ? value
-    : undefined;
-}
+import { ResearchSymbolSelect } from "../research-symbols/ResearchSymbolSelect";
+import { useResearchSymbolSelection } from "../research-symbols/useResearchSymbolSelection";
 
 export function MarketPage() {
   const api = useWorkbenchApi();
   const navigate = useNavigate();
   const params = useParams();
-  const symbol = parseSupportedSymbol(params.symbol);
+  const selection = useResearchSymbolSelection({ pathSymbol: params.symbol });
+  const symbol = selection.selected;
   const [selectedTimeframe, setSelectedTimeframe] =
     useState<Timeframe>("1h");
   const marketQuery = useQuery({
     queryKey: ["market", symbol],
-    enabled: symbol !== undefined,
+    enabled:
+      selection.catalogQuery.isSuccess &&
+      symbol !== undefined &&
+      !selection.invalid,
     queryFn: () => {
       if (symbol === undefined) {
         throw new Error("Unsupported market symbol");
@@ -59,17 +59,17 @@ export function MarketPage() {
     },
   });
 
-  if (symbol === undefined) {
+  if (selection.catalogQuery.isPending || marketQuery.isPending) {
+    return <PageState state="loading" />;
+  }
+
+  if (selection.invalid || symbol === undefined) {
     return (
       <PageState
         state="unavailable"
-        message="当前仅支持 BTCUSDT 与 ETHUSDT 研究标的。"
+        message="当前币对未登记或尚未完成数据同步。"
       />
     );
-  }
-
-  if (marketQuery.isPending) {
-    return <PageState state="loading" />;
   }
 
   if (marketQuery.isError) {
@@ -103,18 +103,15 @@ export function MarketPage() {
             查看可追溯行情、K 线与来源信息。报告、日志与复盘仅用于研究，不连接账户，也不提供交易执行能力。
           </p>
         </div>
-        <nav className="symbol-switcher" aria-label="研究标的切换">
-          {(["BTCUSDT", "ETHUSDT"] as const).map((candidate) => (
-            <Link
-              className="symbol-switcher__link"
-              aria-current={candidate === symbol ? "page" : undefined}
-              key={candidate}
-              to={`/market/${candidate}`}
-            >
-              {candidate}
-            </Link>
-          ))}
-        </nav>
+        <ResearchSymbolSelect
+          entries={selection.entries}
+          value={symbol}
+          pending={selection.catalogQuery.isPending}
+          onValueChange={(candidate) => {
+            selection.select(candidate);
+            void navigate(`/market/${candidate}`);
+          }}
+        />
       </header>
 
       <section

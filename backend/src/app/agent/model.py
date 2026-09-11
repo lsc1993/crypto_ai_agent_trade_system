@@ -30,7 +30,8 @@ from pydantic import (
 from app.agent.factors import apply_interpretations
 from app.agent.market_structure import MarketStructure
 from app.agent.prompt import research_user_message, system_prompt
-from app.market.contracts import ContractSymbol, UtcDateTime
+from app.market.contracts import UtcDateTime
+from app.market.symbols import ResearchSymbol
 from app.reports.contracts import (
     AgentResearchNarrative,
     Catalyst,
@@ -102,7 +103,7 @@ class ModelEvidence(_AgentModel):
 class ResearchModelRequest(_AgentModel):
     """一次模型研究请求：目标标的、确定性结构和去重后的证据集合。"""
 
-    symbol: ContractSymbol
+    symbol: ResearchSymbol
     structure: MarketStructure
     evidences: tuple[ModelEvidence, ...] = Field(min_length=1, max_length=30)
     report_language: Literal["zh-CN"] = "zh-CN"

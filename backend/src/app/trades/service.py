@@ -1,3 +1,9 @@
+"""手工交易日志应用服务。
+
+数据流：TradeDraft → FIFO 盈亏计算 → 仓储创建/替换/归档及关联审计事件。服务只管理
+用户录入的历史交易，不生成策略意图，也不连接交易所。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -14,6 +20,8 @@ class TradeNotFoundError(LookupError):
 
 
 class TradeService:
+    """手工交易日志的应用服务：先计算派生盈亏，再与审计事件一起持久化。"""
+
     """在写入前重算手工交易的确定性派生盈亏。"""
 
     def __init__(
@@ -30,6 +38,8 @@ class TradeService:
         self._correlation_id_factory = correlation_id_factory
 
     async def create_trade(self, draft: TradeDraft) -> PersistedTrade:
+        """计算草稿的派生盈亏并创建交易及其关联审计事件。"""
+        # 计算在写库前完成，仓储接收的是不可与交易腿脱节的已实现盈亏快照。
         pnl = self._calculate(draft)
         occurred_at = self._event_time()
         return await self._repository.create(
@@ -40,6 +50,8 @@ class TradeService:
         )
 
     async def update_trade(self, trade_id: UUID, draft: TradeDraft) -> PersistedTrade:
+        """仅替换存在且未归档交易的内容，并为新版本重新计算 FIFO 盈亏。"""
+        # 已归档记录不可复写，保留审计时间线而不是恢复旧记录后覆盖。
         current = await self._repository.get_by_id(trade_id)
         if current is None or current.archived_at is not None:
             raise TradeNotFoundError("交易不存在或已归档")
@@ -57,6 +69,7 @@ class TradeService:
         return updated
 
     async def archive_trade(self, trade_id: UUID) -> None:
+        """归档一笔活动交易而非物理删除，使历史审计和统计筛选仍可解释。"""
         archived = await self._repository.archive(
             trade_id,
             occurred_at=self._event_time(),
@@ -66,6 +79,7 @@ class TradeService:
             raise TradeNotFoundError("交易不存在或已归档")
 
     def _calculate(self, draft: TradeDraft) -> TradePnl:
+        """委托纯计算器按交易方向、交易腿和现金流得出可持久化的盈亏快照。"""
         return self._calculator.calculate(
             direction=draft.direction,
             legs=draft.legs,
@@ -73,6 +87,8 @@ class TradeService:
         )
 
     def _event_time(self) -> datetime:
+        """读取并校验 UTC 服务时钟，作为交易变更和审计事件的统一发生时间。"""
+        # 审计事件只接受 UTC 时钟，避免跨时区排序或日报聚合出现歧义。
         occurred_at = self._clock()
         if occurred_at.tzinfo is None or occurred_at.utcoffset() != timedelta(0):
             raise TradeValidationError("服务时钟必须返回 UTC 且带时区的时间")

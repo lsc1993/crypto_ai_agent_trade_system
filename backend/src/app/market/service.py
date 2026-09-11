@@ -1,10 +1,10 @@
 from app.market.contracts import (
-    ContractSymbol,
     MarketDetail,
     MarketSummary,
     MarketTimeframe,
 )
 from app.market.gateway import PublicMarketGateway
+from app.market.symbols import ResearchSymbol
 
 
 class MarketQueryService:
@@ -15,13 +15,13 @@ class MarketQueryService:
 
     async def get_summaries(
         self,
-        symbols: tuple[ContractSymbol, ...],
+        symbols: tuple[ResearchSymbol, ...],
     ) -> tuple[MarketSummary, ...]:
         return await self._gateway.get_summaries(symbols)
 
     async def get_market(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframes: tuple[MarketTimeframe, ...],
     ) -> MarketDetail:
         return await self._gateway.get_market(symbol, timeframes)

@@ -1,14 +1,21 @@
+"""确定性市场报告生成模块。
+
+数据流：持久化市场快照与各周期最近已收盘 K 线 → 完整性/时效性校验 → 已完成或
+降级报告及其可验证证据。该路径不调用模型，也不产生交易建议。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import NoReturn, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 from uuid import UUID
 
 from pydantic import JsonValue
 
-from app.market.contracts import Candle, ContractSymbol, MarketDataUnavailableError, MarketTimeframe
+from app.market.contracts import Candle, MarketDataUnavailableError, MarketTimeframe
 from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
+from app.market.symbols import ResearchSymbol
 from app.reports.contracts import (
     AnalysisEvidenceDraft,
     AnalysisReportCreation,
@@ -31,10 +38,11 @@ _SOURCE_BASE_URL = "https://www.binance.com/en/futures/"
 
 
 class AnalysisReportService(Protocol):
-    async def generate(self, symbol: ContractSymbol) -> PersistedAnalysisReport: ...
+    async def generate(self, symbol: Any) -> PersistedAnalysisReport: ...
 
 
 class DeterministicResearchReportService:
+    """基于持久化公开行情生成不调用模型的只读研究报告。"""
     """仅以持久化公开市场证据生成非交易性研究报告。"""
 
     def __init__(
@@ -48,10 +56,16 @@ class DeterministicResearchReportService:
         self._repository = repository
         self._clock = clock
 
-    async def generate(self, symbol: ContractSymbol) -> PersistedAnalysisReport:
+    async def generate(self, symbol: ResearchSymbol) -> PersistedAnalysisReport:
+        """生成一个只引用已保存公开市场数据的分析报告。
+
+        缺失、无效或超过时效阈值的输入都会产出带原因的降级报告，而不是混入旧数据
+        生成看似完整的结论。
+        """
         generated_at = _require_utc(self._clock())
         snapshot: PersistedMarketSnapshot | None = None
         candles: dict[MarketTimeframe, Candle] = {}
+        # 任一必要快照缺失或不一致时不拼凑旧数据，而是持久化明确的降级结果。
         try:
             snapshot = await self._require_snapshot(symbol)
             for timeframe in _TIMEFRAMES:
@@ -70,6 +84,7 @@ class DeterministicResearchReportService:
             )
 
         data_cutoff_at = _data_cutoff(snapshot, candles)
+        # 报告可以展示冻结证据，但过期证据不能被标记为已完成的当前研究。
         if generated_at - snapshot.captured_at > _FRESHNESS_THRESHOLD:
             report = _degraded_draft(
                 symbol,
@@ -99,12 +114,13 @@ class DeterministicResearchReportService:
 
     async def _persist_degraded(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         generated_at: datetime,
         reason: str,
         snapshot: PersistedMarketSnapshot | None,
         candles: dict[MarketTimeframe, Candle],
     ) -> PersistedAnalysisReport:
+        """在已有部分证据时持久化降级报告，使失败原因和可用证据仍可追溯。"""
         data_cutoff_at = None if snapshot is None else _data_cutoff(snapshot, candles)
         report = _degraded_draft(symbol, generated_at, reason, data_cutoff_at)
         evidence = (
@@ -121,26 +137,28 @@ class DeterministicResearchReportService:
 
     async def _require_snapshot(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
     ) -> PersistedMarketSnapshot:
+        """读取并验证目标标的的最新快照；不存在或串标时统一报告为不可用。"""
         snapshot = await self._reader.load_latest_snapshot(symbol)
         if snapshot is None:
             _raise_unavailable("持久化市场快照缺失。")
-        if snapshot.summary.symbol is not symbol:
+        if snapshot.summary.symbol != symbol:
             _raise_unavailable("持久化市场快照缺失。")
         return snapshot
 
     async def _latest_closed_candle(
         self,
-        symbol: ContractSymbol,
+        symbol: ResearchSymbol,
         timeframe: MarketTimeframe,
         generated_at: datetime,
     ) -> Candle:
+        """选出指定周期最新的已收盘 K 线，并拒绝未来、串标或串周期数据。"""
         candles = await self._reader.load_recent_candles(symbol, timeframe, _CANDLE_LIMIT)
         if not candles:
             _raise_unavailable(f"持久化 {timeframe.value} K 线缺失。")
         if any(
-            candle.symbol is not symbol
+            candle.symbol != symbol
             or candle.timeframe is not timeframe
             or candle.close_at > generated_at
             for candle in candles
@@ -150,12 +168,13 @@ class DeterministicResearchReportService:
 
 
 def _completed_draft(
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     snapshot: PersistedMarketSnapshot,
     candles: dict[MarketTimeframe, Candle],
     generated_at: datetime,
     data_cutoff_at: datetime,
 ) -> AnalysisReportDraft:
+    """从冻结摘要和 K 线生成仅陈述事实的已完成报告草稿。"""
     summary = snapshot.summary
     facts = (
         f"冻结快照价格：{summary.price}。",
@@ -169,7 +188,7 @@ def _completed_draft(
     return AnalysisReportDraft(
         symbol=symbol,
         status=AnalysisReportStatus.COMPLETED,
-        title=f"{symbol.value} 持久化市场研究",
+        title=f"{symbol} 持久化市场研究",
         summary="本报告只陈述已冻结的公开市场观察。",
         facts=facts,
         inferences=("这些观察不构成方向或交易结论。",),
@@ -181,15 +200,16 @@ def _completed_draft(
 
 
 def _degraded_draft(
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     generated_at: datetime,
     reason: str,
     data_cutoff_at: datetime | None,
 ) -> AnalysisReportDraft:
+    """构造证据不足时的安全降级报告草稿，不附带市场结论。"""
     return AnalysisReportDraft(
         symbol=symbol,
         status=AnalysisReportStatus.DEGRADED,
-        title=f"{symbol.value} 持久化市场研究已降级",
+        title=f"{symbol} 持久化市场研究已降级",
         summary="当前证据不足，无法形成市场研究结论。",
         facts=(),
         inferences=(),
@@ -202,7 +222,7 @@ def _degraded_draft(
 
 def _evidence_from(
     report_id: UUID,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     snapshot: PersistedMarketSnapshot,
     candles: dict[MarketTimeframe, Candle],
 ) -> tuple[AnalysisEvidenceDraft, ...]:
@@ -240,7 +260,7 @@ def _evidence_from(
 def _evidence(
     *,
     report_id: UUID,
-    symbol: ContractSymbol,
+    symbol: ResearchSymbol,
     summary: str,
     observed_at: datetime,
     fetched_at: datetime,
@@ -250,7 +270,7 @@ def _evidence(
         report_id=report_id,
         symbol=symbol,
         source="binance_usdm_public_rest",
-        source_url=f"{_SOURCE_BASE_URL}{symbol.value}",
+        source_url=f"{_SOURCE_BASE_URL}{symbol}",
         observed_at=observed_at,
         fetched_at=fetched_at,
         summary=summary,
@@ -263,6 +283,7 @@ def _data_cutoff(
     snapshot: PersistedMarketSnapshot,
     candles: dict[MarketTimeframe, Candle],
 ) -> datetime:
+    # 取最早观测时间作为结论的数据上限，避免不同周期数据的时间差被隐藏。
     return min(
         snapshot.summary.freshness.observed_at,
         *(candle.observed_at for candle in candles.values()),

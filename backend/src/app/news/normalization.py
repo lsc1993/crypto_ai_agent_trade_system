@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pydantic import AnyHttpUrl
 
 from app.market.contracts import ContractSymbol
+from app.market.symbols import ResearchSymbol
 from app.news.contracts import (
     ALLOWED_NEWS_SOURCES,
     ExternalNewsItem,
@@ -199,10 +200,14 @@ def _deduplication_key(
     return f"{source_id}:content:{content_hash}"
 
 
-def _related_symbols(title: str, summary: str, source_id: str) -> tuple[ContractSymbol, ...]:
+def _related_symbols(
+    title: str,
+    summary: str,
+    source_id: str,
+) -> tuple[ResearchSymbol, ...]:
     """根据获准来源和文本关键字标记新闻涉及的受支持合约标的。"""
     content = f"{title} {summary}".casefold()
-    symbols: list[ContractSymbol] = []
+    symbols: list[ResearchSymbol] = []
     if re.search(r"\b(bitcoin|btc)\b", content):
         symbols.append(ContractSymbol.BTCUSDT)
     if re.search(r"\b(ethereum|ether|eth)\b", content):

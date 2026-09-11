@@ -1,3 +1,9 @@
+"""模拟盘领域状态机。
+
+数据流：活动账户、仓位、可选 TradeIntent 与冻结报价 → 推进账户时钟和风控 → 模拟
+订单/成交 → 更新账户、仓位、账本和有序审计事件，作为一个 PaperTransition 返回。
+"""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -28,7 +34,10 @@ from app.strategy.contracts import IntentAction, IntentSource, TradeIntent
 
 
 class PaperTradingEngine:
-    """只根据冻结报价和领域状态推进模拟账户。"""
+    """只根据冻结报价和领域状态推进模拟账户。
+
+    该引擎是纯领域状态机：返回完整 transition，由服务层在事务中一次性持久化。
+    """
 
     def apply(
         self,
@@ -41,11 +50,17 @@ class PaperTradingEngine:
         no_signal_idempotency_key: str | None = None,
         no_signal_source: IntentSource | None = None,
     ) -> PaperTransition:
+        """在单个冻结报价上推进一次模拟盘状态。
+
+        无信号、风险退出、风控拒绝和成交都生成结构化 outcome 与事件；本方法不访问
+        数据库，调用方负责用同一幂等键原子持久化返回的 transition。
+        """
         self._validate_inputs(account, position, intent, quote, latest_closed_candle_at)
         if (no_signal_idempotency_key is None) != (no_signal_source is None):
             raise ValueError("无信号审计必须同时包含幂等键和来源")
         if intent is not None and no_signal_idempotency_key is not None:
             raise ValueError("已有交易意图时不得附加无信号审计")
+        # 每次决策前先按最新已收盘 K 线推进账户时钟、权益、日损失和冷却期。
         advanced_account = self._advance_account(
             account,
             position=position,
@@ -59,6 +74,7 @@ class PaperTradingEngine:
         events: list[PaperAuditEvent] = []
 
         if intent is None:
+            # 无信号同样写入审计序列，区分“策略未触发”与“系统没有执行”。
             _append_event(
                 events,
                 kind=PaperEventKind.NO_SIGNAL,
@@ -91,6 +107,7 @@ class PaperTradingEngine:
             idempotency_key=intent.idempotency_key,
             payload={"action": intent.action.value, "source": intent.source.value},
         )
+        # 风险退出优先于传入意图，避免策略继续持仓而绕过止损或熔断。
         risk_engine = RiskEngine(advanced_account.risk_config)
         risk_exit_reason = self._risk_exit_reason(
             risk_engine,
@@ -148,6 +165,7 @@ class PaperTradingEngine:
         quote: ExecutionQuote,
         latest_closed_candle_at: datetime,
     ) -> None:
+        """验证账户、仓位、意图、报价和 K 线时刻属于同一可操作上下文。"""
         if account.status is not PaperAccountStatus.ACTIVE:
             raise PaperAccountStateError("归档模拟账户不可操作")
         if position.account_id != account.id:
@@ -172,6 +190,7 @@ class PaperTradingEngine:
         quote: ExecutionQuote,
         latest_closed_candle_at: datetime,
     ) -> PaperAccount:
+        """以最新已收盘 K 线推进权益高水位、日损失、冷却期和账户时钟。"""
         latest_close = latest_closed_candle_at.astimezone(UTC)
         if (
             account.last_closed_candle_at is not None
@@ -209,6 +228,7 @@ class PaperTradingEngine:
         account: PaperAccount,
         position: PaperPosition,
     ) -> PortfolioSnapshot:
+        """将模拟盘账户与仓位投影为 RiskEngine 所需的最小风控快照。"""
         return PortfolioSnapshot(
             cash=account.cash,
             equity=account.equity,
@@ -228,6 +248,7 @@ class PaperTradingEngine:
         position: PaperPosition,
         quote: ExecutionQuote,
     ) -> str | None:
+        """在策略或手工意图前检查止损与回撤熔断，必要时返回风险平仓原因。"""
         portfolio = self._portfolio(account, position)
         if risk_engine.stop_loss_triggered(portfolio, close_price=quote.price):
             return "stop_loss"
@@ -253,6 +274,8 @@ class PaperTradingEngine:
         outcome_kind: PaperActionOutcomeKind,
         outcome_reason: str | None,
     ) -> PaperTransition:
+        """让意图经过确定性风控、订单构造、模拟撮合并生成完整 transition。"""
+        # 所有普通意图和风险退出意图都复用同一确定性风控引擎后才能生成订单。
         decision = RiskEngine(account.risk_config).evaluate(
             intent,
             self._portfolio(account, position),
@@ -356,6 +379,11 @@ class PaperTradingEngine:
         quote: ExecutionQuote,
         risk_exit: bool,
     ) -> tuple[PaperAccount, PaperPosition, PaperLedgerEntry]:
+        """把一笔模拟成交应用到账户、仓位和账本。
+
+        开仓增加成本与持仓；平仓按比例分摊剩余入场成本、确认已实现盈亏，并在风险
+        完全平仓后设置冷却期。
+        """
         if fill.action is IntentAction.OPEN_LONG:
             cost = fill.quantity * fill.price + fill.fee
             cash_after = account.cash - cost
@@ -394,6 +422,7 @@ class PaperTradingEngine:
 
         if fill.quantity > position.quantity:
             raise PaperAccountStateError("模拟平仓数量超过当前仓位")
+        # 部分平仓按剩余持仓比例分摊历史入场成本，保证盈亏和后续剩余成本可对账。
         allocated_cost = position.remaining_entry_cost * fill.quantity / position.quantity
         proceeds = fill.quantity * fill.price - fill.fee
         realized_pnl = proceeds - allocated_cost
@@ -447,6 +476,7 @@ def _mark_account(
     daily_realized_loss: Decimal | None = None,
     cooldown_remaining: int | None = None,
 ) -> PaperAccount:
+    """按报价重新标记权益和高水位，并只替换本次转换明确改变的账户字段。"""
     equity = cash + position.quantity * quote.price
     return account.model_copy(
         update={
@@ -471,6 +501,8 @@ def _append_event(
     idempotency_key: str | None,
     payload: dict[str, JsonValue],
 ) -> None:
+    """追加一个带连续 sequence 的审计事件，保存 transition 内的因果顺序。"""
+    # sequence 由当前 transition 内的追加顺序决定，持久化后可重建单次决策的因果链。
     events.append(
         PaperAuditEvent(
             sequence=len(events),
@@ -483,6 +515,7 @@ def _append_event(
 
 
 def _snapshot_hash(quote: ExecutionQuote) -> str:
+    """对冻结报价的规范化字段计算 SHA-256，供市场快照与后续审计关联。"""
     payload = {
         "fetched_at": quote.fetched_at.isoformat(),
         "observed_at": quote.observed_at.isoformat(),

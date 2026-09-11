@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export type DecimalString = string;
 export type UtcIsoString = string;
-export type Symbol = "BTCUSDT" | "ETHUSDT";
+export type Symbol = string;
 export type Timeframe = "15m" | "1h" | "4h" | "1d";
 
 const canonicalDecimalPattern = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
@@ -122,7 +122,9 @@ export const httpUrlSchema = z.url().refine(
   { message: "Expected an HTTP(S) URL" },
 );
 
-export const symbolSchema = z.enum(["BTCUSDT", "ETHUSDT"]);
+export const symbolSchema = z
+  .string()
+  .regex(/^[A-Z0-9]{1,28}USDT$/, "Expected a supported USDT symbol");
 export const timeframeSchema = z.enum(["15m", "1h", "4h", "1d"]);
 export const identifierSchema = z.string().trim().min(1).max(128);
 export const uuidSchema = z.uuid();

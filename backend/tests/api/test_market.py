@@ -160,14 +160,14 @@ async def test_market_detail_uses_the_frozen_frontend_candle_wire_contract() -> 
 
 
 @pytest.mark.asyncio
-async def test_market_detail_rejects_unknown_symbol_with_validation_envelope() -> None:
+async def test_market_detail_rejects_unregistered_symbol_with_directory_envelope() -> None:
     response = await get(
         create_app(market_gateway=FakeMarketGateway()),
         "/api/v1/market/SOLUSDT?timeframes=15m",
     )
 
-    assert response.status_code == 422
-    assert response.json()["code"] == "validation_error"
+    assert response.status_code == 404
+    assert response.json()["code"] == "research_symbol_not_found"
 
 
 @pytest.mark.asyncio

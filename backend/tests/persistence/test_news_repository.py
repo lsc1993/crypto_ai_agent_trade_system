@@ -9,6 +9,10 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infrastructure.persistence.models.news import NewsItemRecord
+from app.infrastructure.persistence.models.symbols import (
+    ResearchNewsLinkRecord,
+    ResearchSymbolRecord,
+)
 from app.infrastructure.persistence.news_repository import SqlAlchemyNewsRepository
 from app.market.contracts import ContractSymbol
 from app.news.contracts import (
@@ -59,6 +63,45 @@ async def test_database_rejects_news_snapshot_update_and_delete(
         with pytest.raises(DBAPIError, match="immutable"):
             await session.execute(delete(NewsItemRecord))
             await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_ingest_many_adds_research_symbol_links_without_mutating_news_history(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository = SqlAlchemyNewsRepository(migrated_database.session_factory)
+    original = _news_item()
+    async with migrated_database.session_factory() as session:
+        async with session.begin():
+            session.add(
+                ResearchSymbolRecord(
+                    symbol="SOLUSDT",
+                    base_asset="SOL",
+                    quote_asset="USDT",
+                    margin_asset="USDT",
+                    contract_type="PERPETUAL",
+                    enabled=True,
+                    keywords=["SOL", "Solana"],
+                    capabilities=[],
+                    version=1,
+                    created_at=NOW,
+                )
+            )
+
+    await repository.ingest_many((original,))
+    attributed = original.model_copy(
+        update={"related_symbols": (ContractSymbol.BTCUSDT, "SOLUSDT")}
+    )
+    persisted = await repository.ingest_many((attributed,))
+
+    assert persisted[0].title == original.title
+    assert persisted[0].related_symbols == (ContractSymbol.BTCUSDT, "SOLUSDT")
+    async with migrated_database.session_factory() as session:
+        links = tuple((await session.scalars(select(ResearchNewsLinkRecord))).all())
+    assert {(link.symbol, link.scope) for link in links} >= {
+        ("BTCUSDT", "asset"),
+        ("SOLUSDT", "asset"),
+    }
 
 
 def _news_item(*, title: str = "Governed headline") -> NewsItemDraft:

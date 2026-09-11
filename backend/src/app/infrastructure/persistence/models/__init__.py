@@ -20,6 +20,12 @@ from app.infrastructure.persistence.models.paper_trading import (
     PaperOrderRecord,
     PaperPositionRecord,
 )
+from app.infrastructure.persistence.models.symbols import (
+    ResearchNewsLinkRecord,
+    ResearchSymbolEventRecord,
+    ResearchSymbolRecord,
+    ResearchSymbolSyncRunRecord,
+)
 
 __all__ = [
     "AgentAnalysisRunRecord",
@@ -36,4 +42,8 @@ __all__ = [
     "PaperMarketSnapshotRecord",
     "PaperOrderRecord",
     "PaperPositionRecord",
+    "ResearchNewsLinkRecord",
+    "ResearchSymbolEventRecord",
+    "ResearchSymbolRecord",
+    "ResearchSymbolSyncRunRecord",
 ]

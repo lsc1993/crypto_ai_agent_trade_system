@@ -1,3 +1,9 @@
+"""已实现交易绩效统计模块。
+
+数据流：仓储返回的已平仓交易 → 应用层资格筛选与稳定排序 → 累积权益曲线、回撤、
+胜率、盈亏比和 UTC 日历聚合。归档或未完全平仓交易不会进入已实现统计。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -33,7 +39,9 @@ class PerformanceAnalyticsService:
         self._clock = clock
 
     async def get_snapshot(self, filters: AnalyticsFilters) -> AnalyticsSnapshot:
+        """读取并二次筛选符合条件的已平仓交易，返回按 UTC 时间生成的统计快照。"""
         trades = await self._repository.list_closed(_repository_filters(filters))
+        # 再次在应用层筛选，避免仓储实现变化时把归档或未完成交易混入已实现绩效。
         completed = tuple(
             sorted(
                 (
@@ -48,6 +56,7 @@ class PerformanceAnalyticsService:
 
 
 def _repository_filters(filters: AnalyticsFilters) -> TradeFilters:
+    """将统计筛选投影为仓储查询，只请求 closed 状态以缩小读取范围。"""
     return TradeFilters(
         page=1,
         page_size=100,
@@ -62,6 +71,7 @@ def _repository_filters(filters: AnalyticsFilters) -> TradeFilters:
 
 
 def _is_eligible(trade: PersistedTrade, filters: AnalyticsFilters) -> bool:
+    """在应用层确认交易已完全平仓、未归档且满足所有可选筛选条件。"""
     if (
         trade.status is not TradeStatus.CLOSED
         or trade.archived_at is not None
@@ -86,6 +96,7 @@ def _aggregate(
     *,
     generated_at: datetime,
 ) -> AnalyticsSnapshot:
+    """按平仓时间顺序累积交易净盈亏并计算权益、回撤、日历和汇总指标。"""
     net_pnl = Decimal(0)
     peak_equity = Decimal(0)
     max_drawdown = Decimal(0)
@@ -109,12 +120,14 @@ def _aggregate(
             gross_loss += -trade_pnl
             win_rate_denominator += 1
 
+        # 权益曲线从零累计，回撤仅与此前的累计高点比较，结果为零或负数。
         peak_equity = max(peak_equity, net_pnl)
         max_drawdown = min(max_drawdown, net_pnl - peak_equity)
         equity_curve.append(
             EquityPoint(at=closed_at, equity=net_pnl, net_pnl=net_pnl)
         )
 
+        # 日历按 UTC 自然日归组，而不是按运行机器或用户浏览器的本地时区归组。
         date_start = closed_at.astimezone(UTC).replace(
             hour=0,
             minute=0,
@@ -149,6 +162,7 @@ def _aggregate(
 
 
 def _utc_time(value: datetime) -> datetime:
+    """拒绝非 UTC 时钟结果，避免统计生成时间与 UTC 日历边界产生歧义。"""
     offset = value.utcoffset()
     if value.tzinfo is None or offset is None:
         raise ValueError("统计时钟必须返回带时区的 UTC 时间")
