@@ -571,6 +571,8 @@ async def test_deepseek_retry_reinforces_the_trade_language_ban_after_text_rejec
     assert rejected["validation_error_categories"] == ("trading_instruction",)
     retry_payload = json.loads(requests[1].content)
     assert "买入、卖出、做多、做空、开仓、建仓、平仓" in retry_payload["messages"][-1]["content"]
+    assert "short_term.thesis" in retry_payload["messages"][-1]["content"]
+    assert "trading_instruction" in retry_payload["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio
