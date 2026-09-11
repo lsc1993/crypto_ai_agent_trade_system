@@ -539,6 +539,28 @@ async def test_deepseek_model_compacts_an_overlong_valid_narrative_before_valida
 
 
 @pytest.mark.asyncio
+async def test_deepseek_model_compaction_never_splits_a_numeric_resistance_value() -> None:
+    payload, complete_summary = _oversized_proposal_with_numeric_resistance_tail()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=_model_response(payload))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+
+        proposal = await model.generate(_request())
+
+    assert len(requests) == 1
+    assert proposal.narrative.market_overview.summary == complete_summary
+
+
+@pytest.mark.asyncio
 async def test_deepseek_retries_once_and_returns_valid_proposal_after_invalid_schema() -> None:
     requests: list[httpx.Request] = []
     responses = iter(
@@ -893,6 +915,23 @@ def _oversized_proposal_payload() -> dict[str, object]:
     return payload
 
 
+def _oversized_proposal_with_numeric_resistance_tail() -> tuple[dict[str, object], str]:
+    payload = _proposal_payload()
+    complete_summary = "完整概述" * 74 + "。"
+    resistance_tail = "上方阻力簇集中在 77166.60 至 77280.00、77700.00，"
+    market_overview = cast(dict[str, object], payload["market_overview"])
+    market_overview["summary"] = complete_summary + _repeat_to_length(
+        resistance_tail,
+        900 - len(complete_summary),
+    )
+    for name, thesis_length in (("short_term", 750), ("long_term", 700)):
+        perspective = cast(dict[str, object], payload[name])
+        perspective["thesis"] = _research_text("市场观点", thesis_length)
+        drivers = cast(list[dict[str, object]], perspective["drivers"])
+        drivers[0]["detail"] = _research_text("市场驱动", 175)
+    return payload, complete_summary
+
+
 def _compact_proposal_payload() -> dict[str, object]:
     payload = _proposal_payload()
     market_overview = cast(dict[str, object], payload["market_overview"])
@@ -906,5 +945,9 @@ def _compact_proposal_payload() -> dict[str, object]:
 
 
 def _research_text(label: str, length: int) -> str:
-    unit = f"{label}围绕冻结价格结构、公开衍生品指标、情绪读数与英文新闻交叉复核，"
-    return (unit * ((length // len(unit)) + 1))[:length]
+    unit = f"{label}围绕冻结价格结构、公开衍生品指标、情绪读数与英文新闻交叉复核。"
+    return _repeat_to_length(unit, length)
+
+
+def _repeat_to_length(value: str, length: int) -> str:
+    return (value * ((length // len(value)) + 1))[:length]

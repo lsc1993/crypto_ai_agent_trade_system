@@ -575,13 +575,19 @@ def _compact_overlong_narrative_content(content: str) -> str:
         if reduction == 0:
             continue
         value = cast(str, container[field_name])
-        container[field_name] = _truncate_research_text(
+        truncated = _truncate_research_text(
             value,
             maximum_length=len(value) - reduction,
-            minimum_length=minimum_length,
         )
+        if truncated is None:
+            return content
+        container[field_name] = truncated
     compacted_length = _raw_narrative_display_length(mutable_payload)
-    if compacted_length is None or compacted_length > _MAX_NARRATIVE_DISPLAY_LENGTH:
+    if compacted_length is None or not (
+        _MIN_NARRATIVE_DISPLAY_LENGTH
+        <= compacted_length
+        <= _MAX_NARRATIVE_DISPLAY_LENGTH
+    ):
         return content
     logger.info(
         "agent_model_narrative_compacted",
@@ -628,13 +634,13 @@ def _truncate_research_text(
     value: str,
     *,
     maximum_length: int,
-    minimum_length: int,
-) -> str:
+) -> str | None:
+    """Return a whole sentence within the requested bound, never a character slice."""
     candidate = value[:maximum_length].rstrip()
     sentence_end = max(candidate.rfind(mark) for mark in "。！？；")
-    if sentence_end + 1 >= minimum_length:
-        candidate = candidate[: sentence_end + 1].rstrip()
-    return candidate
+    if sentence_end < 0:
+        return None
+    return candidate[: sentence_end + 1].rstrip()
 
 
 def _validation_error_category(message: str) -> str:
