@@ -9,7 +9,7 @@ from uuid import UUID
 
 import httpx
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 import app.agent.model as agent_model
 from app.agent.market_structure import MarketStructure
@@ -504,6 +504,41 @@ async def test_deepseek_model_rejects_an_undersized_dual_horizon_narrative() -> 
 
 
 @pytest.mark.asyncio
+async def test_deepseek_model_compacts_an_overlong_valid_narrative_before_validation() -> None:
+    payload = _oversized_proposal_payload()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=_model_response(payload))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client,
+            api_key=SecretStr("test-key"),
+            model="deepseek-v4-flash",
+        )
+
+        proposal = await model.generate(_request())
+
+    narrative = proposal.narrative
+    display_length = len(
+        "".join(
+            (
+                narrative.market_overview.headline,
+                narrative.market_overview.summary,
+                narrative.short_term.thesis,
+                narrative.long_term.thesis,
+                *(driver.detail for driver in narrative.short_term.drivers),
+                *(driver.detail for driver in narrative.long_term.drivers),
+            )
+        )
+    )
+    assert len(requests) == 1
+    assert 1_100 <= display_length <= 2_500
+
+
+@pytest.mark.asyncio
 async def test_deepseek_retries_once_and_returns_valid_proposal_after_invalid_schema() -> None:
     requests: list[httpx.Request] = []
     responses = iter(
@@ -601,6 +636,25 @@ async def test_deepseek_retries_a_second_time_after_an_undersized_narrative() ->
 
     assert proposal.horizon == "dual_horizon"
     assert len(requests) == 3
+    second_retry_payload = json.loads(requests[2].content)
+    assert "上一份正文约" in second_retry_payload["messages"][-1]["content"]
+    assert "低于 1100" in second_retry_payload["messages"][-1]["content"]
+    assert "补充正文" in second_retry_payload["messages"][-1]["content"]
+
+
+def test_invalid_model_response_error_carries_only_safe_narrative_length_hint() -> None:
+    payload = _undersized_proposal_payload()
+
+    with pytest.raises(ValidationError) as validation_error:
+        AgentAnalysisProposal.model_validate(payload)
+
+    error = agent_model._invalid_model_response_error(  # pyright: ignore[reportPrivateUsage]
+        validation_error.value
+    )
+
+    assert error.validation_narrative_length is not None
+    assert error.validation_narrative_length < 1_100
+    assert "中文概况。" not in repr(error.__dict__)
 
 
 @pytest.mark.asyncio
@@ -824,6 +878,18 @@ def _undersized_proposal_payload() -> dict[str, object]:
         perspective["thesis"] = "中文观点。"
         drivers = cast(list[dict[str, object]], perspective["drivers"])
         drivers[0]["detail"] = "中文驱动。"
+    return payload
+
+
+def _oversized_proposal_payload() -> dict[str, object]:
+    payload = _proposal_payload()
+    market_overview = cast(dict[str, object], payload["market_overview"])
+    market_overview["summary"] = _research_text("市场概况", 600)
+    for name in ("short_term", "long_term"):
+        perspective = cast(dict[str, object], payload[name])
+        perspective["thesis"] = _research_text("市场观点", 600)
+        drivers = cast(list[dict[str, object]], perspective["drivers"])
+        drivers[0]["detail"] = _research_text("市场驱动", 500)
     return payload
 
 

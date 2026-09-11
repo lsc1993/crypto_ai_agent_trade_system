@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -50,6 +50,9 @@ _MAX_TOKENS = 4_000
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
 _MAX_VALIDATION_FIELD_PATHS = 8
 _MAX_VALIDATION_ISSUES = 99
+_MIN_NARRATIVE_DISPLAY_LENGTH = 1_100
+_MAX_NARRATIVE_DISPLAY_LENGTH = 2_500
+_TARGET_NARRATIVE_DISPLAY_LENGTH = 2_200
 _VALIDATION_FIELD_PATH = re.compile(
     r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$"
 )
@@ -150,7 +153,7 @@ class AgentAnalysisProposal(_AgentModel):
         if not referenced_ids:
             raise ValueError("模型结论必须引用冻结证据")
         display_length = _narrative_display_length(self.narrative)
-        if not 1_100 <= display_length <= 2_500:
+        if not _MIN_NARRATIVE_DISPLAY_LENGTH <= display_length <= _MAX_NARRATIVE_DISPLAY_LENGTH:
             raise ValueError("模型双层市场报告正文必须为 1100 至 2500 个字符")
         return self
 
@@ -174,6 +177,7 @@ class ModelOutputError(RuntimeError):
         validation_issue_count: int = 0,
         validation_field_paths: tuple[str, ...] = (),
         validation_error_categories: tuple[str, ...] = (),
+        validation_narrative_length: int | None = None,
         format_attempt_count: int = 0,
     ) -> None:
         super().__init__(message)
@@ -181,6 +185,7 @@ class ModelOutputError(RuntimeError):
         self.validation_issue_count = validation_issue_count
         self.validation_field_paths = validation_field_paths
         self.validation_error_categories = validation_error_categories
+        self.validation_narrative_length = validation_narrative_length
         self.format_attempt_count = format_attempt_count
 
 
@@ -363,7 +368,9 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             duration_ms=_duration_ms(started_at),
             attempt=attempt,
         )
-        content = _normalize_json_object_content(_response_content(response))
+        content = _compact_overlong_narrative_content(
+            _normalize_json_object_content(_response_content(response))
+        )
         try:
             proposal = AgentAnalysisProposal.model_validate_json(content)
         except (ValidationError, ValueError, json.JSONDecodeError) as error:
@@ -394,6 +401,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             validation_issue_count=error.validation_issue_count,
             validation_field_paths=error.validation_field_paths,
             validation_error_categories=error.validation_error_categories,
+            validation_narrative_length=error.validation_narrative_length,
         )
         logger.debug(
             "agent_model_response_rejection_details",
@@ -401,6 +409,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             attempt=attempt,
             validation_field_paths=error.validation_field_paths,
             validation_error_categories=error.validation_error_categories,
+            validation_narrative_length=error.validation_narrative_length,
         )
 
 
@@ -416,11 +425,29 @@ def _format_retry_instruction(*, error: ModelOutputError | None) -> str:
         return _FORMAT_RETRY_INSTRUCTION
     field_paths = ", ".join(error.validation_field_paths) or "未定位字段"
     categories = ", ".join(error.validation_error_categories) or "schema"
+    narrative_length_instruction = _narrative_length_retry_instruction(error)
     return (
         f"{_FORMAT_RETRY_INSTRUCTION}\n"
         f"上一份候选的校验字段：{field_paths}。"
         f"校验类别：{categories}。"
+        f"{narrative_length_instruction}"
         "请仅修正这些格式问题，仍须完整返回全部 JSON。"
+    )
+
+
+def _narrative_length_retry_instruction(error: ModelOutputError) -> str:
+    """Describe the bounded length direction without retaining model text."""
+    length = error.validation_narrative_length
+    if "narrative_length" not in error.validation_error_categories or length is None:
+        return ""
+    if length < _MIN_NARRATIVE_DISPLAY_LENGTH:
+        return (
+            f"上一份正文约 {length} 个字符，低于 {_MIN_NARRATIVE_DISPLAY_LENGTH}；"
+            f"请补充正文至约 1800 至 {_TARGET_NARRATIVE_DISPLAY_LENGTH} 个字符。"
+        )
+    return (
+        f"上一份正文约 {length} 个字符，超过 {_MAX_NARRATIVE_DISPLAY_LENGTH}；"
+        f"请删减正文至约 1800 至 {_TARGET_NARRATIVE_DISPLAY_LENGTH} 个字符。"
     )
 
 
@@ -440,6 +467,7 @@ def _invalid_model_response_error(error: Exception) -> ModelOutputError:
         validation_error_categories=_validation_error_categories(
             str(issue["msg"]) for issue in issues
         ),
+        validation_narrative_length=_narrative_length_from_validation_error(error),
     )
 
 
@@ -460,6 +488,153 @@ def _validation_field_paths(issues: Iterable[ErrorDetails]) -> tuple[str, ...]:
         if len(paths) == _MAX_VALIDATION_FIELD_PATHS:
             break
     return tuple(paths)
+
+
+def _narrative_length_from_validation_error(error: ValidationError) -> int | None:
+    """Calculate only a bounded display-length number from the rejected input."""
+    for issue in error.errors(include_url=False, include_context=False, include_input=True):
+        if _validation_error_category(str(issue["msg"])) != "narrative_length":
+            continue
+        return _raw_narrative_display_length(issue.get("input"))
+    return None
+
+
+def _raw_narrative_display_length(value: object) -> int | None:
+    root = _object_mapping(value)
+    if root is None:
+        return None
+    market_overview = _object_mapping(root.get("market_overview"))
+    short_term = _object_mapping(root.get("short_term"))
+    long_term = _object_mapping(root.get("long_term"))
+    if market_overview is None or short_term is None or long_term is None:
+        return None
+    text_parts: list[str] = []
+    for section, field_names in (
+        (market_overview, ("headline", "summary")),
+        (short_term, ("thesis",)),
+        (long_term, ("thesis",)),
+    ):
+        for field_name in field_names:
+            field_value = section.get(field_name)
+            if not isinstance(field_value, str):
+                return None
+            text_parts.append(field_value)
+    for section in (short_term, long_term):
+        drivers = section.get("drivers")
+        if not isinstance(drivers, list):
+            return None
+        for driver in cast(list[object], drivers):
+            driver_mapping = _object_mapping(driver)
+            if driver_mapping is None:
+                return None
+            detail = driver_mapping.get("detail")
+            if not isinstance(detail, str):
+                return None
+            text_parts.append(detail)
+    return min(len("".join(text_parts)), 9_999)
+
+
+def _object_mapping(value: object) -> Mapping[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return cast(Mapping[str, object], value)
+
+
+def _compact_overlong_narrative_content(content: str) -> str:
+    """Deterministically shorten only a complete, otherwise parseable model narrative."""
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        return content
+    if not isinstance(payload, dict):
+        return content
+    mutable_payload = cast(dict[str, object], payload)
+    original_length = _raw_narrative_display_length(mutable_payload)
+    if original_length is None or original_length <= _MAX_NARRATIVE_DISPLAY_LENGTH:
+        return content
+    fields = _narrative_text_fields(mutable_payload)
+    if fields is None:
+        return content
+    remaining = original_length - _TARGET_NARRATIVE_DISPLAY_LENGTH
+    reductions: list[tuple[dict[str, object], str, int, int]] = []
+    for container, field_name, minimum_length in sorted(
+        fields,
+        key=lambda field: len(cast(str, field[0][field[1]])) - field[2],
+        reverse=True,
+    ):
+        value = cast(str, container[field_name])
+        reducible = len(value) - minimum_length
+        reduction = min(remaining, reducible)
+        reductions.append((container, field_name, minimum_length, reduction))
+        remaining -= reduction
+        if remaining == 0:
+            break
+    if remaining != 0:
+        return content
+    for container, field_name, minimum_length, reduction in reductions:
+        if reduction == 0:
+            continue
+        value = cast(str, container[field_name])
+        container[field_name] = _truncate_research_text(
+            value,
+            maximum_length=len(value) - reduction,
+            minimum_length=minimum_length,
+        )
+    compacted_length = _raw_narrative_display_length(mutable_payload)
+    if compacted_length is None or compacted_length > _MAX_NARRATIVE_DISPLAY_LENGTH:
+        return content
+    logger.info(
+        "agent_model_narrative_compacted",
+        original_display_length=original_length,
+        compacted_display_length=compacted_length,
+    )
+    return json.dumps(mutable_payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _narrative_text_fields(
+    payload: dict[str, object],
+) -> list[tuple[dict[str, object], str, int]] | None:
+    market_overview = _mutable_object_mapping(payload.get("market_overview"))
+    short_term = _mutable_object_mapping(payload.get("short_term"))
+    long_term = _mutable_object_mapping(payload.get("long_term"))
+    if market_overview is None or short_term is None or long_term is None:
+        return None
+    fields: list[tuple[dict[str, object], str, int]] = [
+        (market_overview, "summary", 350),
+        (short_term, "thesis", 350),
+        (long_term, "thesis", 350),
+    ]
+    for section in (short_term, long_term):
+        drivers = section.get("drivers")
+        if not isinstance(drivers, list):
+            return None
+        for driver in cast(list[object], drivers):
+            driver_mapping = _mutable_object_mapping(driver)
+            if driver_mapping is None or not isinstance(driver_mapping.get("detail"), str):
+                return None
+            fields.append((driver_mapping, "detail", 175))
+    if any(not isinstance(container.get(field_name), str) for container, field_name, _ in fields):
+        return None
+    return fields
+
+
+def _mutable_object_mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return cast(dict[str, object], value)
+
+
+def _truncate_research_text(
+    value: str,
+    *,
+    maximum_length: int,
+    minimum_length: int,
+) -> str:
+    candidate = value[:maximum_length].rstrip()
+    sentence_end = max(candidate.rfind(mark) for mark in "。！？；")
+    if sentence_end + 1 >= minimum_length:
+        candidate = candidate[: sentence_end + 1].rstrip()
+    return candidate
 
 
 def _validation_error_category(message: str) -> str:
