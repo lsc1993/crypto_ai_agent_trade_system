@@ -14,6 +14,7 @@ import type {
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type { ResearchSymbolEntry } from "../../domain/research-symbol";
+import type { TechnicalReport, TechnicalReportFilters } from "../../domain/technical-report";
 import type {
   ManualPaperIntent,
   PaperAccountCreate,
@@ -57,6 +58,9 @@ export interface WorkbenchApi {
   getReport(reportId: string): Promise<AnalysisReport>;
   startReport(input: { symbol: Symbol }): Promise<ReportRunCreated>;
   retryReport(reportId: string): Promise<ReportRunCreated>;
+  startTechnicalReport(input: { symbol: Symbol }): Promise<TechnicalReport>;
+  listTechnicalReports(filters: TechnicalReportFilters): Promise<Page<TechnicalReport>>;
+  getTechnicalReport(reportId: string): Promise<TechnicalReport>;
   subscribeReport(
     analysisId: string,
     onEvent: (event: AnalysisStreamEvent) => void,

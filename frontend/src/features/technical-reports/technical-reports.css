@@ -1,0 +1,20 @@
+.technical-reports-page, .technical-report-detail { max-width: 1180px; margin-inline: auto; }
+.report-style-navigation { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1.5rem auto; max-width: 1180px; }
+.report-style-navigation a { display: grid; gap: 0.3rem; flex: 1 1 240px; padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: 0.85rem; text-decoration: none; color: var(--text); background: var(--surface); }
+.report-style-navigation a[aria-current="page"] { border-color: var(--accent); background: #102c30; }
+.report-style-navigation span { color: var(--muted); font-size: 0.85rem; }
+.technical-notice { padding: 0.85rem 1rem; border: 1px solid #d8b87d; border-radius: 0.75rem; background: #fff8e9; color: #63491d; }
+.technical-action, .technical-panel, .technical-history { min-width: 0; padding: 1.25rem; margin-block: 1rem; border: 1px solid var(--border, #d9e1e8); border-radius: 1rem; background: var(--surface, #fff); }
+.technical-history__list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1rem; }
+.technical-facts, .technical-plan__levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0.75rem; }
+.technical-facts > div, .technical-plan__levels > div { min-width: 0; padding: 0.75rem; border-radius: 0.6rem; background: var(--background); color: var(--text); }
+.technical-facts dt, .technical-plan__levels dt { color: var(--muted); font-size: 0.85rem; }
+.technical-facts dd, .technical-plan__levels dd { margin: 0.25rem 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.technical-plan { min-width: 0; margin-top: 1rem; padding: 1rem; border: 1px solid #b7cee0; border-radius: 0.85rem; }
+.technical-plan header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.technical-method { padding-block: 0.8rem; border-top: 1px solid #e1e6eb; }
+.technical-method p, .technical-panel p, .technical-panel li { overflow-wrap: anywhere; }
+.technical-pagination { display: flex; gap: 0.75rem; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 1rem; }
+.technical-panel h2, .technical-history h2 { margin-bottom: 1rem; font-size: 1.2rem; font-weight: 700; }
+.technical-panel h3 { margin-block: 0.7rem; font-weight: 650; }
+.technical-panel p, .technical-panel li { margin-block: 0.6rem; line-height: 1.65; }

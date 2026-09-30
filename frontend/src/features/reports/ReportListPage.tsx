@@ -7,6 +7,7 @@ import type { ReportStatus } from "../../domain/report";
 import { ResearchSymbolSelect } from "../research-symbols/ResearchSymbolSelect";
 import { useResearchSymbolSelection } from "../research-symbols/useResearchSymbolSelection";
 import { ReportGenerator } from "./ReportGenerator";
+import { ReportStyleNavigation } from "../technical-reports/ReportStyleNavigation";
 
 const statusLabels: Record<ReportStatus, string> = {
   queued: "排队中",
@@ -17,6 +18,10 @@ const statusLabels: Record<ReportStatus, string> = {
 };
 
 export function ReportListPage() {
+  return <><ReportStyleNavigation selected="comprehensive" /><ComprehensiveReportList /></>;
+}
+
+function ComprehensiveReportList() {
   const api = useWorkbenchApi();
   const selection = useResearchSymbolSelection();
   const reportsQuery = useQuery({

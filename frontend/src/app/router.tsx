@@ -10,6 +10,8 @@ import { PaperAccountDetailPage } from "../features/paper-trading/PaperAccountDe
 import { PaperAccountListPage } from "../features/paper-trading/PaperAccountListPage";
 import { ReportDetailPage } from "../features/reports/ReportDetailPage";
 import { ReportListPage } from "../features/reports/ReportListPage";
+import { TechnicalReportListPage } from "../features/technical-reports/TechnicalReportListPage";
+import { TechnicalReportDetailPage } from "../features/technical-reports/TechnicalReportDetailPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { TradeEditorPage } from "../features/trades/TradeEditorPage";
 import { TradeListPage } from "../features/trades/TradeListPage";
@@ -44,6 +46,8 @@ export function AppRouter() {
       element: <ReportDetailPage />,
     },
     { path: "/backtests", element: <BacktestListPage /> },
+    { path: "/technical-reports", element: <TechnicalReportListPage /> },
+    { path: "/technical-reports/:reportId", element: <TechnicalReportDetailPage /> },
     {
       path: "/backtests/:backtestId",
       element: <BacktestDetailPage />,

@@ -71,6 +71,12 @@ import {
   type MockState,
 } from "../mocks/seed";
 import type { WorkbenchApi } from "./workbench-api";
+import {
+  technicalReportFiltersSchema,
+  technicalReportSchema,
+  type TechnicalReport,
+  type TechnicalReportFilters,
+} from "../../domain/technical-report";
 
 const marketInputSchema = z.object({
   symbol: symbolSchema,
@@ -271,6 +277,7 @@ function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
 
 export class MockWorkbenchApi implements WorkbenchApi {
   private state: MockState;
+  private technicalReports: TechnicalReport[] = [];
   private readonly researchSymbols = new Map<string, ResearchSymbolEntry>();
 
   constructor() {
@@ -400,6 +407,53 @@ export class MockWorkbenchApi implements WorkbenchApi {
     this.state.nextAnalysisSequence += 1;
     persistState(this.state);
     return analysisResultSchema.parse({ analysisId });
+  }
+
+  async startTechnicalReport(input: { symbol: Symbol }): Promise<TechnicalReport> {
+    await Promise.resolve();
+    const symbol = symbolSchema.parse(input.symbol);
+    const entry = this.researchSymbols.get(symbol);
+    if (entry === undefined || !entry.canResearch) {
+      throw new Error("当前币对不可生成技术报告");
+    }
+    const now = new Date().toISOString();
+    const report = technicalReportSchema.parse({
+      version: "technical-v1",
+      id: crypto.randomUUID(),
+      analysisId: crypto.randomUUID(),
+      symbol,
+      status: "degraded",
+      createdAt: now,
+      dataCutoffAt: now,
+      analysis: {
+        quality: { status: "invalid", reasons: ["mock_demo_only"], candleCounts: {}, latestClosedAt: {} },
+        facts: null,
+        plans: [],
+        noPlanReasons: ["mock_demo_only"],
+        methods: [],
+        evidenceId: crypto.randomUUID(),
+      },
+      narrative: null,
+      errorCode: "data_quality_insufficient",
+    });
+    this.technicalReports.unshift(report);
+    return report;
+  }
+
+  async listTechnicalReports(filters: TechnicalReportFilters): Promise<Page<TechnicalReport>> {
+    await Promise.resolve();
+    const parsed = technicalReportFiltersSchema.parse(filters);
+    const matching = this.technicalReports.filter((report) => parsed.symbol === undefined || report.symbol === parsed.symbol);
+    const first = (parsed.page - 1) * parsed.pageSize;
+    return { items: matching.slice(first, first + parsed.pageSize), page: parsed.page, pageSize: parsed.pageSize, total: matching.length };
+  }
+
+  async getTechnicalReport(reportId: string): Promise<TechnicalReport> {
+    await Promise.resolve();
+    const id = z.uuid().parse(reportId);
+    const report = this.technicalReports.find((candidate) => candidate.id === id);
+    if (report === undefined) throw new MockWorkbenchNotFoundError("report", id);
+    return report;
   }
 
   subscribeReport(
@@ -621,6 +675,7 @@ export class MockWorkbenchApi implements WorkbenchApi {
 
   reset(): void {
     this.state = createMockSeed();
+    this.technicalReports = [];
     persistState(this.state);
   }
 }

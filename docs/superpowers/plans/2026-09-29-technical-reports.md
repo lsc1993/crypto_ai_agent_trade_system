@@ -26,33 +26,33 @@
 
 **Files:** Create backend/src/app/reports/technical.py, backend/src/app/agent/technical/{__init__,methods,engine}.py and methods markdown, backend/tests/agent/test_technical_engine.py.
 **Interfaces:** calculate_technical_analysis(detail: MarketDetail, *, captured_at: datetime) -> TechnicalAnalysis; TechnicalAnalysis contains quality, facts, plans, no_plan_reasons, methods, evidence_id. TechnicalReport contains id, analysis_id, symbol, status, created_at, data_cutoff_at, analysis, narrative, error_code. Public JSON camelCase, no raw payload.
-- [ ] Write tests for long/short/none, thresholds, closed-only data, duplicates/gaps/freshness, costs, adverse entry and targets.
-- [ ] Run pytest tests/agent/test_technical_engine.py; establish expected failure.
-- [ ] Implement versioned method adaptation, hashed attribution and pure Decimal engine according to spec. Publish concrete DTO shape for consumers.
-- [ ] Run focused pytest and static checks, review spec/numeric behavior.
+- [x] Write tests for long/short/none, thresholds, closed-only data, duplicates/gaps/freshness, costs, adverse entry and targets.
+- [x] Run pytest tests/agent/test_technical_engine.py; establish expected failure.
+- [x] Implement versioned method adaptation, hashed attribution and pure Decimal engine according to spec. Publish concrete DTO shape for consumers.
+- [x] Run focused pytest and static checks, review spec/numeric behavior.
 
 ### Task 2: Fixed research workflow, bounded AI, storage and API
 
 **Files:** Create agent/technical/{model,service}.py, reports/technical_repository.py, harness/technical_research.py, infrastructure/persistence/{technical_report_repository,models/technical_reports}.py, api/routes/technical_reports.py, alembic/versions/0017_create_technical_reports.py and associated tests. Modify main.py, api/router.py, harness/contracts.py, model registration.
 **Interfaces:** Separate repository persist(report, frozen_evidence), get(id), list(symbol,page,page_size). Service generate(symbol)->TechnicalReport. POST /technical-reports -> report; GET collection -> {items,page,pageSize,total}; GET id -> report.
-- [ ] Write model tests for legitimate references, unknown IDs, numeric/model trade instructions, missing credentials/timeouts, no tools.
-- [ ] Implement bounded narrative adapter, strict schema and safe degradation.
-- [ ] Write service/API/storage tests for admission, incomplete inputs, missing model, old endpoint compatibility, immutable evidence and atomic terminal events.
-- [ ] Implement fixed workflow and Harness-specific policy, dedicated table/migration and application wiring.
-- [ ] Run backend checks and migration heads; run database tests only with dedicated test database.
+- [x] Write model tests for legitimate references, unknown IDs, numeric/model trade instructions, missing credentials/timeouts, no tools.
+- [x] Implement bounded narrative adapter, strict schema and safe degradation.
+- [x] Write service/API/storage tests for admission, incomplete inputs, missing model, old endpoint compatibility, immutable evidence and atomic terminal events.
+- [x] Implement fixed workflow and Harness-specific policy, dedicated table/migration and application wiring.
+- [x] Run backend checks and migration heads; run database tests only with dedicated test database.
 
 ### Task 3: Independent report UI and adapters
 
 **Files:** Create frontend/src/domain/technical-report.ts, features/technical-reports/*, tests; modify WorkbenchApi, HTTP/Mock/Hybrid adapters, router and report entry.
 **Interfaces:** startTechnicalReport({symbol})->TechnicalReport; listTechnicalReports({symbol,page,pageSize})->Page<TechnicalReport>; getTechnicalReport(id)->TechnicalReport. The v1 page reuses the bounded report DTO; raw evidence remains internal.
-- [ ] Write tests for report selection, rendering conditional plan/degraded/no-plan, late requests and decoders.
-- [ ] Implement safe separate routes, history and report detail, financial strings and explicit research assumptions.
-- [ ] Run npm lint/typecheck/test/build and old report regressions.
+- [x] Write tests for report selection, rendering conditional plan/degraded/no-plan, late requests and decoders.
+- [x] Implement safe separate routes, history and report detail, financial strings and explicit research assumptions.
+- [x] Run npm lint/typecheck/test/build and old report regressions.
 
 ### Task 4: Integration, independent review and documentation
 
 **Files:** README, frontend/README, docs/technical-reports.md, docs/project-status.md, docs/operational-boundaries.md and security doc tests if necessary.
-- [ ] Review full change for project boundaries, evidence integrity and old-flow compatibility; fix actionable issues.
-- [ ] Document methods, limitations, new migration and run commands without personal paths.
-- [ ] Execute full permitted backend/frontend checks and report directories, outcomes and unverified checks.
-- [ ] Commit only task-owned files on feature branch; preserve checkout for user review.
+- [x] Review full change for project boundaries, evidence integrity and old-flow compatibility; fix actionable issues.
+- [x] Document methods, limitations, new migration and run commands without personal paths.
+- [x] Execute full permitted backend/frontend checks and report directories, outcomes and unverified checks.
+- [x] Commit only task-owned files on feature branch; preserve checkout for user review.

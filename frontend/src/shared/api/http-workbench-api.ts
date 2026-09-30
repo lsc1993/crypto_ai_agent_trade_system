@@ -83,6 +83,13 @@ import {
 import type { ReportRunCreated, WorkbenchApi } from "./workbench-api";
 import type { MarketDataSource } from "../config/env";
 import { z } from "zod";
+import {
+  technicalReportFiltersSchema,
+  technicalReportPageSchema,
+  technicalReportSchema,
+  type TechnicalReport,
+  type TechnicalReportFilters,
+} from "../../domain/technical-report";
 
 export class WorkbenchEndpointUnavailableError extends Error {
   readonly operation: keyof WorkbenchApi;
@@ -315,6 +322,30 @@ export class HttpWorkbenchApi implements WorkbenchApi {
       { method: "POST" },
     );
     return result;
+  }
+
+  startTechnicalReport(input: { symbol: Symbol }): Promise<TechnicalReport> {
+    const payload = reportStartSchema.parse(input);
+    return this.transport.request("/api/v1/technical-reports", technicalReportSchema, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  listTechnicalReports(filters: TechnicalReportFilters): Promise<Page<TechnicalReport>> {
+    const parsed = technicalReportFiltersSchema.parse(filters);
+    const query = new URLSearchParams({
+      page: String(parsed.page),
+      pageSize: String(parsed.pageSize),
+    });
+    if (parsed.symbol !== undefined) query.set("symbol", parsed.symbol);
+    return this.transport.request(`/api/v1/technical-reports?${query.toString()}`, technicalReportPageSchema);
+  }
+
+  getTechnicalReport(reportId: string): Promise<TechnicalReport> {
+    const id = uuidSchema.parse(reportId);
+    return this.transport.request(`/api/v1/technical-reports/${encodeURIComponent(id)}`, technicalReportSchema);
   }
 
   subscribeReport(
