@@ -26,8 +26,10 @@ from app.infrastructure.persistence.models.symbols import (
     ResearchSymbolRecord,
     ResearchSymbolSyncRunRecord,
 )
+from app.infrastructure.persistence.models.technical_reports import TechnicalReportRecord
 
 __all__ = [
+    "TechnicalReportRecord",
     "AgentAnalysisRunRecord",
     "AgentReportDetailRecord",
     "HarnessAuditEventRecord",

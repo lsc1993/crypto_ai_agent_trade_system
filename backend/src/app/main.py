@@ -18,6 +18,8 @@ from app.agent.service import (
     AgentSnapshotInputReader,
     PersistedAgentMarketCapture,
 )
+from app.agent.technical.model import DeepSeekTechnicalLanguageModel
+from app.agent.technical.service import TechnicalResearchService
 from app.api.errors import install_exception_handlers
 from app.api.router import API_NAME
 from app.api.router import router as api_router
@@ -29,6 +31,13 @@ from app.harness.market_research import (
 )
 from app.harness.policy import MARKET_RESEARCH_POLICY
 from app.harness.runtime import HarnessRuntime
+from app.harness.technical_research import (
+    TECHNICAL_RESEARCH_POLICY,
+    HarnessedTechnicalResearchService,
+    TechnicalReportGenerator,
+    TechnicalResearchWorkflow,
+    UnavailableTechnicalResearchService,
+)
 from app.infrastructure.persistence.backtest_repository import SqlAlchemyBacktestRepository
 from app.infrastructure.persistence.harness_audit_repository import (
     SqlAlchemyHarnessAuditRepository,
@@ -43,6 +52,9 @@ from app.infrastructure.persistence.report_repository import (
 from app.infrastructure.persistence.repository import SqlAlchemyMarketRepository
 from app.infrastructure.persistence.research_reader import SqlAlchemyPersistedMarketReader
 from app.infrastructure.persistence.symbol_repository import SqlAlchemySymbolRepository
+from app.infrastructure.persistence.technical_report_repository import (
+    SqlAlchemyTechnicalReportRepository,
+)
 from app.infrastructure.persistence.trade_repository import SqlAlchemyTradeRepository
 from app.market.binance_usdm import (
     BINANCE_USDM_BASE_URL,
@@ -87,6 +99,11 @@ from app.reports.contracts import (
 )
 from app.reports.repository import AnalysisReportRepository
 from app.reports.service import AnalysisReportService, DeterministicResearchReportService
+from app.reports.technical import TechnicalReport
+from app.reports.technical_repository import (
+    TechnicalReportRepository,
+    UnavailableTechnicalReportRepository,
+)
 from app.research.backtests.contracts import (
     BacktestFilters,
     BacktestRequest,
@@ -376,6 +393,8 @@ def create_app(
     dashboard_clock: Callable[[], datetime] | None = None,
     symbol_repository: SymbolRepository | None = None,
     symbol_service: SymbolService | None = None,
+    technical_report_repository: TechnicalReportRepository | None = None,
+    technical_research_service: TechnicalReportGenerator | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -393,6 +412,8 @@ def create_app(
             historical_candle_gateway,
             backtest_repository,
             paper_repository,
+            technical_report_repository,
+            technical_research_service,
         )
     )
 
@@ -443,6 +464,13 @@ def create_app(
             else SqlAlchemyAnalysisReportRepository(session_factory)
         )
 
+    if technical_report_repository is None:
+        technical_report_repository = (
+            UnavailableTechnicalReportRepository()
+            if session_factory is None
+            else SqlAlchemyTechnicalReportRepository(session_factory)
+        )
+
     if trade_repository is None:
         trade_repository = (
             _UnavailableTradeRepository()
@@ -467,8 +495,7 @@ def create_app(
     if symbol_repository is None:
         symbol_repository = (
             StaticSymbolRepository()
-            if session_factory is None
-            or not use_durable_symbol_directory
+            if session_factory is None or not use_durable_symbol_directory
             else SqlAlchemySymbolRepository(session_factory)
         )
     if symbol_service is None:
@@ -490,9 +517,8 @@ def create_app(
                 else None
             ),
         )
-    if (
-        market_capture_service is not None
-        and isinstance(symbol_repository, SqlAlchemySymbolRepository)
+    if market_capture_service is not None and isinstance(
+        symbol_repository, SqlAlchemySymbolRepository
     ):
         symbol_sync_worker = ResearchSymbolSyncWorker(
             repository=symbol_repository,
@@ -606,6 +632,37 @@ def create_app(
         agent_service_factory = create_agent_service
         checkpoint_connection = checkpoint_connection_string(settings.database_url)
 
+    technical_model_client: httpx.AsyncClient | None = None
+    if technical_research_service is None:
+        if session_factory is None:
+            technical_research_service = UnavailableTechnicalResearchService()
+        else:
+            technical_model_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(settings.agent_request_timeout_seconds),
+            )
+            technical_service = TechnicalResearchService(
+                market=market_gateway,
+                repository=technical_report_repository,
+                model=DeepSeekTechnicalLanguageModel(
+                    client=technical_model_client,
+                    api_key=settings.deepseek_api_key,
+                    model=settings.deepseek_model,
+                ),
+                clock=lambda: datetime.now(UTC),
+            )
+            technical_runtime = HarnessRuntime[TechnicalReport](
+                policies=(TECHNICAL_RESEARCH_POLICY,),
+                workflows=(TechnicalResearchWorkflow(technical_service),),
+                audit_repository=SqlAlchemyHarnessAuditRepository(session_factory),
+                symbol_authorizer=lambda symbol: _is_research_ready_symbol(
+                    symbol_repository, symbol
+                ),
+            )
+            technical_research_service = HarnessedTechnicalResearchService(
+                technical_runtime,
+                clock=lambda: datetime.now(UTC),
+            )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         stop_sync = asyncio.Event()
@@ -625,6 +682,8 @@ def create_app(
             else:
                 yield
         finally:
+            if technical_model_client is not None:
+                await technical_model_client.aclose()
             stop_sync.set()
             if sync_task is not None:
                 await sync_task
@@ -659,6 +718,8 @@ def create_app(
         clock=lambda: datetime.now(UTC),
     )
     app.state.analysis_report_repository = analysis_report_repository
+    app.state.technical_report_repository = technical_report_repository
+    app.state.technical_research_service = technical_research_service
     app.state.analysis_report_service = (
         agent_research_service
         if agent_research_service is not None

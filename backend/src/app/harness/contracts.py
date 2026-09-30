@@ -13,6 +13,7 @@ from app.market.symbols import ResearchSymbol
 
 class HarnessRunKind(StrEnum):
     MARKET_RESEARCH = "market_research"
+    TECHNICAL_RESEARCH = "technical_research"
 
 
 class HarnessCapability(StrEnum):
