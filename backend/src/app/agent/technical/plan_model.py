@@ -41,14 +41,30 @@ def safe_correction(error: Exception) -> str:
         for name, field in model.model_fields.items()
     }
     paths: list[str] = []
+    issues: list[dict[str, str]] = []
+    text_codes = {
+        "unbound_number",
+        "execution_language",
+        "live_execution_language",
+        "placeholder_unit",
+        "chinese_required",
+        "book_length",
+    }
     if isinstance(error, ValidationError):
         for item in error.errors(include_input=False, include_context=False, include_url=False):
             parts = item["loc"]
             if parts and all(
                 (type(part) is int and 0 <= part <= 6) or part in allowed for part in parts
             ):
-                paths.append(".".join(str(part) for part in parts))
-        return json.dumps({"category": "schema", "fieldPaths": paths[:12]}, ensure_ascii=False)
+                path = ".".join(str(part) for part in parts)
+                paths.append(path)
+                # Only static validator codes are exposed; never input, context or raw messages.
+                code = item["msg"].removeprefix("Value error, ")
+                issues.append({"fieldPath": path, "code": code if code in text_codes else "schema"})
+        return json.dumps(
+            {"category": "schema", "fieldPaths": paths[:12], "issues": issues[:12]},
+            ensure_ascii=False,
+        )
     reference_codes = {
         "wait_plan",
         "candidate_reference",
@@ -223,6 +239,13 @@ class DeepSeekTechnicalPlanLanguageModel:
             except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
                 summary = None
                 correction = safe_correction(error)
+                structlog.get_logger(__name__).info(
+                    "technical_plan_response_rejected",
+                    evidence_id=str(context.analysis.evidence_id),
+                    stage=stage,
+                    attempt=attempt,
+                    validation=json.loads(correction),
+                )
             diagnostic = TechnicalStageDiagnostic(
                 stage=stage,
                 attempt=attempt,
