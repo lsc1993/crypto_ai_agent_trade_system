@@ -48,6 +48,8 @@ describe("Mock mode controls", () => {
       startReport: () => Promise.reject(new Error("not called by the shell")),
       retryReport: () => Promise.reject(new Error("not called by the shell")),
       startTechnicalReport: () => Promise.reject(new Error("not called by the shell")),
+      startTechnicalReportRun: () => Promise.reject(new Error("not called by the shell")),
+      getTechnicalReportRun: () => Promise.reject(new Error("not called by the shell")),
       listTechnicalReports: () => Promise.reject(new Error("not called by the shell")),
       getTechnicalReport: () => Promise.reject(new Error("not called by the shell")),
       subscribeReport: () => () => undefined,

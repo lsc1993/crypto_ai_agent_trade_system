@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIRECTORY = Path(__file__).resolve().parents[3]
@@ -40,6 +40,20 @@ class AppSettings(BaseSettings):
     deepseek_model: Literal["deepseek-v4-flash", "deepseek-v4-pro"] = "deepseek-v4-pro"
     news_http_timeout_seconds: int = Field(default=8, ge=1, le=20)
     agent_request_timeout_seconds: int = Field(default=60, ge=5, le=60)
+    technical_analysis_max_tokens: int = Field(default=32768, ge=4096, le=65536)
+    technical_composition_max_tokens: int = Field(default=8192, ge=2048, le=16384)
+    technical_analysis_timeout_seconds: int = Field(default=180, ge=30, le=180)
+    technical_composition_timeout_seconds: int = Field(default=90, ge=15, le=90)
+    technical_run_timeout_seconds: int = Field(default=600, ge=120, le=600)
+
+    @model_validator(mode="after")
+    def technical_timeouts(self) -> "AppSettings":
+        if (
+            max(self.technical_analysis_timeout_seconds, self.technical_composition_timeout_seconds)
+            > self.technical_run_timeout_seconds
+        ):
+            raise ValueError("技术模型阶段超时不能超过任务截止")
+        return self
 
     @field_validator("deepseek_model", mode="before")
     @classmethod

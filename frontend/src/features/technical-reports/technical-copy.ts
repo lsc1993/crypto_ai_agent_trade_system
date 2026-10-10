@@ -37,6 +37,9 @@ const errorMessages: Record<string, string> = {
   model_timeout: "模型叙事不可用：请求超时。",
   model_upstream_error: "模型叙事不可用：上游服务失败。",
   model_invalid_response: "模型叙事不可用：结果未通过校验。",
+  model_output_limit: "模型输出额度耗尽，已保留规则结果。",
+  model_empty_response: "模型正文为空，已保留可复核的规则结果。",
+  run_timeout: "研究达到时间上限，已保留本次规则结果。",
 };
 
 export function reasonLabel(code: string): string {

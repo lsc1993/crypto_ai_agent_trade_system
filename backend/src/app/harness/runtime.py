@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
@@ -47,10 +48,12 @@ class HarnessRuntime[ResultT]:
         workflows: tuple[HarnessWorkflow[ResultT], ...],
         audit_repository: HarnessAuditRepository,
         symbol_authorizer: Callable[[ResearchSymbol], Awaitable[bool]] | None = None,
+        require_all_symbols_authorized: bool = False,
     ) -> None:
         """注册每种运行类型唯一的策略与工作流，拒绝重复覆盖以避免权限歧义。"""
         self._audit_repository = audit_repository
         self._symbol_authorizer = symbol_authorizer
+        self._require_all_symbols_authorized = require_all_symbols_authorized
         self._policies: dict[HarnessRunKind, HarnessPolicy] = {}
         for policy in policies:
             if policy.run_kind in self._policies:
@@ -112,13 +115,9 @@ class HarnessRuntime[ResultT]:
             await self._require_symbol_allowed(policy, request.symbol)
             self._require_capabilities_allowed(policy, workflow.required_capabilities)
         except HarnessPolicyViolation as error:
-            declared_count = (
-                0 if workflow is None else len(workflow.required_capabilities)
-            )
+            declared_count = 0 if workflow is None else len(workflow.required_capabilities)
             allowed_count = (
-                0
-                if registered_policy is None
-                else len(registered_policy.allowed_capabilities)
+                0 if registered_policy is None else len(registered_policy.allowed_capabilities)
             )
             await self._audit_repository.append_policy_evaluation(
                 HarnessEvaluation(
@@ -217,6 +216,10 @@ class HarnessRuntime[ResultT]:
         symbol: ResearchSymbol,
     ) -> None:
         """检查静态白名单，或核验目录中的已完成同步的研究币对。"""
+        if self._require_all_symbols_authorized and (
+            self._symbol_authorizer is None or not await self._symbol_authorizer(symbol)
+        ):
+            raise HarnessPolicyViolation("symbol_not_allowed")
         if symbol not in policy.allowed_symbols:
             if (
                 policy.symbol_admission != "research_directory"
@@ -256,20 +259,26 @@ class HarnessRuntime[ResultT]:
         )
         try:
             result = await workflow.run(request)
-        except Exception as error:
+        except (Exception, asyncio.CancelledError) as error:
             # 失败审计在 finally 前写入；即使日志记录异常，原始工作流异常仍会向上传递。
             try:
-                await self._audit_repository.append_event(
-                    HarnessAuditEvent(
-                        run_id=request.run_id,
-                        sequence=3,
-                        kind=HarnessAuditEventKind.WORKFLOW_FAILED,
-                        occurred_at=datetime.now(UTC),
-                        duration_ms=self._duration_ms(started_at),
-                        error_code="workflow_exception",
-                        details=HarnessEventDetails(error_type=type(error).__name__),
+                async with asyncio.timeout(
+                    2 if isinstance(error, asyncio.CancelledError) else None
+                ):
+                    await self._audit_repository.append_event(
+                        HarnessAuditEvent(
+                            run_id=request.run_id,
+                            sequence=3,
+                            kind=HarnessAuditEventKind.WORKFLOW_FAILED,
+                            occurred_at=datetime.now(UTC),
+                            duration_ms=self._duration_ms(started_at),
+                            error_code="workflow_exception",
+                            details=HarnessEventDetails(error_type=type(error).__name__),
+                        )
                     )
-                )
+            except TimeoutError:
+                if not isinstance(error, asyncio.CancelledError):
+                    raise
             finally:
                 self._log(
                     "harness_run_failed",

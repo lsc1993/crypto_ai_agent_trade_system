@@ -9,7 +9,9 @@ from app.agent.technical.engine import calculate_technical_analysis
 from app.agent.technical.model import TechnicalModelError
 from app.agent.technical.service import TechnicalResearchService
 from app.market.contracts import MarketDataUnavailableError, MarketDetail, MarketTimeframe
-from app.reports.technical import TechnicalAnalysis, TechnicalNarrative, TechnicalReport
+from app.reports.technical import TechnicalAnalysis, TechnicalNarrative
+from app.reports.technical_plan import TechnicalReportDocument
+from app.reports.technical_runs import TechnicalRunLease
 from tests.agent.test_technical_engine import NOW, make_technical_detail
 
 
@@ -32,16 +34,25 @@ class Market:
 
 class Repository:
     def __init__(self) -> None:
-        self.records: list[tuple[TechnicalReport, dict[str, JsonValue]]] = []
+        self.records: list[tuple[TechnicalReportDocument, dict[str, JsonValue]]] = []
 
     async def persist(
-        self, report: TechnicalReport, evidence: dict[str, JsonValue]
-    ) -> TechnicalReport:
+        self,
+        report: TechnicalReportDocument,
+        evidence: dict[str, JsonValue],
+        *,
+        lease: TechnicalRunLease | None = None,
+    ) -> TechnicalReportDocument:
         self.records.append((report, evidence))
         return report
 
-    async def get(self, report_id: UUID) -> TechnicalReport | None:
+    async def get(self, report_id: UUID) -> TechnicalReportDocument | None:
         return next((report for report, _ in self.records if report.id == report_id), None)
+
+    async def get_by_analysis_id(self, analysis_id: UUID) -> TechnicalReportDocument | None:
+        return next(
+            (report for report, _ in self.records if report.analysis_id == analysis_id), None
+        )
 
     async def list(self, *, symbol: Any, page: int, page_size: int) -> Any:
         raise NotImplementedError

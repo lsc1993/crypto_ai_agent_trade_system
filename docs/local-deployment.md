@@ -52,3 +52,5 @@ docker compose logs --tail=200 api
 ```powershell
 docker compose up -d --build --force-recreate api
 ```
+
+技术计划书 v2 升级需同时部署前后端和迁移 `0018_technical_report_runs`。它新增持久化队列，不删除或改写历史报告；升级前按既有流程备份，升级后检查版本、健康、任务进度及 v1/v2 历史读取。额度与租约说明见 [交易计划书](technical-trading-plan.md)。

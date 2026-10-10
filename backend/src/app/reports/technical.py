@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -243,6 +243,40 @@ class TechnicalAnalysis(_TechnicalModel):
     evidence_id: UUID
 
 
+_HAN_NUMERALS = "零〇一二三四五六七八九十百千万亿两壹贰叁肆伍陆柒捌玖拾佰仟萬億貳參参陸"
+_HAN_NUMBER = rf"[{_HAN_NUMERALS}]+"
+_QUANTITY_UNITS = (
+    r"(?:美元|美金|元|币|个|根|次|倍|成|手|份|张|笔|天|日|周|月|年|小时|分钟|秒|个百分点|角钱|分钱|"
+    r"条|种|项|组|套|档|段|轮|层|级|只|枚|支|串|片|股|单|幅|口|节|座|页|块)"
+)
+_QUANTITATIVE_CHINESE = re.compile(
+    rf"{_HAN_NUMBER}(?:点{_HAN_NUMBER})?{_QUANTITY_UNITS}"
+    rf"|百分(?:之)?{_HAN_NUMBER}|{_HAN_NUMBER}点{_HAN_NUMBER}"
+    rf"|第{_HAN_NUMBER}|{_HAN_NUMBER}比{_HAN_NUMBER}|{_HAN_NUMBER}分之{_HAN_NUMBER}"
+    rf"|一半|半数|半{_QUANTITY_UNITS}"
+)
+_FINANCIAL_CHINESE = re.compile(
+    r"(?:价格|价位|金额|数量|手续费|滑点|成本|盈亏比|量比|波幅|幅度|点位|涨幅|跌幅|比例|比率|利率|费用|"
+    r"支撑|阻力|目标|止损|止盈|入场|区间|均线|周期|成交量|波动率|资金费率|市价|现价|开盘价|收盘价|最高价|最低价|概率)"
+    r"(?:为|设为|定为|采用|取|是|在|到|约|达|位|位于|接近|靠近|落在|维持|升至|跌至|等于|至少|超过|高于|低于|不超过|大于|小于|附近|：|:|\s)*"
+    + _HAN_NUMBER
+    + r"(?=$|[\s，。；：！？、]|美元|美金|元|币|分|角|倍|成|点|至|到|作为)"
+)
+
+
+def _contains_quantitative_number(text: str) -> bool:
+    # Chinese numeral characters also occur in ordinary words such as 一致 and 一旦.
+    # Recognize quantities without deleting or rewriting the original narrative.
+    if any(character.isnumeric() and character not in _HAN_NUMERALS for character in text):
+        return True
+    if _QUANTITATIVE_CHINESE.search(text) or _FINANCIAL_CHINESE.search(text):
+        return True
+    return any(
+        len(match.group()) > 1 and match.group() != "万一"
+        for match in re.finditer(_HAN_NUMBER, text)
+    )
+
+
 class TechnicalClaim(_TechnicalModel):
     text: str
     evidence_ids: tuple[UUID, ...]
@@ -251,7 +285,7 @@ class TechnicalClaim(_TechnicalModel):
     @classmethod
     def qualitative_only(cls, value: str) -> str:
         text = value.strip()
-        if not text or len(text) > 500 or any(character.isnumeric() for character in text):
+        if not text or len(text) > 500 or _contains_quantitative_number(text):
             raise ValueError("技术叙事必须是有界且不含数值的定性中文")
         if re.search(r"[\u4e00-\u9fff]", text) is None:
             raise ValueError("技术叙事必须包含中文")
@@ -280,7 +314,7 @@ class TechnicalNarrative(_TechnicalModel):
 
 
 class TechnicalReport(_TechnicalModel):
-    version: str = "technical-v1"
+    version: Literal["technical-v1"] = "technical-v1"
     id: UUID
     analysis_id: UUID
     symbol: ResearchSymbol
@@ -325,3 +359,9 @@ def _require_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("时间必须是 UTC")
     return value.astimezone(UTC)
+
+
+# Shared public helpers for versioned technical contracts.
+TechnicalBase = _TechnicalModel
+contains_quantitative_number = _contains_quantitative_number
+require_utc = _require_utc

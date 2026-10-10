@@ -74,6 +74,8 @@ import type { WorkbenchApi } from "./workbench-api";
 import {
   technicalReportFiltersSchema,
   technicalReportSchema,
+  technicalRunSchema,
+  type TechnicalRun,
   type TechnicalReport,
   type TechnicalReportFilters,
 } from "../../domain/technical-report";
@@ -277,7 +279,48 @@ function deriveAnalyticsSnapshot(trades: Trade[]): AnalyticsSnapshot {
 
 export class MockWorkbenchApi implements WorkbenchApi {
   private state: MockState;
-  private technicalReports: TechnicalReport[] = [];
+  private technicalReports: TechnicalReport[] = this.readTechnicalDemo().reports;
+  private technicalRuns: TechnicalRun[] = this.readTechnicalDemo().runs;
+  private technicalRequestIds: Record<string, string> = this.readTechnicalDemo().requests;
+
+  private readTechnicalDemo() {
+    try {
+      return z.object({reports: z.array(technicalReportSchema), runs: z.array(technicalRunSchema), requests: z.record(z.string(), z.string())}).parse(JSON.parse(localStorage.getItem("technical-research-demo-v2") ?? "{}"));
+    } catch { return {reports: [] as TechnicalReport[], runs: [] as TechnicalRun[], requests: {} as Record<string,string>}; }
+  }
+
+  private saveTechnicalDemo() {
+    localStorage.setItem("technical-research-demo-v2", JSON.stringify({reports: this.technicalReports, runs: this.technicalRuns, requests: this.technicalRequestIds}));
+  }
+
+  async startTechnicalReportRun(input: {symbol: Symbol; requestId: string}): Promise<TechnicalRun> {
+    const requestId = z.uuid().parse(input.requestId);
+    const oldId = this.technicalRequestIds[requestId];
+    if (oldId !== undefined) {
+      const old = await this.getTechnicalReportRun(oldId);
+      if (old.symbol !== input.symbol) throw new Error("request_conflict");
+      return old;
+    }
+    const legacy = await this.startTechnicalReport(input);
+    if (legacy.version !== "technical-v1") throw new Error("demo_version");
+    const claim = {text: "Mock 演示数据：未读取行情或调用模型。没有符合规则的候选，等待有效行情后重新研究。", evidenceId: legacy.analysis.evidenceId, factRefs: ["dataCutoffAt"], methodRefs: []};
+    const planBook = {stance: "wait", selectedPlanRef: null, marketStructure: [claim], supportingEvidence: [claim], counterEvidence: [claim], methodApplications: [claim], entryConditions: [claim], stopRationale: [claim], targetRationale: [claim], invalidation: [claim], alternative: [claim], waitingConditions: [claim], risks: [claim]};
+    const report = technicalReportSchema.parse({version: "technical-v2", id: legacy.id, analysisId: legacy.analysisId, symbol: legacy.symbol, status: "degraded", createdAt: legacy.createdAt, dataCutoffAt: legacy.dataCutoffAt, analysis: legacy.analysis, context: {analysis: legacy.analysis, summaryPrice: null, latestClosedPrices: {}, dataCutoffAt: legacy.dataCutoffAt}, decision: null, planBook, generation: {source:"rules", quality:"data_insufficient", promptVersion:"technical-plan-1", diagnostics:[]}, errorCode:"data_quality_insufficient"});
+    this.technicalReports[0] = report;
+    const run = technicalRunSchema.parse({id: crypto.randomUUID(), analysisId: report.analysisId, symbol: report.symbol, status: "degraded", phase: "finished", createdAt: report.createdAt, updatedAt: report.createdAt, startedAt: report.createdAt, finishedAt: report.createdAt, reportId: report.id, errorCode: null});
+    this.technicalRuns.push(run);
+    this.technicalRequestIds[requestId] = run.id;
+    this.saveTechnicalDemo();
+    return run;
+  }
+
+  async getTechnicalReportRun(runId: string): Promise<TechnicalRun> {
+    await Promise.resolve();
+    const id = z.uuid().parse(runId);
+    const run = this.technicalRuns.find(candidate => candidate.id === id);
+    if (run === undefined) throw new Error("technical_run_not_found");
+    return run;
+  }
   private readonly researchSymbols = new Map<string, ResearchSymbolEntry>();
 
   constructor() {
@@ -437,6 +480,7 @@ export class MockWorkbenchApi implements WorkbenchApi {
       errorCode: "data_quality_insufficient",
     });
     this.technicalReports.unshift(report);
+    this.saveTechnicalDemo();
     return report;
   }
 
@@ -676,6 +720,9 @@ export class MockWorkbenchApi implements WorkbenchApi {
   reset(): void {
     this.state = createMockSeed();
     this.technicalReports = [];
+    this.technicalRuns = [];
+    this.technicalRequestIds = {};
+    localStorage.removeItem("technical-research-demo-v2");
     persistState(this.state);
   }
 }

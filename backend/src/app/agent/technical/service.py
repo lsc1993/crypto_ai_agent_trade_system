@@ -117,6 +117,8 @@ class TechnicalResearchService:
             error_code=error_code,
         )
         saved = await self._repository.persist(report, evidence)
+        if not isinstance(saved, TechnicalReport):
+            raise ValueError("report_version")
         structlog.get_logger(__name__).info(
             "technical_research_completed",
             analysis_id=str(analysis_id),

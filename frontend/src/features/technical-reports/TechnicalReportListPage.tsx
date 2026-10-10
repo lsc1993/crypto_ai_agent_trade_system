@@ -1,14 +1,16 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
 import { symbolSchema } from "../../domain/primitives";
+import { uuidSchema } from "../../domain/primitives";
 import { MockWorkbenchApi } from "../../shared/api/mock-workbench-api";
 import { ResearchSymbolSelect } from "../research-symbols/ResearchSymbolSelect";
 import { errorLabel, requestErrorLabel } from "./technical-copy";
 import { ReportStyleNavigation } from "./ReportStyleNavigation";
+import { TechnicalRunProgress } from "./TechnicalRunProgress";
 
 const PAGE_SIZE = 20;
 
@@ -18,8 +20,10 @@ export function TechnicalReportListPage() {
 
 function TechnicalReportGenerator({ symbol }: { symbol: string }) {
   const api = useWorkbenchApi();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const [runId, setRunId] = useState<string | null>(() => params.get("runId") ?? localStorage.getItem(`technical-run:${symbol}`));
+  const requestId = useRef(localStorage.getItem(`technical-request:${symbol}`) ?? crypto.randomUUID());
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
@@ -35,9 +39,16 @@ function TechnicalReportGenerator({ symbol }: { symbol: string }) {
     setPending(true);
     setErrorMessage(null);
     try {
-      const report = await api.startTechnicalReport({ symbol });
-      await queryClient.invalidateQueries({ queryKey: ["technical-reports", symbol] });
-      if (mounted.current) void navigate(`/technical-reports/${encodeURIComponent(report.id)}`);
+      localStorage.setItem(`technical-request:${symbol}`, requestId.current);
+      const run = await api.startTechnicalReportRun({ symbol, requestId: requestId.current });
+      if (run.symbol !== symbol) throw new Error("任务币对不一致");
+      localStorage.setItem(`technical-run:${symbol}`, run.id);
+      if (mounted.current) {
+        setRunId(run.id);
+        const next = new URLSearchParams(params);
+        next.set("runId", run.id);
+        void navigate(`/technical-reports?${next.toString()}`, {replace: true});
+      }
     } catch (error) {
       if (mounted.current) setErrorMessage(requestErrorLabel(error));
     } finally {
@@ -45,9 +56,21 @@ function TechnicalReportGenerator({ symbol }: { symbol: string }) {
       if (mounted.current) setPending(false);
     }
   }
+  const runQuery = useQuery({queryKey: ["technical-run", runId], queryFn: () => api.getTechnicalReportRun(runId ?? ""), enabled: runId !== null && uuidSchema.safeParse(runId).success});
+  const activeRun = runId !== null && (runQuery.data === undefined || ["queued", "running"].includes(runQuery.data.status));
+  function resetRun() {
+    localStorage.removeItem(`technical-run:${symbol}`);
+    localStorage.removeItem(`technical-request:${symbol}`);
+    requestId.current = crypto.randomUUID();
+    setRunId(null);
+    const next = new URLSearchParams(params); next.delete("runId");
+    void navigate(`/technical-reports?${next.toString()}`, {replace: true});
+  }
   return <section className="technical-action" aria-label="生成技术研究">
     <p>当前币对：<strong>{symbol}</strong>。每次生成会保存独立报告；条件计划仅供研究复核，不会提交订单。</p>
-    <button className="primary-action" type="button" disabled={pending} onClick={() => { void generate(); }}>生成技术报告</button>
+    <button className="primary-action" type="button" disabled={pending || activeRun} onClick={() => { void generate(); }}>生成技术报告</button>
+    {runId === null ? null : uuidSchema.safeParse(runId).success ? <TechnicalRunProgress runId={runId} symbol={symbol} /> : <p role="alert">任务 ID 无效。</p>}
+    {runId !== null && (!uuidSchema.safeParse(runId).success || runQuery.data?.status === "failed") ? <button type="button" onClick={resetRun}>开始新的研究</button> : null}
     {pending ? <p role="status">正在计算并保存技术报告，请稍候。</p> : null}
     {errorMessage === null ? null : <p role="alert" className="inline-error">{errorMessage}</p>}
   </section>;
@@ -87,6 +110,7 @@ function TechnicalReportList() {
           const next = new URLSearchParams(params);
           next.set("symbol", symbol);
           next.delete("page");
+          next.delete("runId");
           setParams(next);
         }} />}
       </header>

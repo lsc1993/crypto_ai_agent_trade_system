@@ -67,3 +67,19 @@ def test_live_agent_factory_routes_market_research_through_the_harness() -> None
     assert "app.state.harness_runtime" not in source
     assert "app.state.harness_audit_repository" not in source
     assert "app.state.audit_repository" not in source
+
+
+def test_technical_plan_modules_cannot_access_execution_or_accounts() -> None:
+    files = tuple((BACKEND_ROOT / "src" / "app" / "agent" / "technical").glob("*.py"))
+    forbidden = (
+        "app.execution",
+        "app.risk",
+        "app.strategy",
+        "app.paper_trading",
+        "subprocess",
+        "ccxt",
+    )
+    assert files
+    for path in files:
+        source = path.read_text(encoding="utf-8")
+        assert not any(token in source for token in forbidden)

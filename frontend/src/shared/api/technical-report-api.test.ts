@@ -41,6 +41,7 @@ describe("technical report adapters", () => {
     const api = new MockWorkbenchApi();
     const report = await api.startTechnicalReport({ symbol: "BTCUSDT" });
     expect(report.status).toBe("degraded");
+    if (report.version !== "technical-v1") throw new Error("expected legacy mock report");
     expect(report.narrative).toBeNull();
     expect(report.analysis.quality.reasons).toContain("mock_demo_only");
     await expect(api.listTechnicalReports({ symbol: "BTCUSDT", page: 1, pageSize: 20 })).resolves.toMatchObject({ total: 1 });

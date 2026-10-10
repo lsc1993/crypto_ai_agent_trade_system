@@ -4,10 +4,12 @@ import httpx
 import pytest
 
 from app.agent.technical.service import TechnicalResearchService
+from app.infrastructure.persistence.technical_run_repository import SqlAlchemyTechnicalRunRepository
 from app.main import create_app
 from app.reports.technical import TechnicalReport
 from app.reports.technical_repository import TechnicalReportPage
 from tests.agent.test_technical_service import Market, Model, Repository, technical_clock
+from tests.conftest import MigratedDatabase
 
 
 class Generator:
@@ -31,6 +33,30 @@ class PagedRepository(Repository):
             page_size=page_size,
             total=len(reports),
         )
+
+
+@pytest.mark.asyncio
+async def test_enqueue_returns_202_without_model_call(migrated_database: MigratedDatabase) -> None:
+    runs = SqlAlchemyTechnicalRunRepository(migrated_database.session_factory)
+    repository = PagedRepository()
+    app = create_app(
+        market_gateway=Market(),
+        technical_report_repository=repository,
+        technical_research_service=Generator(repository),
+        technical_run_repository=runs,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/technical-reports/runs", json={"symbol": "BTCUSDT", "requestId": str(uuid4())}
+        )
+        assert response.status_code == 202
+        assert response.json()["status"] == "queued"
+        assert not repository.records
+        assert (
+            await client.get(f"/api/v1/technical-reports/runs/{response.json()['id']}")
+        ).json() == response.json()
 
 
 @pytest.mark.asyncio

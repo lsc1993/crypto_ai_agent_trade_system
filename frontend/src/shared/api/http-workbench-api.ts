@@ -87,6 +87,8 @@ import {
   technicalReportFiltersSchema,
   technicalReportPageSchema,
   technicalReportSchema,
+  technicalRunSchema,
+  type TechnicalRun,
   type TechnicalReport,
   type TechnicalReportFilters,
 } from "../../domain/technical-report";
@@ -322,6 +324,17 @@ export class HttpWorkbenchApi implements WorkbenchApi {
       { method: "POST" },
     );
     return result;
+  }
+
+  startTechnicalReportRun(input: { symbol: Symbol; requestId: string }): Promise<TechnicalRun> {
+    const payload = {...reportStartSchema.parse({symbol: input.symbol}), requestId: uuidSchema.parse(input.requestId)};
+    return this.transport.request("/api/v1/technical-reports/runs", technicalRunSchema, {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+    });
+  }
+
+  getTechnicalReportRun(runId: string): Promise<TechnicalRun> {
+    return this.transport.request(`/api/v1/technical-reports/runs/${encodeURIComponent(uuidSchema.parse(runId))}`, technicalRunSchema);
   }
 
   startTechnicalReport(input: { symbol: Symbol }): Promise<TechnicalReport> {

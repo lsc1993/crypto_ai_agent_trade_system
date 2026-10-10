@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { TechnicalRun } from "../../domain/technical-report";
+import { queuedRun } from "../../test/technical-run-fixture";
 
 import { AppProviders } from "../../app/providers";
 import { technicalReportWire } from "../../test/technical-report-fixture";
@@ -35,6 +37,28 @@ function renderPages(api: MockWorkbenchApi, path: string) {
 }
 
 describe("independent technical reports", () => {
+  it("resumes a queued run after refresh without submitting again", async () => {
+    class ResumeApi extends CompletedTechnicalApi {
+      override getTechnicalReportRun(): Promise<TechnicalRun> { return Promise.resolve(queuedRun); }
+      override startTechnicalReportRun = vi.fn(() => Promise.resolve(queuedRun));
+    }
+    const api = new ResumeApi();
+    renderPages(api, `/technical-reports?symbol=BTCUSDT&runId=${queuedRun.id}`);
+    expect(await screen.findByText("等待开始")).toBeInTheDocument();
+    expect(api.startTechnicalReportRun).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", {name: "生成技术报告"})).toBeDisabled();
+  });
+
+  it("query failure does not start another paid generation", async () => {
+    class FailedQueryApi extends CompletedTechnicalApi {
+      override getTechnicalReportRun(): Promise<TechnicalRun> { return Promise.reject(new Error("offline")); }
+      override startTechnicalReportRun = vi.fn(() => Promise.resolve(queuedRun));
+    }
+    const api = new FailedQueryApi();
+    renderPages(api, `/technical-reports?symbol=BTCUSDT&runId=${queuedRun.id}`);
+    expect(await screen.findByRole("button", {name: "重试查询"})).toBeInTheDocument();
+    expect(api.startTechnicalReportRun).not.toHaveBeenCalled();
+  });
   it("renders conditional breakout plans with frozen facts and method attribution", async () => {
     renderPages(new CompletedTechnicalApi(), `/technical-reports/${completed.id}`);
     expect((await screen.findAllByText("70,000", { exact: false })).length).toBeGreaterThan(0);
@@ -79,6 +103,9 @@ describe("independent technical reports", () => {
     expect(await screen.findByRole("link", { name: "返回历史报告" })).toBeInTheDocument();
     expect(screen.getAllByText(/演示数据/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/模型叙事不可用/).length).toBeGreaterThan(0);
+    const headings = screen.getAllByRole("heading").map((heading) => heading.textContent);
+    expect(headings.indexOf("等待与重新评估")).toBeLessThan(headings.indexOf("条件研究计划"));
+    expect(headings.indexOf("条件研究计划")).toBeLessThan(headings.indexOf("报告与数据质量"));
   });
 
   it("does not navigate when generation for a former symbol resolves late", async () => {

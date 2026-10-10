@@ -16,7 +16,7 @@ import type {
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
 import type { ResearchSymbolEntry } from "../../domain/research-symbol";
-import type { TechnicalReport, TechnicalReportFilters } from "../../domain/technical-report";
+import type { TechnicalReport, TechnicalReportFilters, TechnicalRun } from "../../domain/technical-report";
 import type {
   ManualPaperIntent,
   PaperAccountCreate,
@@ -58,6 +58,8 @@ export interface RemoteWorkbenchApi {
   startReport(input: { symbol: Symbol }): Promise<ReportRunCreated>;
   retryReport(reportId: string): Promise<ReportRunCreated>;
   startTechnicalReport(input: { symbol: Symbol }): Promise<TechnicalReport>;
+  startTechnicalReportRun(input: { symbol: Symbol; requestId: string }): Promise<TechnicalRun>;
+  getTechnicalReportRun(runId: string): Promise<TechnicalRun>;
   listTechnicalReports(filters: TechnicalReportFilters): Promise<Page<TechnicalReport>>;
   getTechnicalReport(reportId: string): Promise<TechnicalReport>;
   subscribeReport(
@@ -156,6 +158,14 @@ export class HybridWorkbenchApi implements WorkbenchApi {
 
   startTechnicalReport(input: { symbol: Symbol }): Promise<TechnicalReport> {
     return this.remoteApi.startTechnicalReport(input);
+  }
+
+  startTechnicalReportRun(input: {symbol: Symbol; requestId: string}): Promise<TechnicalRun> {
+    return this.remoteApi.startTechnicalReportRun(input);
+  }
+
+  getTechnicalReportRun(runId: string): Promise<TechnicalRun> {
+    return this.remoteApi.getTechnicalReportRun(runId);
   }
 
   listTechnicalReports(filters: TechnicalReportFilters): Promise<Page<TechnicalReport>> {

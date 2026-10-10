@@ -19,7 +19,10 @@ from app.agent.service import (
     PersistedAgentMarketCapture,
 )
 from app.agent.technical.model import DeepSeekTechnicalLanguageModel
+from app.agent.technical.plan_model import DeepSeekTechnicalPlanLanguageModel
+from app.agent.technical.plan_service import TechnicalPlanResearchService
 from app.agent.technical.service import TechnicalResearchService
+from app.agent.technical.worker import TechnicalResearchWorker
 from app.api.errors import install_exception_handlers
 from app.api.router import API_NAME
 from app.api.router import router as api_router
@@ -33,6 +36,7 @@ from app.harness.policy import MARKET_RESEARCH_POLICY
 from app.harness.runtime import HarnessRuntime
 from app.harness.technical_research import (
     TECHNICAL_RESEARCH_POLICY,
+    HarnessedTechnicalPlanExecutor,
     HarnessedTechnicalResearchService,
     TechnicalReportGenerator,
     TechnicalResearchWorkflow,
@@ -55,6 +59,7 @@ from app.infrastructure.persistence.symbol_repository import SqlAlchemySymbolRep
 from app.infrastructure.persistence.technical_report_repository import (
     SqlAlchemyTechnicalReportRepository,
 )
+from app.infrastructure.persistence.technical_run_repository import SqlAlchemyTechnicalRunRepository
 from app.infrastructure.persistence.trade_repository import SqlAlchemyTradeRepository
 from app.market.binance_usdm import (
     BINANCE_USDM_BASE_URL,
@@ -104,6 +109,7 @@ from app.reports.technical_repository import (
     TechnicalReportRepository,
     UnavailableTechnicalReportRepository,
 )
+from app.reports.technical_run_repository import TechnicalRunRepository
 from app.research.backtests.contracts import (
     BacktestFilters,
     BacktestRequest,
@@ -395,6 +401,7 @@ def create_app(
     symbol_service: SymbolService | None = None,
     technical_report_repository: TechnicalReportRepository | None = None,
     technical_research_service: TechnicalReportGenerator | None = None,
+    technical_run_repository: TechnicalRunRepository | None = None,
 ) -> FastAPI:
     settings = AppSettings()
     configure_logging(settings.log_level)
@@ -414,6 +421,7 @@ def create_app(
             paper_repository,
             technical_report_repository,
             technical_research_service,
+            technical_run_repository,
         )
     )
 
@@ -663,9 +671,44 @@ def create_app(
                 clock=lambda: datetime.now(UTC),
             )
 
+    technical_plan_client: httpx.AsyncClient | None = None
+    technical_plan_worker: TechnicalResearchWorker | None = None
+    if technical_run_repository is None and session_factory is not None:
+        technical_run_repository = SqlAlchemyTechnicalRunRepository(session_factory)
+        technical_plan_client = httpx.AsyncClient(
+            timeout=settings.technical_analysis_timeout_seconds
+        )
+        plan_service = TechnicalPlanResearchService(
+            market=market_gateway,
+            repository=technical_report_repository,
+            model=DeepSeekTechnicalPlanLanguageModel(
+                client=technical_plan_client,
+                api_key=settings.deepseek_api_key,
+                model=settings.deepseek_model,
+                settings=settings,
+            ),
+            clock=lambda: datetime.now(UTC),
+            timeout_seconds=settings.technical_run_timeout_seconds,
+        )
+        executor = HarnessedTechnicalPlanExecutor(
+            plan_service,
+            audit=SqlAlchemyHarnessAuditRepository(session_factory),
+            authorizer=lambda symbol: _is_research_ready_symbol(symbol_repository, symbol),
+            clock=lambda: datetime.now(UTC),
+        )
+        technical_plan_worker = TechnicalResearchWorker(
+            repository=technical_run_repository, executor=executor, clock=lambda: datetime.now(UTC)
+        )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         stop_sync = asyncio.Event()
+        stop_plan = asyncio.Event()
+        plan_task = (
+            None
+            if technical_plan_worker is None
+            else asyncio.create_task(technical_plan_worker.run_forever(stop_plan))
+        )
         sync_task = (
             None
             if symbol_sync_worker is None
@@ -682,6 +725,15 @@ def create_app(
             else:
                 yield
         finally:
+            stop_plan.set()
+            if plan_task is not None:
+                try:
+                    await asyncio.wait_for(asyncio.shield(plan_task), timeout=5)
+                except TimeoutError:
+                    plan_task.cancel()
+                    await asyncio.gather(plan_task, return_exceptions=True)
+            if technical_plan_client is not None:
+                await technical_plan_client.aclose()
             if technical_model_client is not None:
                 await technical_model_client.aclose()
             stop_sync.set()
@@ -720,6 +772,7 @@ def create_app(
     app.state.analysis_report_repository = analysis_report_repository
     app.state.technical_report_repository = technical_report_repository
     app.state.technical_research_service = technical_research_service
+    app.state.technical_run_repository = technical_run_repository
     app.state.analysis_report_service = (
         agent_research_service
         if agent_research_service is not None

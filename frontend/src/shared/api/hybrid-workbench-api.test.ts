@@ -92,6 +92,8 @@ function remoteApi(
     startReport: unexpected<ReportRunCreated>("startReport"),
     retryReport: unexpected<ReportRunCreated>("retryReport"),
     startTechnicalReport: () => Promise.reject(new Error("unexpected technical report")),
+    startTechnicalReportRun: () => Promise.reject(new Error("unexpected technical run")),
+    getTechnicalReportRun: () => Promise.reject(new Error("unexpected technical run")),
     listTechnicalReports: () => Promise.reject(new Error("unexpected technical reports")),
     getTechnicalReport: () => Promise.reject(new Error("unexpected technical report")),
     subscribeReport: () => {
