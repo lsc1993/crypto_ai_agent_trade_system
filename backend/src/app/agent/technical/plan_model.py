@@ -12,6 +12,7 @@ import structlog
 from pydantic import SecretStr, ValidationError
 
 from app.agent.technical.plan_prompt import plan_messages
+from app.agent.technical.plan_repair import merge_retry_claims, validated_retry_claims
 from app.agent.technical.references import build_reference_catalog, validate_decision
 from app.reports.technical_plan import (
     PlanClaim,
@@ -75,6 +76,7 @@ def safe_correction(error: Exception) -> str:
         "plan_role_reference",
         "waiting_reason_reference",
         "decision_changed",
+        "repair_layout",
     }
     return json.dumps({"category": str(error) if str(error) in reference_codes else "invalid"})
 
@@ -143,6 +145,8 @@ class DeepSeekTechnicalPlanLanguageModel:
             else self._settings.technical_composition_timeout_seconds
         )
         messages = plan_messages(context, decision)
+        catalog = build_reference_catalog(context)
+        retained: dict[str, list[dict[str, Any]]] = {}
         diagnostics: list[TechnicalStageDiagnostic] = []
         low = False
         for attempt in (1, 2):
@@ -170,6 +174,7 @@ class DeepSeekTechnicalPlanLanguageModel:
             retryable, delay = True, 0
             summary = None
             correction = ""
+            content = None
             try:
                 async with asyncio.timeout(call_timeout):
                     response = await self._client.post(
@@ -210,9 +215,9 @@ class DeepSeekTechnicalPlanLanguageModel:
                         else:
                             if len(content) > 32000:
                                 raise ValueError("content_size")
+                            compiled = merge_retry_claims(content, retained)
                             summary = validate_decision(
-                                TechnicalDecisionSummary.model_validate_json(content),
-                                build_reference_catalog(context),
+                                TechnicalDecisionSummary.model_validate_json(compiled), catalog
                             )
                             if decision and (
                                 summary.stance != decision.stance
@@ -239,6 +244,13 @@ class DeepSeekTechnicalPlanLanguageModel:
             except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
                 summary = None
                 correction = safe_correction(error)
+                if (
+                    attempt == 1
+                    and isinstance(content, str)
+                    and len(content) <= 32000
+                    and str(error) != "decision_changed"
+                ):
+                    retained = validated_retry_claims(content, catalog)
                 structlog.get_logger(__name__).info(
                     "technical_plan_response_rejected",
                     evidence_id=str(context.analysis.evidence_id),
@@ -278,9 +290,20 @@ class DeepSeekTechnicalPlanLanguageModel:
             messages.append(
                 {
                     "role": "user",
-                    "content": (
-                        f"结果未通过校验，类别为{outcome}，安全字段诊断为{correction}。"
-                        "依据同一冻结输入重新输出完整JSON；不要复述错误响应。"
+                    "content": json.dumps(
+                        {
+                            "instruction": "依据同一冻结输入输出完整JSON，保持章节列表长度及位置。"
+                            "validatedClaims中的段落已通过正文和引用校验，原样保留；只补写其余位置。"
+                            "被拒原文未提供，不要猜测或复述；最终整体仍需校验。",
+                            "outcome": outcome,
+                            "validation": json.loads(correction) if correction else {},
+                            "validatedClaims": retained,
+                            "requiredListSizes": {
+                                alias: max(item["index"] for item in items) + 1
+                                for alias, items in retained.items()
+                            },
+                        },
+                        ensure_ascii=False,
                     ),
                 }
             )

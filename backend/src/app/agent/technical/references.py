@@ -8,6 +8,7 @@ from pydantic import JsonValue
 
 from app.reports.technical_plan import (
     SECTIONS,
+    PlanClaim,
     RenderedClaim,
     RenderedPlanBook,
     TechnicalContext,
@@ -80,23 +81,9 @@ def validate_decision(
         or summary.stance != analysis.plans[0].direction.value
     ):
         raise ValueError("candidate_reference")
-    methods = {method.id for method in analysis.methods}
     for section in SECTIONS:
         for claim in getattr(summary, section):
-            if (
-                claim.evidence_id != analysis.evidence_id
-                or not set(claim.fact_refs) <= catalog.values.keys()
-                or not set(claim.method_refs) <= methods
-            ):
-                raise ValueError("evidence_reference")
-            if not set(_PLACEHOLDER.findall(claim.text)) <= set(claim.fact_refs):
-                raise ValueError("placeholder_reference")
-            if section == "method_applications" and not claim.method_refs:
-                raise ValueError("method_reference")
-            if summary.stance == "wait" and any(
-                ref.startswith("plans.") for ref in claim.fact_refs
-            ):
-                raise ValueError("wait_candidate_reference")
+            validate_claim(claim, catalog, section=section, waiting=summary.stance == "wait")
     if summary.selected_plan_ref:
         for section, required in (
             ("entry_conditions", "plans.0.triggerLevel"),
@@ -116,6 +103,33 @@ def validate_decision(
         }:
             raise ValueError("waiting_reason_reference")
     return summary
+
+
+def validate_claim(
+    claim: PlanClaim, catalog: ReferenceCatalog, *, section: str, waiting: bool
+) -> None:
+    analysis = catalog.context.analysis
+    methods = {method.id for method in analysis.methods}
+    if (
+        claim.evidence_id != analysis.evidence_id
+        or not set(claim.fact_refs) <= catalog.values.keys()
+        or not set(claim.method_refs) <= methods
+    ):
+        raise ValueError("evidence_reference")
+    if not set(_PLACEHOLDER.findall(claim.text)) <= set(claim.fact_refs):
+        raise ValueError("placeholder_reference")
+    if section == "method_applications" and not claim.method_refs:
+        raise ValueError("method_reference")
+    if waiting and any(ref.startswith("plans.") for ref in claim.fact_refs):
+        raise ValueError("wait_candidate_reference")
+    if section == "stop_rationale" and "plans.0.target" in claim.fact_refs:
+        raise ValueError("plan_role_reference")
+    if section == "target_rationale" and "plans.0.stopLoss" in claim.fact_refs:
+        raise ValueError("plan_role_reference")
+    if section == "entry_conditions" and {"plans.0.stopLoss", "plans.0.target"} & set(
+        claim.fact_refs
+    ):
+        raise ValueError("plan_role_reference")
 
 
 def render_plan_book(book: TechnicalDecisionSummary, catalog: ReferenceCatalog) -> RenderedPlanBook:
