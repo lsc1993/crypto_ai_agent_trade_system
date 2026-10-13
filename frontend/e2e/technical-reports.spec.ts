@@ -1,4 +1,34 @@
 import { expect, test } from "@playwright/test";
+import { readableTechnicalReport } from "../src/test/technical-plan-report-fixture";
+
+test("saved technical plans show Chinese labels and readable desktop and mobile structure", async ({page}, testInfo) => {
+  await page.addInitScript((report) => {
+    localStorage.setItem("technical-research-demo-v2", JSON.stringify({reports: [report], runs: [], requests: {}}));
+  }, readableTechnicalReport);
+  await page.goto(`/technical-reports/${readableTechnicalReport.id}`);
+  await expect(page.getByRole("heading", {name: "交易计划书 · 等待确认"})).toBeVisible();
+  const structure = page.getByRole("region", {name: "市场结构与周期判断"});
+  await expect(structure.getByRole("table", {name: "多周期趋势对照"})).toBeVisible();
+  await expect(structure.getByText(/多周期方向存在冲突/)).toBeVisible();
+  await expect(structure.locator("details.technical-full-analysis")).not.toHaveAttribute("open", "");
+  const waiting = page.getByRole("region", {name: "等待与重新评估"});
+  await expect(waiting.locator(".technical-claim > p")).toContainText("日线、4 小时与 1 小时方向不一致");
+  await expect(waiting.locator(".technical-claim > p")).not.toContainText(/noPlanReasons|trend_conflict/);
+  await page.screenshot({path: testInfo.outputPath("reading-desktop.png"), fullPage: true});
+  await structure.screenshot({path: testInfo.outputPath("structure-desktop.png")});
+  await structure.getByText("展开完整市场分析").click();
+  await expect(structure.locator(".technical-claim > p")).toContainText("日线趋势：下行");
+  await structure.getByText("查看依据").click();
+  await expect(structure.locator(".technical-evidence")).toContainText("日线20根简单均线");
+  await structure.getByText("原始引用与证据标识").click();
+  await expect(structure.locator(".technical-evidence")).toContainText("facts.sma20.1d");
+  await structure.getByText("展开完整市场分析").click();
+  await page.setViewportSize({width: 390, height: 844});
+  await expect(structure.getByRole("table")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path: testInfo.outputPath("reading-mobile.png"), fullPage: true});
+  await structure.screenshot({path: testInfo.outputPath("structure-mobile.png")});
+});
 
 test("technical research has its own generation and historical detail", async ({ page }) => {
   await page.goto("/reports?symbol=BTCUSDT");

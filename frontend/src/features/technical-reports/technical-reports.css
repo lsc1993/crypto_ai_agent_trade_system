@@ -18,3 +18,37 @@
 .technical-panel h2, .technical-history h2 { margin-bottom: 1rem; font-size: 1.2rem; font-weight: 700; }
 .technical-panel h3 { margin-block: 0.7rem; font-weight: 650; }
 .technical-panel p, .technical-panel li { margin-block: 0.6rem; line-height: 1.65; }
+
+.technical-report-detail { max-width: 1080px; }
+.technical-book { padding: clamp(1rem, 3vw, 2rem); }
+.technical-book-overview { padding-left: 1rem; border-left: 4px solid var(--accent); }
+.technical-book-overview h2 { font-size: 1.55rem; margin-block: 0.35rem; }
+.technical-caption { color: var(--muted); font-size: 0.85rem; }
+.technical-book-nav { display: flex; flex-wrap: wrap; gap: 0.5rem; padding-block: 1rem; border-bottom: 1px solid var(--border); }
+.technical-book-nav a { padding: 0.4rem 0.75rem; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 0.5rem; }
+.technical-book-nav a:hover, .technical-book-nav a:focus-visible { border-color: var(--accent); }
+.technical-book-section { min-width: 0; margin-block: 1.5rem; padding-top: 0.5rem; scroll-margin-top: 1rem; }
+.technical-book-section > h3 { font-size: 1.1rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
+.technical-book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.5rem; }
+.technical-claim { padding-block: 0.25rem 0.75rem; }
+.technical-claim + .technical-claim { border-top: 1px dashed var(--border); }
+.technical-claim > p { line-height: 1.85; white-space: pre-line; max-width: 76ch; }
+.technical-evidence { font-size: 0.85rem; color: var(--muted); padding-block: 0.3rem; }
+.technical-report-detail summary { cursor: pointer; line-height: 1.65; overflow-wrap: anywhere; }
+.technical-evidence details { margin-block: 0.65rem; }
+.technical-full-analysis { margin-block: 1rem; padding: 0.9rem 1rem; background: var(--background); border: 1px solid var(--border); border-radius: 0.6rem; }
+.technical-full-analysis > summary { font-weight: 600; }
+.technical-structure-status { padding: 0.75rem 1rem; border-left: 3px solid var(--accent); background: var(--background); font-weight: 600; }
+.technical-table-scroll { max-width: 100%; overflow-x: auto; }
+.technical-period-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.technical-period-table th, .technical-period-table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.technical-period-table thead th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+.technical-trend { display: inline-block; padding: 0.15rem 0.5rem; border: 1px solid var(--border); border-radius: 0.3rem; font-weight: 600; }
+.technical-trend[data-trend="bullish"] { border-color: #519c87; }
+.technical-trend[data-trend="bearish"] { border-color: #c58673; }
+.technical-level-list { display: flex; flex-wrap: wrap; gap: 0.35rem 1.75rem; padding-left: 1.5rem; font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) {
+  .technical-book-grid { grid-template-columns: minmax(0, 1fr); }
+  .technical-period-table th, .technical-period-table td { padding: 0.6rem 0.3rem; font-size: 0.85rem; }
+  .technical-facts, .technical-plan__levels { grid-template-columns: minmax(0, 1fr); }
+}

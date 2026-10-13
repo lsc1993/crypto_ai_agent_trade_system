@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -37,6 +37,17 @@ function renderPages(api: MockWorkbenchApi, path: string) {
 }
 
 describe("independent technical reports", () => {
+  it("keeps historical facts readable with Chinese methods and expandable complete price levels", async () => {
+    renderPages(new CompletedTechnicalApi(), `/technical-reports/${completed.id}`);
+    const facts = await screen.findByRole("region", {name: "确定性量价事实"});
+    expect(within(facts).getByRole("table", {name: "多周期趋势对照"})).toBeInTheDocument();
+    const levels = within(facts).getByText("完整结构支撑与阻力列表").closest("details");
+    expect(levels).not.toHaveAttribute("open");
+    await userEvent.setup().click(within(facts).getByText("完整结构支撑与阻力列表"));
+    expect(levels).toHaveTextContent("72,000");
+    expect(screen.getByRole("heading", {name: "量价分析"})).toBeInTheDocument();
+    expect(screen.getByText(/原始 Skill/).closest("details")).not.toHaveAttribute("open");
+  });
   it("resumes a queued run after refresh without submitting again", async () => {
     class ResumeApi extends CompletedTechnicalApi {
       override getTechnicalReportRun(): Promise<TechnicalRun> { return Promise.resolve(queuedRun); }
@@ -62,7 +73,7 @@ describe("independent technical reports", () => {
   it("renders conditional breakout plans with frozen facts and method attribution", async () => {
     renderPages(new CompletedTechnicalApi(), `/technical-reports/${completed.id}`);
     expect((await screen.findAllByText("70,000", { exact: false })).length).toBeGreaterThan(0);
-    expect(screen.getByText(/后续.*1h.*收盘/)).toBeInTheDocument();
+    expect(screen.getByText(/后续.*1小时.*收盘/)).toBeInTheDocument();
     expect(screen.getByText(/1\.5/)).toBeInTheDocument();
     expect(screen.getByText(/原始 Skill/)).toBeInTheDocument();
     expect(screen.getByText(/量价结构偏强/)).toBeInTheDocument();
