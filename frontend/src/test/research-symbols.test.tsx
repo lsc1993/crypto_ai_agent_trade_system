@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "../app/providers";
 import { AppRouter } from "../app/router";
 import { MockWorkbenchApi } from "../shared/api/mock-workbench-api";
+import { WorkbenchHttpError } from "../shared/api/http-transport";
 
 vi.mock("lightweight-charts", () => ({
   CandlestickSeries: "candlestick", ColorType: { Solid: "solid" },
@@ -49,6 +50,48 @@ describe("research directory journeys", () => {
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "研究币对" }), "ETHUSDT");
     await screen.findByRole("heading", { name: "研究工作台" });
     expect(getDashboard).toHaveBeenCalledWith({ symbol: "ETHUSDT" });
+  });
+
+  it("lists distinct server-provided admission reasons when adding a symbol fails", async () => {
+    const user = userEvent.setup();
+    const api = new MockWorkbenchApi();
+    vi.spyOn(api, "addResearchSymbol").mockRejectedValue(
+      new WorkbenchHttpError(
+        422,
+        "research_symbol_unsupported",
+        "该币对暂不满足研究数据要求。",
+        {
+          check: {
+            symbol: "ZECUSDT",
+            supported: false,
+            checks: [
+              {
+                name: "market",
+                status: "unverified",
+                message: "公开合约信息响应超过系统可接受的大小上限，请稍后重试。",
+              },
+              {
+                name: "candles",
+                status: "unverified",
+                message: "公开合约信息响应超过系统可接受的大小上限，请稍后重试。",
+              },
+            ],
+            metadata: null,
+          },
+        },
+      ),
+    );
+    show("/research-symbols", api);
+
+    await user.type(await screen.findByRole("textbox", { name: "币对" }), "ZECUSDT");
+    await user.click(screen.getByRole("button", { name: "检查并添加" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("该币对暂不满足研究数据要求。")).toBeVisible();
+    expect(
+      within(alert).getByText("公开合约信息响应超过系统可接受的大小上限，请稍后重试。"),
+    ).toBeVisible();
+    expect(within(alert).getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("does not query dashboard before the authoritative catalog arrives", async () => {

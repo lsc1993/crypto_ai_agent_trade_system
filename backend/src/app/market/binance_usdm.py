@@ -51,7 +51,7 @@ CANDLE_TTL = timedelta(seconds=60)
 EXCHANGE_INFO_TTL = timedelta(minutes=5)
 MAX_ATTEMPTS = 2
 MAX_BACKTEST_CANDLES = 1049
-MAX_PUBLIC_JSON_BYTES = 1_000_000
+MAX_PUBLIC_JSON_BYTES = 1_500_000
 MAX_FUNDING_POINTS = 1000
 
 Sleep = Callable[[float], Awaitable[None]]
@@ -634,7 +634,7 @@ async def _read_bounded_body(response: httpx.Response) -> bytes:
         size += len(chunk)
         if size > MAX_PUBLIC_JSON_BYTES:
             raise MarketDataUnavailableError(
-                "market_data_invalid_response",
+                "market_data_response_too_large",
                 "公开行情响应超过大小上限",
             )
         chunks.append(chunk)

@@ -160,6 +160,46 @@ async def test_gateway_maps_rate_limits_to_a_stable_unavailable_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_accepts_a_normal_sized_large_contract_directory() -> None:
+    contract_directory = {
+        "symbols": [
+            {
+                "symbol": "ZECUSDT",
+                "baseAsset": "ZEC",
+                "quoteAsset": "USDT",
+                "marginAsset": "USDT",
+                "contractType": "PERPETUAL",
+                "status": "TRADING",
+            }
+        ],
+        "padding": "x" * 1_100_000,
+    }
+
+    async with httpx.AsyncClient(
+        base_url=BINANCE_USDM_BASE_URL,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json=contract_directory),
+        ),
+    ) as client:
+        gateway = BinanceUsdmPublicMarketGateway(
+            client=client,
+            clock=lambda: FIXED_NOW,
+            sleep=no_sleep,
+        )
+
+        metadata = await gateway.get_exchange_info("ZECUSDT")
+
+    assert metadata == {
+        "symbol": "ZECUSDT",
+        "baseAsset": "ZEC",
+        "quoteAsset": "USDT",
+        "marginAsset": "USDT",
+        "contractType": "PERPETUAL",
+        "status": "TRADING",
+    }
+
+
+@pytest.mark.asyncio
 async def test_gateway_reads_only_allowlisted_public_derivatives_context() -> None:
     requests: list[httpx.Request] = []
     async with httpx.AsyncClient(

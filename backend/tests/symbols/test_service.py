@@ -27,11 +27,15 @@ class Probe:
     quote = 'USDT'
     unavailable = False
     wrong_symbol = False
+    oversized_contract_directory = False
+    derivatives_unavailable = False
     market_reads = 0
 
     async def get_exchange_info(self, symbol: str) -> dict[str, str] | None:
         if self.unavailable:
             raise MarketDataUnavailableError('market_data_rate_limited', 'upstream detail')
+        if self.oversized_contract_directory:
+            raise MarketDataUnavailableError('market_data_response_too_large', 'upstream detail')
         if symbol == 'UNKNOWNUSDT':
             return None
         return dict(symbol=symbol, baseAsset=symbol[:-4], quoteAsset=self.quote,
@@ -51,6 +55,8 @@ class Probe:
                 for frame in timeframes]})
 
     async def get_research_metrics(self, symbol: str) -> PublicDerivativesMetrics:
+        if self.derivatives_unavailable:
+            raise MarketDataUnavailableError('market_data_rate_limited', 'upstream detail')
         return PublicDerivativesMetrics(basis_rate=Decimal('0.01'),
             long_short_account_ratio=Decimal('1.2'), taker_buy_sell_ratio=Decimal('1.1'),
             observed_at=NOW, fetched_at=NOW)
@@ -91,6 +97,19 @@ async def test_network_failure_is_unverified_not_unsupported() -> None:
 
 
 @pytest.mark.asyncio
+async def test_derivatives_rate_limit_has_a_safe_actionable_reason() -> None:
+    probe = Probe()
+    probe.derivatives_unavailable = True
+
+    result = await service(probe).check('ZECUSDT')
+
+    derivatives = next(check for check in result.checks if check.name == 'derivatives')
+    assert derivatives.status == 'unverified'
+    assert derivatives.message == '公开衍生品指标请求频率受限，请稍后重试。'
+    assert 'upstream detail' not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_wrong_market_symbol_never_passes_the_core_probe() -> None:
     probe = Probe()
     probe.wrong_symbol = True
@@ -102,3 +121,66 @@ async def test_wrong_market_symbol_never_passes_the_core_probe() -> None:
 async def test_missing_storage_cannot_enable_a_symbol() -> None:
     with pytest.raises(RuntimeError, match='存储'):
         await service(Probe()).add(import_module('app.symbols.contracts').SymbolInput(symbol='SOLUSDT'))
+
+
+@pytest.mark.asyncio
+async def test_add_rejection_includes_safe_admission_check_details() -> None:
+    class RecordingRepository:
+        async def record_check(self, _check: object, *, now: datetime) -> None:
+            assert now == NOW
+
+    probe = Probe()
+    probe.oversized_contract_directory = True
+    symbol_contracts = import_module('app.symbols.contracts')
+    subject = import_module('app.symbols.service').SymbolService(
+        RecordingRepository(), probe, clock=lambda: NOW,
+    )
+
+    with pytest.raises(symbol_contracts.SymbolError) as rejection:
+        await subject.add(symbol_contracts.SymbolInput(symbol='ZECUSDT'))
+
+    assert rejection.value.code == 'research_symbol_unsupported'
+    assert rejection.value.details == {
+        'check': {
+            'symbol': 'ZECUSDT',
+            'supported': False,
+            'checks': [
+                {
+                    'name': 'market',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+                {
+                    'name': 'candles',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+                {
+                    'name': 'derivatives',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+                {
+                    'name': 'funding',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+                {
+                    'name': 'news',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+                {
+                    'name': 'sentiment',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+                {
+                    'name': 'etf',
+                    'status': 'unverified',
+                    'message': '公开合约信息响应超过系统可接受的大小上限，请稍后重试。',
+                },
+            ],
+            'metadata': None,
+        },
+    }

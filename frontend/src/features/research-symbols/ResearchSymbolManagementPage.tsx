@@ -3,7 +3,37 @@ import { useState } from "react";
 
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
+import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { rememberResearchSymbol, useResearchSymbolSelection } from "./useResearchSymbolSelection";
+
+function admissionFailureReasons(error: Error | null): string[] {
+  if (
+    !(error instanceof WorkbenchHttpError) ||
+    error.code !== "research_symbol_unsupported" ||
+    !isRecord(error.details) ||
+    !isRecord(error.details.check) ||
+    !Array.isArray(error.details.check.checks)
+  ) {
+    return [];
+  }
+
+  const messages = error.details.check.checks.flatMap((check) => {
+    if (
+      !isRecord(check) ||
+      check.status === "supported" ||
+      typeof check.message !== "string" ||
+      !check.message.trim()
+    ) {
+      return [];
+    }
+    return [check.message];
+  });
+  return [...new Set(messages)];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 export function ResearchSymbolManagementPage() {
   const api = useWorkbenchApi();
@@ -24,6 +54,11 @@ export function ResearchSymbolManagementPage() {
       void queryClient.invalidateQueries({ queryKey: ["research-symbols"] });
     },
   });
+  const admissionReasons = admissionFailureReasons(addMutation.error);
+  const errorMessage =
+    addMutation.error instanceof WorkbenchHttpError
+      ? addMutation.error.message
+      : "添加研究币对失败，请稍后重试。";
 
   return (
     <section className="research-page research-symbol-management-page">
@@ -60,9 +95,14 @@ export function ResearchSymbolManagementPage() {
         </button>
       </form>
       {addMutation.isError ? (
-        <p className="inline-error" role="alert">
-          当前币对不满足研究数据要求，请检查合约状态后重试。
-        </p>
+        <div className="inline-error" role="alert">
+          <p>{errorMessage}</p>
+          {admissionReasons.length > 0 ? (
+            <ul>
+              {admissionReasons.map((reason) => <li key={reason}>{reason}</li>)}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
 
       {catalogQuery.isPending ? <PageState state="loading" /> : null}

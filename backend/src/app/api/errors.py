@@ -272,7 +272,11 @@ async def _symbol_error_handler(
         raise TypeError("研究币对异常处理器收到了不支持的异常类型")
     return _response(
         exception.status_code,
-        ErrorEnvelope(code=exception.code, message=str(exception)),
+        ErrorEnvelope(
+            code=exception.code,
+            message=str(exception),
+            details=exception.details,
+        ),
     )
 
 

@@ -226,7 +226,7 @@ async def test_get_funding_history_rejects_a_large_json_body_before_parsing() ->
             "symbol": "BTCUSDT",
             "fundingTime": int(SINCE.timestamp() * 1000),
             "fundingRate": "0.0001",
-            "ignoredPadding": "x" * 1_000_000,
+            "ignoredPadding": "x" * 1_500_000,
         }
     ]
     client, gateway = _gateway(lambda _: httpx.Response(200, json=payload))
@@ -238,7 +238,7 @@ async def test_get_funding_history_rejects_a_large_json_body_before_parsing() ->
                 until=NOW,
             )
 
-    assert error.value.code == "market_data_invalid_response"
+    assert error.value.code == "market_data_response_too_large"
 
 
 @pytest.mark.asyncio

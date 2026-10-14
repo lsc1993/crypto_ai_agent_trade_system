@@ -67,8 +67,8 @@ class SymbolService:
         """Return safe, granular capability status without creating a directory row."""
         try:
             metadata = await self._gateway.get_exchange_info(symbol)
-        except MarketDataUnavailableError:
-            return _unverified(symbol, "公开合约信息暂时无法验证，请重试。")
+        except MarketDataUnavailableError as error:
+            return _unverified(symbol, _market_data_failure_message(error, "公开合约信息"))
         except Exception:
             return _unverified(symbol, "公开合约信息暂时无法验证，请重试。")
 
@@ -126,6 +126,7 @@ class SymbolService:
                 "research_symbol_unsupported",
                 "该币对暂不满足研究数据要求。",
                 422,
+                details={"check": result.model_dump(mode="json")},
             )
         assert result.metadata is not None
         keywords = _research_keywords(request.keywords, result.metadata.base_asset)
@@ -153,17 +154,17 @@ class SymbolService:
                     message="四个周期的已收盘 K 线可用。",
                 ),
             )
-        except MarketDataUnavailableError:
+        except MarketDataUnavailableError as error:
             return (
                 Capability(
                     name="market",
                     status="unverified",
-                    message="公开行情暂时无法验证，请重试。",
+                    message=_market_data_failure_message(error, "公开行情"),
                 ),
                 Capability(
                     name="candles",
                     status="unverified",
-                    message="公开 K 线暂时无法验证，请重试。",
+                    message=_market_data_failure_message(error, "公开 K 线"),
                 ),
             )
         except Exception:
@@ -190,11 +191,11 @@ class SymbolService:
                 status="supported",
                 message="公开衍生品指标可用。",
             )
-        except MarketDataUnavailableError:
+        except MarketDataUnavailableError as error:
             return Capability(
                 name="derivatives",
                 status="unverified",
-                message="公开衍生品指标暂时无法验证，请重试。",
+                message=_market_data_failure_message(error, "公开衍生品指标"),
             )
         except Exception:
             return Capability(
@@ -223,11 +224,11 @@ class SymbolService:
                 status="supported",
                 message="近七天已结算资金费率可用。",
             )
-        except MarketDataUnavailableError:
+        except MarketDataUnavailableError as error:
             return Capability(
                 name="funding",
                 status="unverified",
-                message="资金费率历史暂时无法验证，请重试。",
+                message=_market_data_failure_message(error, "资金费率历史"),
             )
         except Exception:
             return Capability(
@@ -293,6 +294,17 @@ def _unverified(symbol: ResearchSymbol, message: str) -> CheckResult:
         ),
         metadata=None,
     )
+
+
+def _market_data_failure_message(error: MarketDataUnavailableError, subject: str) -> str:
+    """Map known gateway failures to safe, actionable admission feedback."""
+    if error.code == "market_data_response_too_large":
+        return f"{subject}响应超过系统可接受的大小上限，请稍后重试。"
+    if error.code == "market_data_rate_limited":
+        return f"{subject}请求频率受限，请稍后重试。"
+    if error.code == "market_data_timeout":
+        return f"{subject}请求超时，请稍后重试。"
+    return f"{subject}暂时无法验证，请重试。"
 
 
 def _utc(value: datetime) -> datetime:
