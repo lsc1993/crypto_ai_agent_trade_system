@@ -4,11 +4,15 @@
 
 ## 按需市场研究
 
-在“报告”页手动点击“抓取公开行情与英文新闻并分析”，可针对 BTCUSDT 或 ETHUSDT 生成中文的只读市场研究。报告先给出市场概况，再分别呈现短期（数天至两周）与长期（数周至数月）观点、关键支撑与阻力、潜在催化事件及风险与失效条件；每项模型观点都链接至本次冻结的证据。
+在“报告”页手动点击“抓取公开行情与英文新闻并分析”，可针对目录中已启用且满足研究条件的币种生成中文的只读市场研究。除预置 BTCUSDT、ETHUSDT 外，可在“研究币种”页登记通过公开数据准入检查的 Binance USDT 永续合约。报告先给出市场概况，再分别呈现短期（数天至两周）与长期（数周至数月）观点、关键支撑与阻力、潜在催化事件及风险与失效条件；每项模型观点都链接至本次冻结的证据。
+
+新增币种会排队进行初始同步，由 API 内的后台 worker 处理并展示状态。新闻和情绪在生成报告时按需采集，报告不会随同步自动生成。归档保留历史报告；研究范围扩展不扩大交易日志、回测或模拟盘的交易契约。
 
 输入只使用公开、只读数据：Binance USDⓈ-M 的公开行情和衍生品指标、[Alternative.me Fear & Greed Index](https://alternative.me/crypto/fear-and-greed-index/)（报告中保留归因），以及已登记的英文 RSS 标题与摘要。RSS 来源固定为 SEC Press Releases、CFTC Press Releases、Federal Reserve Press Releases、U.S. Treasury Press Releases、CoinDesk、Decrypt、Blockworks 和 The Block。单一来源失败会明确显示为部分覆盖，不会用历史数据冒充本次输入。
 
-DeepSeek 只在本机未跟踪运行时环境提供密钥后参与受限 JSON 格式化；在根目录未跟踪的 `.env` 中设置自己的 `DEEPSEEK_API_KEY`，绝不将其复制到代码、日志或提交。没有密钥时会产生可审计的降级报告。系统不使用模型工具或私有交易所接口，也不提供投资建议、交易指令或真实下单。本地问题排查可参考[本地部署指南](docs/local-deployment.md)中的安全 DEBUG 步骤。
+报告另包含美国政策、近七天资金费率和美国现货 ETF 专题。ETF 仅适用于有来源支持的 BTC/ETH，读取固定 Farside 公开表；缺失与未披露值不补零。数据口径见[专题说明](docs/report-factors.md)。
+
+DeepSeek 只在本机未跟踪运行时环境提供密钥后参与受限 JSON 格式化；密钥仅由后端读取，绝不将其复制到代码、前端配置、日志或提交。Compose 使用根目录未跟踪的 `.env`；直接运行后端时优先读取 `backend/.env`，不存在时回退到根目录 `.env`，环境变量可覆盖配置。没有密钥时会产生可审计的降级报告。系统不使用模型工具或私有交易所接口，也不提供投资建议、交易指令或真实下单。本地问题排查可参考[本地部署指南](docs/local-deployment.md)中的安全 DEBUG 步骤。
 
 ## Skill 技术研究
 
@@ -27,3 +31,12 @@ DeepSeek 只在本机未跟踪运行时环境提供密钥后参与受限 JSON �
 后端：`cd backend` 后运行 `uv run ruff check .`、`uv run pyright`、`uv run pytest`。
 
 前端：`cd frontend` 后运行 `npm run lint`、`npm run typecheck`、`npm run test -- --run`、`npm run build`。
+
+数据库测试需要独立测试 PostgreSQL，具体前提见[后端开发约定](backend/AGENTS.md)。
+
+## 开发与 AI 协作入口
+
+- [AGENTS.md](AGENTS.md)：安全边界、实际模块与验证规则。
+- [项目状态](docs/project-status.md)：已实现能力、计划差异和待验收项。
+- [AI 维护指南](docs/ai-maintenance.md)：Harness、Prompt、证据、模型校验与回归入口。
+- [前端开发约定](frontend/AGENTS.md)与[前端运行说明](frontend/README.md)：客户端契约与数据模式。

@@ -1,10 +1,20 @@
 # AI 加密货币研究工作台（前端）
 
-这是一个仅用于研究、回测界面验证和人工复盘的本地工作台。它不保存交易所凭证，不连接真实账户，也没有下单、撤单、资金划转或提现能力。
+这是一个用于公开市场研究、确定性回测、手动模拟盘和人工复盘的本地工作台。它不保存交易所凭证，不连接真实账户，也没有真实下单、撤单、资金划转或提现能力。
 
-## 公开行情模式（推荐）
+## 数据模式与本地启动
 
-默认仍为 `mock`。若需要查看 BTCUSDT 与 ETHUSDT 的 Binance USDⓈ-M **公开**行情，可在两个独立 PowerShell 窗口中启动：
+`VITE_DATA_MODE` 显式选择数据模式，`VITE_API_BASE_URL` 指向本地后端。不要凭模式名称推断哪些功能是假数据；当前工厂与适配器行为如下：
+
+| 模式 | 数据来源与限制 |
+| --- | --- |
+| `mock` | 使用 `MockWorkbenchApi` 的本地模拟数据；不等同于已连接数据库或公开源，模拟盘提示需要本地 API 与数据库 |
+| `market-api` | 行情、报告、交易日志、复盘、回测和模拟盘委托 HTTP；看板仍组合 Mock 基础内容与远端行情/报告。研究币种方法在远端具备接口时委托远端 |
+| `api` | 使用 `HttpWorkbenchApi`，看板和业务功能均请求后端；完整功能需要后端、数据库及相关公开源可用 |
+
+`VITE_MARKET_DATA_SOURCE` 独立选择 `live`（默认，公开行情查询路径）或 `research`（数据库研究快照路径）。持久化快照不是实时行情；实时路径也受后端研究目录准入约束。
+
+完整本地运行优先参考[Compose 部署指南](../docs/local-deployment.md)。若手动启动，先确保数据库和后端运行配置已由用户配置，并按该指南完成前向迁移。在两个独立 PowerShell 窗口中，从仓库根目录分别执行：
 
 ```powershell
 Set-Location backend
@@ -14,13 +24,13 @@ uv run python -m app
 ```powershell
 Set-Location frontend
 $env:VITE_API_BASE_URL = "http://127.0.0.1:8000"
-$env:VITE_DATA_MODE = "market-api"
+$env:VITE_DATA_MODE = "api"
 npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
-然后在 Chrome 打开 `http://127.0.0.1:4173`。此模式的市场摘要和 K 线来自公开数据，使用短缓存；综合报告、技术报告、交易日志、复盘、回测和模拟盘均委托本地 HTTP API，各功能仍需相应后端与数据库。它不会读取真实交易所账户，也不需要交易所 API Key、Secret、Passphrase 或私钥。
+然后打开 `http://127.0.0.1:4173`。在“研究币种”页查看或添加通过准入检查的 USDT 永续合约，等待初始同步后，再在行情、看板和报告页使用可研究的币种。报告由用户手动生成；归档保留历史。公开行情不需要交易所凭证，模型密钥仅由后端读取，绝不能放在 `VITE_*` 变量中。
 
-关闭前端后，临时环境变量会随该 PowerShell 会话结束而消失；请不要把它们或任何凭证写入 `.env`。可在后端目录运行下列只读检查，确认公开源连通：
+上述进程环境变量会随 PowerShell 会话结束而消失。不要在前端配置中保存任何密钥。可在后端目录运行下列只读检查，确认公开源连通：
 
 ```powershell
 uv run python scripts/check_public_market.py
@@ -28,9 +38,9 @@ uv run python scripts/check_public_market.py
 
 ## 模拟盘（本地 API 与 PostgreSQL）
 
-模拟盘是手动触发的、本地持久化的 `BTCUSDT` 模拟账户。它要求后端、PostgreSQL 和公开 Binance 行情在**点击操作时**可用；不需要 Docker 或后台任务持续运行。没有任何自动轮询、定时策略评估或真实执行能力。
+模拟盘是手动触发的、本地持久化的 `BTCUSDT` 模拟账户。它要求后端、PostgreSQL 和公开 Binance 行情在**点击操作时**可用；Docker 只是可选部署方式。模拟盘没有定时策略评估或真实执行能力；研究币种同步 worker 不执行模拟交易。
 
-先确保后端的 `.env` 已由你在本地安全配置 `DATABASE_URL` 与 `TEST_DATABASE_URL`，然后在后端目录前向迁移数据库（不在文档、命令输出或提交中记录连接串和密码）：
+先确保后端运行环境已由你安全配置 `DATABASE_URL`，然后在后端目录前向迁移数据库。`TEST_DATABASE_URL` 仅在运行数据库测试时需要；配置文件优先级见部署指南。不在文档、命令输出或提交中记录连接串和密码：
 
 ```powershell
 Set-Location backend
@@ -57,7 +67,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 在报告页进入技术分析，或访问 `/technical-reports`，选择已就绪币种并手动生成。历史详情位于 `/technical-reports/:reportId`，归档币种保留历史读取。新旧报告分别生成和保存。
 
-`api` 与 `market-api` 均通过 HTTP 调用技术报告接口，要求后端与已应用 `0017_technical_reports` 的 PostgreSQL；`mock` 提供带演示标识的模拟报告。页面展示方法来源、量价事实、条件计划、成本假设、无计划原因与降级状态。计划到期根据当前时间提示，历史触发状态保持冻结，不提供自动执行入口。完整口径见[技术报告说明](../docs/technical-reports.md)。
+`api` 与 `market-api` 均通过 HTTP 调用技术报告接口，当前 v2 要求后端与已应用 `0018_technical_report_runs` 的 PostgreSQL；`mock` 提供带演示标识的模拟报告。页面展示方法来源、量价事实、条件计划、成本假设、无计划原因与降级状态。计划到期根据当前时间提示，历史触发状态保持冻结，不提供自动执行入口。完整口径见[技术报告说明](../docs/technical-reports.md)与[v2 交易计划书](../docs/technical-trading-plan.md)。
 
 ## 本地验证
 
@@ -87,7 +97,7 @@ npm run test:e2e
 - 报告流事件使用 `queued`、`running`、`completed`、`degraded`、`failed` 状态。
 - 交易日志仅通过 `WorkbenchApi` 的 Mock/HTTP 契约读写；策略、界面和测试均不得调用交易所或真实下单接口。
 
-后续接入 HTTP 实现时，应保持上述契约不变，只替换 API 工厂与 HTTP 适配器，而不是在特性页面中直接接入外部服务。
+HTTP 实现已接入。新增功能时同步维护 `WorkbenchApi`、相关 schema 和 Mock/HTTP/Hybrid 适配器，不在特性页面中直接接入外部服务。开发与验证规则见 [AGENTS.md](AGENTS.md)，功能进展与限制见[项目状态](../docs/project-status.md)。
 
 技术报告新增 v2 交易计划书：生成入口提交持久化后台任务，轮询阶段并通过 URL/localStorage 恢复；查询失败仅重试查询。详情先展示立场、等待条件和条件价格计划，再展示分析与审计；旧 v1 详情保留。Mock 明示规则演示，不调用模型。接口和升级说明见[技术交易计划书](../docs/technical-trading-plan.md)。
 
