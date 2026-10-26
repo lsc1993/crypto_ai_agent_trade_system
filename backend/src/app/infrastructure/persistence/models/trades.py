@@ -1,3 +1,6 @@
+# 声明 交易日志、有效/失效事实、标签及修改审计 的 PostgreSQL ORM 映射。
+# 字段、外键与索引供仓储构造查询及关联；导入模型只注册元数据，不执行数据库迁移。
+# 金额列使用 Numeric 映射 Decimal，时间列按 timezone 声明；持久化约束仍以已应用迁移为准。
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.persistence.base import Base
 
 
+# 保存交易日志当前摘要及收益计算结果，可空报告外键只关联研究背景；archived_at 控制归档可见性。
 class TradeRecord(Base):
     __tablename__ = "trades"
     __table_args__ = (
@@ -45,6 +49,7 @@ class TradeRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+# 保存分腿价格、数量、费用及稳定序号；voided_at 表示已被更正替换，历史记录仍保留。
 class TradeLegRecord(Base):
     __tablename__ = "trade_legs"
     __table_args__ = (
@@ -69,6 +74,7 @@ class TradeLegRecord(Base):
     )
 
 
+# 保存独立现金流及原因，voided_at 与交易腿一样用于更正历史，不混同为模拟成交。
 class TradeCashflowRecord(Base):
     __tablename__ = "trade_cashflows"
 
@@ -87,6 +93,7 @@ class TradeCashflowRecord(Base):
     )
 
 
+# 标签文本具有唯一约束，多个交易日志可以复用同一标签定义。
 class TagRecord(Base):
     __tablename__ = "tags"
 
@@ -94,6 +101,7 @@ class TagRecord(Base):
     value: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 
 
+# 以 trade_id/tag_id 复合主键保存日志标签关联，避免同一标签被重复关联。
 class TradeTagRecord(Base):
     __tablename__ = "trade_tags"
     __table_args__ = (UniqueConstraint("trade_id", "tag_id", name="uq_trade_tags_scope"),)
@@ -110,6 +118,7 @@ class TradeTagRecord(Base):
     )
 
 
+# 保留日志操作、关联 correlation_id 和前后 JSON 快照，创建时 before_snapshot 可空。
 class TradeAuditEventRecord(Base):
     __tablename__ = "trade_audit_events"
     __table_args__ = (Index("ix_trade_audit_events_trade_occurred", "trade_id", "occurred_at"),)

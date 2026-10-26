@@ -1,3 +1,6 @@
+# 声明 Harness 运行身份、策略评估和有序事件 的 PostgreSQL ORM 映射。
+# 字段、外键与索引供仓储构造查询及关联；导入模型只注册元数据，不执行数据库迁移。
+# JSONB 保留结构化载荷，时间列按 timezone 声明；不可变触发器等数据库保护以已应用迁移为准。
 from __future__ import annotations
 
 from datetime import datetime
@@ -11,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.persistence.base import Base
 
 
+# 运行身份保存策略版本、策略哈希与请求哈希，用于关联后来追加的事件和评估。
 class HarnessAuditRunRecord(Base):
     __tablename__ = "harness_runs"
 
@@ -27,6 +31,7 @@ class HarnessAuditRunRecord(Base):
     )
 
 
+# 以 run_id/sequence 标识有序事件，保存有限耗时、错误码与结构化详情，而非任意异常原文。
 class HarnessAuditEventRecord(Base):
     __tablename__ = "harness_run_events"
 
@@ -43,6 +48,7 @@ class HarnessAuditEventRecord(Base):
     details: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
 
 
+# 以运行和序号保存准入评估结果及评估器版本，和执行事件分表保留不同审计职责。
 class HarnessEvaluationRecord(Base):
     __tablename__ = "harness_evaluations"
 

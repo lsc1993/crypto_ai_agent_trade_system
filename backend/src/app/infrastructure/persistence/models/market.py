@@ -1,3 +1,6 @@
+# 声明 可更新 K 线、衍生观测、展示快照及完整输入快照 的 PostgreSQL ORM 映射。
+# 字段、外键与索引供仓储构造查询及关联；导入模型只注册元数据，不执行数据库迁移。
+# 金额列使用 Numeric 映射 Decimal，时间列按 timezone 声明；持久化约束仍以已应用迁移为准。
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
@@ -10,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.persistence.base import Base
 
 
+# 按币种、周期、开盘时刻唯一定位可更新的行情 K 线；采集时刻与观测时刻分别保留。
 class MarketCandleRecord(Base):
     __tablename__ = "market_candles"
     __table_args__ = (
@@ -38,6 +42,7 @@ class MarketCandleRecord(Base):
     )
 
 
+# 按币种、指标类型、观测时间和来源去重，Numeric 值保留原始确定性指标精度。
 class DerivativeObservationRecord(Base):
     __tablename__ = "derivative_observations"
     __table_args__ = (
@@ -63,6 +68,7 @@ class DerivativeObservationRecord(Base):
     )
 
 
+# 保存一次采集的展示摘要及载荷哈希，captured_at 与 data_as_of 区分采集和数据截止时间。
 class MarketSnapshotRecord(Base):
     __tablename__ = "market_snapshots"
     __table_args__ = (Index("ix_market_snapshots_symbol_captured_at", "symbol", "captured_at"),)
@@ -80,6 +86,7 @@ class MarketSnapshotRecord(Base):
     )
 
 
+# 按快照 ID 保存完整输入和独立哈希，读取时核对 candle_count 与币种。
 class MarketSnapshotInputRecord(Base):
     __tablename__ = "market_snapshot_inputs"
 

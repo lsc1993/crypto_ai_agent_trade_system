@@ -1,3 +1,5 @@
+# 综合报告专题契约区分确定性事实、官方事件、覆盖状态和模型定性解释。
+# 解释必须属于同一专题并引用该专题冻结证据，缺失或失败不能形成方向观点。
 """Frozen factual topics and evidence-bound model interpretations for report enrichment."""
 
 from __future__ import annotations
@@ -21,12 +23,14 @@ class _FactorModel(BaseModel):
     )
 
 
+# 数值使用字符串或空值表达，空值表示未知而非零，单位单独保存。
 class FactorFact(_FactorModel):
     label: str = Field(min_length=1, max_length=160)
     value: str | None = Field(default=None, max_length=1000)
     unit: Literal["text", "rate", "usd", "count"] = "text"
 
 
+# 保存批准政策元数据与单条冻结引用，发布时间不代替政策实际生效时间。
 class PolicyEvent(_FactorModel):
     institution: str
     title: str = Field(max_length=4000)
@@ -41,6 +45,7 @@ class PolicyEvent(_FactorModel):
         return _utc(value)
 
 
+# 模型解释使用受限中文文本与去重引用，单个专题整体长度有上限。
 class FactorInterpretation(_FactorModel):
     topic: FactorKind
     outlook: Literal["bullish", "bearish", "neutral"]
@@ -67,6 +72,7 @@ class FactorInterpretation(_FactorModel):
         return self
 
 
+# 聚合窗口、事实、事件、引用和限制；状态与解释可用性必须一致。
 class FactorTopic(_FactorModel):
     status: FactorStatus
     window_start: UtcDateTime | None = None
@@ -100,6 +106,7 @@ class FactorTopic(_FactorModel):
         return self
 
 
+# 组合三个独立专题并核对解释类别，禁止把另一专题的解读错位挂载。
 class FactorAnalysis(_FactorModel):
     policy: FactorTopic
     funding: FactorTopic
@@ -117,6 +124,7 @@ class FactorAnalysis(_FactorModel):
         return set((*self.policy.evidence_ids, *self.funding.evidence_ids, *self.etf.evidence_ids))
 
 
+# 分别表示未采集到与来源失败，保留本次窗口终点和原因，不制造事实。
 def unavailable_topic(*, as_of: datetime, failed: bool = False, reason: str) -> FactorTopic:
     return FactorTopic(
         status="failed" if failed else "missing", window_end=as_of, limitations=(reason,)

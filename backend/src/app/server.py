@@ -1,3 +1,6 @@
+# 提供 Uvicorn 进程入口以及 Windows 异步事件循环兼容配置。
+# 启动服务器之前设置 Selector 策略，并为 Windows 显式提供 loop 工厂。
+# 这里只解决 Psycopg 的平台兼容性，不负责创建数据库 schema 或执行业务任务。
 """应用进程入口及平台级 asyncio 兼容配置。"""
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from typing import cast
 import uvicorn
 
 
+# 只在 win32 设置 Selector 策略并返回是否设置；工厂可注入以验证兼容分支。
 def configure_windows_selector_event_loop_policy(
     *,
     platform: str | None = None,
@@ -25,6 +29,7 @@ def configure_windows_selector_event_loop_policy(
     return True
 
 
+# 先处理平台事件循环前提，再监听 8000 并加载 app.main:app；调用产生进程级监听副作用。
 def run_api() -> None:
     """Configure platform prerequisites before Uvicorn creates an event loop."""
     configure_windows_selector_event_loop_policy()
@@ -32,6 +37,7 @@ def run_api() -> None:
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, loop=loop)
 
 
+# 返回 Uvicorn 在 Windows 使用的 SelectorEventLoop，确保异步 PostgreSQL 驱动可运行。
 def windows_selector_event_loop_factory() -> asyncio.AbstractEventLoop:
     """Create the loop Uvicorn must use with Psycopg on Windows."""
     return asyncio.SelectorEventLoop()

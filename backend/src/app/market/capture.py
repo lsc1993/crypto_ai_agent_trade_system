@@ -1,3 +1,5 @@
+# 公开行情采集：按获准范围读取多周期数据，过滤未收盘行，形成指标与哈希快照，交由仓储保存。
+# 公开行情领域：统一研究行情模型、固定公开来源适配器与冻结快照读取；不访问私有账户。
 """公开行情快照采集模块。
 
 数据流：白名单标的的公开行情 → 过滤未收盘 K 线 → 构造观察值与规范化快照载荷 →
@@ -44,9 +46,11 @@ CAPTURE_TIMEFRAMES = (
 )
 
 
+# 将固定范围的公开行情转换为可审计的研究快照。
 class MarketCaptureService:
     """将固定范围的公开行情转换为可审计的研究快照。"""
 
+    # 初始化本实例依赖和配置；输入 gateway、repository、admission。
     def __init__(
         self,
         gateway: PublicMarketGateway,
@@ -57,6 +61,7 @@ class MarketCaptureService:
         self._repository = repository
         self._admission = admission
 
+    # 并发采集全部白名单标的，并在所有读取成功后返回其快照 ID。
     async def capture(self, captured_at: datetime) -> tuple[UUID, ...]:
         """并发采集全部白名单标的，并在所有读取成功后返回其快照 ID。"""
         _require_utc(captured_at)
@@ -69,6 +74,7 @@ class MarketCaptureService:
         )
         return await self._repository.persist_batches(tuple(batches))
 
+    # 采集一个获准标的并持久化恰好一个可审计快照。
     async def capture_symbol(
         self,
         symbol: ResearchSymbol,
@@ -88,6 +94,7 @@ class MarketCaptureService:
             raise RuntimeError("单标的采集必须恰好持久化一个快照")
         return snapshot_ids[0]
 
+    # 从网关读取一个标的的多周期详情，并验证上游返回的标的一致。
     async def _capture_symbol_batch(
         self,
         symbol: ResearchSymbol,
@@ -104,6 +111,7 @@ class MarketCaptureService:
         return _capture_batch(detail, captured_at)
 
 
+# 把网关模型转换成仓储一次提交所需的 K 线、指标和快照草稿。
 def _capture_batch(detail: MarketDetail, captured_at: datetime) -> MarketCaptureBatch:
     """把网关模型转换成仓储一次提交所需的 K 线、指标和快照草稿。"""
     # 仅冻结已经收盘的 K 线；未收盘 K 线会随着时间变化，不能作为研究或回测证据。
@@ -143,6 +151,7 @@ def _capture_batch(detail: MarketDetail, captured_at: datetime) -> MarketCapture
     )
 
 
+# 将行情摘要拆分为可按指标类型查询的派生品观察记录。
 def _observations(summary: MarketSummary) -> tuple[DerivativeObservation, ...]:
     """将行情摘要拆分为可按指标类型查询的派生品观察记录。"""
     freshness = summary.freshness
@@ -166,6 +175,7 @@ def _observations(summary: MarketSummary) -> tuple[DerivativeObservation, ...]:
     )
 
 
+# 生成字段排序稳定、禁止 NaN 的摘要载荷，供哈希和后续证据展示使用。
 def _snapshot_payload(
     detail: MarketDetail,
     candles: tuple[Candle, ...],
@@ -195,6 +205,7 @@ def _snapshot_payload(
     return cast(dict[str, JsonValue], json.loads(serialized))
 
 
+# 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
 def _require_utc(value: datetime) -> None:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("采集时间必须是 UTC 且带时区")

@@ -1,3 +1,6 @@
+# 验证看板聚合公开行情、近期报告与 UTC 生成时间。
+# 协调型替身通过事件验证两路读取并发，避免仅以运行耗时判断并发。
+# 上游或报告仓储失败必须脱敏，不允许无时区时间进入响应。
 from __future__ import annotations
 
 import asyncio
@@ -105,6 +108,7 @@ async def test_dashboard_rejects_a_naive_generated_time() -> None:
     assert response.json()["code"] == "internal_server_error"
 
 
+# 通过协调事件确认两路调用均已开始，再释放结果；无需依赖墙钟耗时。
 @pytest.mark.asyncio
 async def test_dashboard_loads_markets_and_reports_concurrently() -> None:
     market_started = asyncio.Event()

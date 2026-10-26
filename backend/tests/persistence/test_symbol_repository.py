@@ -1,3 +1,6 @@
+# 验证目录登记、任务租约、归档与重新准入的事务行为。
+# 并发调用检查同币种活动任务唯一与任务只能被领取一次。
+# 过期所有者不能完成替代任务，终态不可变；刷新失败不抹除已有准入事实。
 # ruff: noqa: E501
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ async def _prepare(database: MigratedDatabase) -> SqlAlchemySymbolRepository:
     return repository
 
 
+# 同币种并发登记与重复入队应收敛到一个任务，同时保留操作审计。
 @pytest.mark.asyncio
 async def test_directory_add_is_atomic_idempotent_and_audited(migrated_database: MigratedDatabase):
     repository = await _prepare(migrated_database)
@@ -68,6 +72,7 @@ async def test_directory_add_is_atomic_idempotent_and_audited(migrated_database:
     assert {event.kind for event in events} >= {"checked", "added", "queued"}
 
 
+# 固定时钟推进到租约之后，旧领取记录不再拥有完成或续租权限。
 @pytest.mark.asyncio
 async def test_expired_lease_fails_and_cannot_finish_replacement(migrated_database: MigratedDatabase):
     repository = await _prepare(migrated_database)
@@ -137,6 +142,7 @@ async def test_completed_sync_is_immutable_and_refresh_failure_preserves_admissi
             await session.commit()
 
 
+# 并发领取而非顺序调用，以覆盖锁竞争下的重复领取风险。
 @pytest.mark.asyncio
 async def test_two_workers_cannot_claim_one_job(migrated_database: MigratedDatabase):
     repository = await _prepare(migrated_database)

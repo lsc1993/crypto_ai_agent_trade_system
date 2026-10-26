@@ -1,3 +1,5 @@
+# 确定性报告路径只读取已保存的公开市场快照与 K 线，不调用模型。
+# 完整性和时效校验失败仍保存可复核的降级结果，不拼凑旧输入冒充本次完整研究。
 """确定性市场报告生成模块。
 
 数据流：持久化市场快照与各周期最近已收盘 K 线 → 完整性/时效性校验 → 已完成或
@@ -37,6 +39,7 @@ _FRESHNESS_THRESHOLD = timedelta(minutes=2)
 _SOURCE_BASE_URL = "https://www.binance.com/en/futures/"
 
 
+# 统一报告生成入口，使路由通过协议注入实现，不依赖具体存储方式。
 class AnalysisReportService(Protocol):
     async def generate(self, symbol: Any) -> PersistedAnalysisReport: ...
 
@@ -220,6 +223,7 @@ def _degraded_draft(
     )
 
 
+# 把同一快照和各周期选中 K 线转为报告证据，每份载荷都带独立完整性指纹。
 def _evidence_from(
     report_id: UUID,
     symbol: ResearchSymbol,
@@ -257,6 +261,7 @@ def _evidence_from(
     return tuple(evidence)
 
 
+# 构造带来源、时间与哈希的证据草稿，后续保存可复核事实是否被改写。
 def _evidence(
     *,
     report_id: UUID,

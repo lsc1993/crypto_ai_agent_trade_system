@@ -1,3 +1,6 @@
+# 声明 去重英文新闻标题摘要、来源和内容哈希 的 PostgreSQL ORM 映射。
+# 字段、外键与索引供仓储构造查询及关联；导入模型只注册元数据，不执行数据库迁移。
+# JSONB 保留结构化载荷，时间列按 timezone 声明；不可变触发器等数据库保护以已应用迁移为准。
 from datetime import datetime
 from uuid import UUID
 
@@ -9,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.persistence.base import Base
 
 
+# 以 deduplication_key 唯一保存新闻元数据，分别保留发布日期、抓取日期、内容哈希与来源归因。
 class NewsItemRecord(Base):
     __tablename__ = "news_items"
     __table_args__ = (

@@ -1,3 +1,6 @@
+# 验证技术计划的证据、方法与数值字段引用。
+# 相同数值不代表引用正确，字段、单位和价格角色必须同时匹配。
+# 最终价格按冻结十进制值渲染，无候选时只能等待，条件研究不能转为操作指令。
 from decimal import Decimal
 from uuid import uuid4
 
@@ -13,6 +16,7 @@ from app.reports.technical_plan import PlanClaim, TechnicalContext, TechnicalDec
 from tests.agent.test_technical_engine import NOW, make_technical_detail
 
 
+# 以确定性引擎生成冻结候选和证据；等待模式调整摘要价格使当前候选不再可用。
 def context(*, waiting: bool = False) -> TechnicalContext:
     detail = make_technical_detail()
     if waiting:
@@ -27,6 +31,7 @@ def context(*, waiting: bool = False) -> TechnicalContext:
     )
 
 
+# 用引用占位符组成最小合法计划书，价格角色分别引用触发、止损与目标字段。
 def decision(ctx: TechnicalContext) -> TechnicalDecisionSummary:
     def claim(ref: str) -> PlanClaim:
         return PlanClaim(
@@ -70,6 +75,7 @@ def test_no_candidate_requires_wait() -> None:
         )
 
 
+# 证据与方法均须属于当前上下文，任意外来身份都不能通过已有正文掩盖。
 def test_rejects_foreign_evidence_and_method() -> None:
     ctx = context()
     summary = decision(ctx)
@@ -82,6 +88,7 @@ def test_rejects_foreign_evidence_and_method() -> None:
             )
 
 
+# 把目标说明复制为止损说明，验证数值相同或类型相容并不等于用途正确。
 def test_same_value_wrong_field_or_unit_rejected() -> None:
     ctx = context()
     summary = decision(ctx)
@@ -125,6 +132,7 @@ def test_conditional_entry_terms_allowed_but_orders_and_promises_rejected() -> N
     assert "一致" in ordinary.text
 
 
+# 渲染价格必须来自冻结字段的线协议 Decimal 字符串，最终正文不应残留占位符。
 def test_rendered_prices_equal_wire_decimals() -> None:
     ctx = context()
     summary = validate_decision(decision(ctx), build_reference_catalog(ctx))
@@ -136,6 +144,7 @@ def test_rendered_prices_equal_wire_decimals() -> None:
     assert "{{" not in rendered.model_dump_json()
 
 
+# 附带正确止损引用仍不够，正文实际使用的占位符本身也必须是该价格角色。
 @pytest.mark.parametrize(
     "text",
     [
@@ -155,6 +164,7 @@ def test_actual_price_placeholder_must_match_role(text: str) -> None:
             }
         )
     )
+    # 引用清单中有正确字段不能弥补正文用错占位符，校验必须检查实际使用关系。
     with pytest.raises(ValueError):
         validate_decision(
             decision(ctx).model_copy(update={"stop_rationale": (bad,)}),

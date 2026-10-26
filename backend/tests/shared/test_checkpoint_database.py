@@ -1,3 +1,6 @@
+# 验证 checkpoint 连接串适配不同 PostgreSQL 驱动。
+# asyncpg URL 转换为 checkpoint 可用形式，已有 psycopg URL 保持不变。
+# 转换使用秘密类型，不能在日志中泄露连接信息。
 from pydantic import SecretStr
 
 from app.shared.database import checkpoint_connection_string

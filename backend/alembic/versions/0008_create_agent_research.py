@@ -1,3 +1,5 @@
+# 增加不可变新闻缓存、研究运行和 Agent 报告详情。
+# 沿用已有报告表，通过关联表扩展内容，不回写已冻结报告。
 """Create immutable news cache, agent runs, and agent report details."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 保存来源去重后的第一份新闻元数据，后续相同新闻不能重写快照。
     op.create_table(
         "news_items",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -60,6 +64,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_news_items_published_at", "news_items", ["published_at"])
 
+    # 运行保存模型状态与安全错误，报告与冻结证据另行关联。
     op.create_table(
         "agent_analysis_runs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -108,6 +113,7 @@ def upgrade() -> None:
         ["symbol", "completed_at"],
     )
 
+    # 扩展现有报告而非替换报告主体，旧记录保持原有内容。
     op.create_table(
         "agent_report_details",
         sa.Column("analysis_report_id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -163,6 +169,7 @@ def upgrade() -> None:
     )
 
 
+# 为指定历史表安装修改/删除拒绝触发器，保护已冻结内容。
 def _install_immutable_trigger(
     *,
     table_name: str,
@@ -187,5 +194,6 @@ def _install_immutable_trigger(
     )
 
 
+# 前向迁移明确拒绝回退，避免删除已保存的研究和审计历史。
 def downgrade() -> None:
     raise NotImplementedError("Agent 研究持久化迁移不可逆，禁止删除审计记录")

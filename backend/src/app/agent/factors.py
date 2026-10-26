@@ -1,3 +1,5 @@
+# 在模型解释前完成新闻筛选、官方政策专题及费率、ETF 的确定性统计。
+# 只统计当前窗口可验证的样本；部分披露、缺失、失败与真实零值保持不同含义。
 """Deterministic topic selection, statistics and validation before model interpretation."""
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ POLICY_SOURCES = frozenset(
 )
 
 
+# 政策专题同时要求已批准官方来源和监管或宏观类别，普通新闻不能升级为政策事实。
 def is_policy(item: NewsItemDraft) -> bool:
     return item.source_id in POLICY_SOURCES and item.event_category in {
         NewsEventCategory.REGULATION,
@@ -38,6 +41,7 @@ def is_policy(item: NewsItemDraft) -> bool:
     }
 
 
+# 先限定关联标的与过去七天窗口，再按官方政策优先和发布时间排序、去重及限量。
 def select_news(
     items: tuple[NewsItemDraft, ...],
     *,
@@ -61,6 +65,7 @@ def select_news(
     return tuple(unique.values())[:limit]
 
 
+# 将官方事件和对应冻结标识组成专题；没有事件不等于没有政策，覆盖状态单独保留。
 def policy_topic(
     items: tuple[tuple[NewsItemDraft, UUID], ...],
     *,
@@ -100,6 +105,7 @@ def policy_topic(
     )
 
 
+# 解释只能引用所属专题证据；缺失或失败专题禁止生成观点，漏解读时保留事实及限制。
 def apply_interpretations(
     analysis: FactorAnalysis,
     interpretations: tuple[FactorInterpretation, ...],
@@ -129,6 +135,7 @@ def apply_interpretations(
     return FactorAnalysis.model_validate(topics)
 
 
+# 均值、累计和连续同号只描述已获取的结算样本；覆盖不完整时降低专题可用状态。
 def funding_topic(history: FundingHistory, *, evidence_id: UUID) -> FactorTopic:
     points = history.points
     if not points:
@@ -178,10 +185,12 @@ def funding_topic(history: FundingHistory, *, evidence_id: UUID) -> FactorTopic:
     )
 
 
+# 用纽约交易日判断当日暂定披露，五日累计只包含此前完整披露日，不把缺口补零。
 def etf_topic(snapshot: EtfFlowSnapshot, *, as_of: datetime, evidence_id: UUID) -> FactorTopic:
     days = snapshot.days
     latest = days[-1]
     session_date = as_of.astimezone(ZoneInfo("America/New_York")).date()
+    # 纽约当日即使已显示全部数值，也视为暂定，不能提前计入完整日统计。
     provisional = latest.trading_date == session_date
     latest_complete = latest.complete and not provisional
     complete = tuple(day for day in days if day.complete and day.trading_date < session_date)[-5:]
@@ -198,6 +207,7 @@ def etf_topic(snapshot: EtfFlowSnapshot, *, as_of: datetime, evidence_id: UUID) 
     streak = 0
     sign = _sign(latest.total_net_flow_usd or Decimal("0"))
     previous: date | None = None
+    # 只有完整最新交易日才计算连续方向；缺披露和工作日空档都中断连续性。
     if latest_complete:
         for day in reversed(days):
             if (
@@ -276,6 +286,7 @@ def _sign(value: Decimal) -> int:
     return (value > 0) - (value < 0)
 
 
+# 工作日空档只表示可能休市或缺失，不能靠日历推定真实披露连续性。
 def _weekday_gap(start: date, end: date) -> bool:
     return any(
         (start + timedelta(days=offset)).weekday() < 5 for offset in range(1, (end - start).days)

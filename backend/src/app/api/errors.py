@@ -1,3 +1,6 @@
+# 把 HTTP、参数校验及领域异常统一映射成错误响应。
+# 按异常类型选择状态码与 ErrorEnvelope，未处理异常只记录类型和请求路径。
+# 校验错误不回显输入值；HTTP detail 与显式领域消息仍由产生异常的调用方负责安全性。
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -29,6 +32,8 @@ from app.trades.service import TradeNotFoundError
 logger = structlog.get_logger(__name__)
 
 
+# ErrorEnvelope 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：code、message、details；完整契约以下方声明为准。
 class ErrorEnvelope(BaseModel):
     code: str
     message: str
@@ -38,6 +43,7 @@ class ErrorEnvelope(BaseModel):
 ExceptionHandler = Callable[[Request, Exception], Awaitable[JSONResponse]]
 
 
+# 把安全错误信封经 jsonable_encoder 转换为 JSONResponse，状态码由具体处理器提供。
 def _response(status_code: int, envelope: ErrorEnvelope) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -45,6 +51,7 @@ def _response(status_code: int, envelope: ErrorEnvelope) -> JSONResponse:
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _http_exception_handler(
     _request: Request,
     exception: Exception,
@@ -71,6 +78,7 @@ async def _http_exception_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _validation_exception_handler(
     _request: Request,
     exception: Exception,
@@ -97,6 +105,7 @@ async def _validation_exception_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _unhandled_exception_handler(
     request: Request,
     exception: Exception,
@@ -117,6 +126,7 @@ async def _unhandled_exception_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _market_data_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -132,6 +142,7 @@ async def _market_data_unavailable_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _harness_policy_violation_handler(
     _request: Request,
     exception: Exception,
@@ -147,6 +158,7 @@ async def _harness_policy_violation_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _harness_audit_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -162,6 +174,7 @@ async def _harness_audit_storage_unavailable_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _trade_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -177,6 +190,7 @@ async def _trade_storage_unavailable_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _report_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -192,6 +206,7 @@ async def _report_storage_unavailable_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _backtest_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -207,6 +222,7 @@ async def _backtest_storage_unavailable_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _backtest_not_found_handler(
     _request: Request,
     exception: Exception,
@@ -219,6 +235,7 @@ async def _backtest_not_found_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _paper_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
@@ -231,6 +248,7 @@ async def _paper_storage_unavailable_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _paper_not_found_handler(
     _request: Request,
     exception: Exception,
@@ -240,6 +258,7 @@ async def _paper_not_found_handler(
     return _response(404, ErrorEnvelope(code="not_found", message="模拟账户不存在"))
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _paper_state_error_handler(
     _request: Request,
     exception: Exception,
@@ -252,6 +271,7 @@ async def _paper_state_error_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _trade_not_found_handler(
     _request: Request,
     exception: Exception,
@@ -264,6 +284,7 @@ async def _trade_not_found_handler(
     )
 
 
+# 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
 async def _symbol_error_handler(
     _request: Request,
     exception: Exception,
@@ -280,6 +301,7 @@ async def _symbol_error_handler(
     )
 
 
+# 将具体领域异常优先映射到其处理器，并注册最终未处理异常兜底响应。
 def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         StarletteHTTPException,

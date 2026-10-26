@@ -1,3 +1,6 @@
+# 提供手动模拟账户、意图、策略评估、绩效与归档接口。
+# 外部请求转换成领域契约后交给 PaperTradingService，再映射账户及模拟成交历史。
+# 路由不能替代服务中的确定性风控；金额保持十进制字符串，不连接真实账户。
 from __future__ import annotations
 
 from typing import Annotated, cast
@@ -35,6 +38,7 @@ from app.strategy.contracts import IntentAction, IntentSource
 router = APIRouter(prefix="/paper-accounts", tags=["paper-trading"])
 
 
+# 共享当前模块的 HTTP 字段别名及冻结配置；具体字段限制由各请求/响应子类声明。
 class _ApiModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=lambda value: "".join(
@@ -47,15 +51,22 @@ class _ApiModel(BaseModel):
     )
 
 
+# PaperAccountCreateRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：initial_cash；完整契约以下方声明为准。
 class PaperAccountCreateRequest(_ApiModel):
     initial_cash: StrictStr
 
 
+# ManualPaperIntentRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：client_request_id、action；完整契约以下方声明为准。
 class ManualPaperIntentRequest(_ApiModel):
     client_request_id: UUID
     action: IntentAction
 
 
+# PaperRiskConfigResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：max_exposure_fraction、stop_loss_fraction、daily_loss_fraction、
+# max_drawdown_fraction、cooldown_candles、quantity_increment；完整契约以下方声明为准。
 class PaperRiskConfigResponse(_ApiModel):
     max_exposure_fraction: DecimalValue
     stop_loss_fraction: DecimalValue
@@ -65,12 +76,16 @@ class PaperRiskConfigResponse(_ApiModel):
     quantity_increment: DecimalValue
 
 
+# PaperExecutionConfigResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：fee_rate、slippage_rate、fill_ratio；完整契约以下方声明为准。
 class PaperExecutionConfigResponse(_ApiModel):
     fee_rate: DecimalValue
     slippage_rate: DecimalValue
     fill_ratio: DecimalValue
 
 
+# PaperAccountResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、status、symbol、initial_cash、cash、equity；完整契约以下方声明为准。
 class PaperAccountResponse(_ApiModel):
     id: UUID
     status: PaperAccountStatus
@@ -90,6 +105,9 @@ class PaperAccountResponse(_ApiModel):
     archived_at: UtcDateTime | None
 
 
+# PaperPositionResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：quantity、average_entry_price、remaining_entry_cost、opened_at、updated_at；
+# 完整契约以下方声明为准。
 class PaperPositionResponse(_ApiModel):
     quantity: DecimalValue
     average_entry_price: DecimalValue | None
@@ -98,6 +116,8 @@ class PaperPositionResponse(_ApiModel):
     updated_at: UtcDateTime
 
 
+# PaperMarketSnapshotResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：price、source、observed_at、fetched_at、payload_hash；完整契约以下方声明为准。
 class PaperMarketSnapshotResponse(_ApiModel):
     price: DecimalValue
     source: str
@@ -106,6 +126,9 @@ class PaperMarketSnapshotResponse(_ApiModel):
     payload_hash: str
 
 
+# PaperOrderResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：action、idempotency_key、submitted_at、requested_quantity、status；
+# 完整契约以下方声明为准。
 class PaperOrderResponse(_ApiModel):
     action: IntentAction
     idempotency_key: str
@@ -114,6 +137,9 @@ class PaperOrderResponse(_ApiModel):
     status: OrderStatus
 
 
+# PaperFillResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：action、order_idempotency_key、submitted_at、filled_at、requested_quantity、quantity；
+# 完整契约以下方声明为准。
 class PaperFillResponse(_ApiModel):
     action: IntentAction
     order_idempotency_key: str
@@ -126,6 +152,9 @@ class PaperFillResponse(_ApiModel):
     status: OrderStatus
 
 
+# PaperLedgerEntryResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：occurred_at、kind、cash_delta、position_delta、realized_pnl、fee；
+# 完整契约以下方声明为准。
 class PaperLedgerEntryResponse(_ApiModel):
     occurred_at: UtcDateTime
     kind: IntentAction
@@ -137,6 +166,8 @@ class PaperLedgerEntryResponse(_ApiModel):
     quantity_after: DecimalValue
 
 
+# PaperAuditEventResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：sequence、kind、occurred_at、idempotency_key、payload；完整契约以下方声明为准。
 class PaperAuditEventResponse(_ApiModel):
     sequence: int
     kind: PaperEventKind
@@ -145,6 +176,8 @@ class PaperAuditEventResponse(_ApiModel):
     payload: dict[str, JsonValue]
 
 
+# PaperActionOutcomeResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：kind、source、idempotency_key、reason；完整契约以下方声明为准。
 class PaperActionOutcomeResponse(_ApiModel):
     kind: str
     source: IntentSource | None
@@ -152,6 +185,8 @@ class PaperActionOutcomeResponse(_ApiModel):
     reason: str | None
 
 
+# PaperPerformancePointResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：at、cash、position_quantity、equity、net_pnl；完整契约以下方声明为准。
 class PaperPerformancePointResponse(_ApiModel):
     at: UtcDateTime
     cash: DecimalValue
@@ -160,6 +195,9 @@ class PaperPerformancePointResponse(_ApiModel):
     net_pnl: DecimalValue
 
 
+# PaperDecisionStatsResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：manual_intent_count、strategy_evaluation_count、no_signal_count、risk_rejected_count、
+# risk_exit_count、order_count；完整契约以下方声明为准。
 class PaperDecisionStatsResponse(_ApiModel):
     manual_intent_count: int
     strategy_evaluation_count: int
@@ -170,6 +208,9 @@ class PaperDecisionStatsResponse(_ApiModel):
     fill_count: int
 
 
+# PaperPerformanceResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：account_id、initial_cash、current_equity、net_pnl、return_fraction、realized_pnl；
+# 完整契约以下方声明为准。
 class PaperPerformanceResponse(_ApiModel):
     account_id: UUID
     initial_cash: DecimalValue
@@ -195,6 +236,9 @@ class PaperPerformanceResponse(_ApiModel):
     generated_at: UtcDateTime
 
 
+# PaperAccountDetailResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：position、latest_snapshot、orders、fills、ledger_entries、events；
+# 完整契约以下方声明为准。
 class PaperAccountDetailResponse(PaperAccountResponse):
     position: PaperPositionResponse
     latest_snapshot: PaperMarketSnapshotResponse | None
@@ -205,6 +249,8 @@ class PaperAccountDetailResponse(PaperAccountResponse):
     action_outcome: PaperActionOutcomeResponse | None
 
 
+# PaperAccountSummaryResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、status、symbol、cash、equity、position_quantity；完整契约以下方声明为准。
 class PaperAccountSummaryResponse(_ApiModel):
     id: UUID
     status: PaperAccountStatus
@@ -216,6 +262,8 @@ class PaperAccountSummaryResponse(_ApiModel):
     archived_at: UtcDateTime | None
 
 
+# PaperAccountPageResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：items、page、page_size、total；完整契约以下方声明为准。
 class PaperAccountPageResponse(_ApiModel):
     items: tuple[PaperAccountSummaryResponse, ...]
     page: int
@@ -223,10 +271,12 @@ class PaperAccountPageResponse(_ApiModel):
     total: int
 
 
+# 从应用 state 取得已装配的 paper_trading_service 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_paper_trading_service(request: Request) -> PaperTradingService:
     return cast(PaperTradingService, request.app.state.paper_trading_service)
 
 
+# 接收路由声明的请求参数，委托 service.create_account，返回 PaperAccountDetailResponse。
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=PaperAccountDetailResponse)
 async def create_paper_account(
     request: PaperAccountCreateRequest,
@@ -235,6 +285,7 @@ async def create_paper_account(
     return _to_detail_response(await service.create_account(_to_create_request(request)))
 
 
+# 接收路由声明的请求参数，委托 service.list_accounts，返回 PaperAccountPageResponse。
 @router.get("", response_model=PaperAccountPageResponse)
 async def list_paper_accounts(
     service: Annotated[PaperTradingService, Depends(get_paper_trading_service)],
@@ -246,6 +297,7 @@ async def list_paper_accounts(
     )
 
 
+# 接收路由声明的请求参数，委托 service.get_performance，返回 PaperPerformanceResponse。
 @router.get("/{account_id}/performance", response_model=PaperPerformanceResponse)
 async def get_paper_performance(
     account_id: UUID,
@@ -254,6 +306,7 @@ async def get_paper_performance(
     return _to_performance_response(await service.get_performance(account_id))
 
 
+# 接收路由声明的请求参数，委托 service.get_account，返回 PaperAccountDetailResponse。
 @router.get("/{account_id}", response_model=PaperAccountDetailResponse)
 async def get_paper_account(
     account_id: UUID,
@@ -262,6 +315,7 @@ async def get_paper_account(
     return _to_detail_response(await service.get_account(account_id))
 
 
+# 接收路由声明的请求参数，委托 service.submit_manual_intent，返回 PaperAccountDetailResponse。
 @router.post("/{account_id}/manual-intents", response_model=PaperAccountDetailResponse)
 async def submit_manual_intent(
     account_id: UUID,
@@ -273,6 +327,7 @@ async def submit_manual_intent(
     )
 
 
+# 接收路由声明的请求参数，委托 service.evaluate_strategy，返回 PaperAccountDetailResponse。
 @router.post("/{account_id}/strategy-evaluations", response_model=PaperAccountDetailResponse)
 async def evaluate_strategy(
     account_id: UUID,
@@ -281,6 +336,7 @@ async def evaluate_strategy(
     return _to_detail_response(await service.evaluate_strategy(account_id))
 
 
+# 接收路由声明的请求参数，委托 service.archive_account，返回 PaperAccountDetailResponse。
 @router.post("/{account_id}/archive", response_model=PaperAccountDetailResponse)
 async def archive_paper_account(
     account_id: UUID,
@@ -289,6 +345,7 @@ async def archive_paper_account(
     return _to_detail_response(await service.archive_account(account_id))
 
 
+# 按下面的显式字段映射还原 PaperAccountCreate，保留可选值与已有顺序；不重新执行业务计算。
 def _to_create_request(request: PaperAccountCreateRequest) -> PaperAccountCreate:
     try:
         return PaperAccountCreate.model_validate({"initial_cash": request.initial_cash})
@@ -296,6 +353,7 @@ def _to_create_request(request: PaperAccountCreateRequest) -> PaperAccountCreate
         raise RequestValidationError(error.errors()) from error
 
 
+# 按下面的显式字段映射还原 ManualPaperIntent，保留可选值与已有顺序；不重新执行业务计算。
 def _to_manual_request(request: ManualPaperIntentRequest) -> ManualPaperIntent:
     try:
         return ManualPaperIntent.model_validate(
@@ -308,6 +366,7 @@ def _to_manual_request(request: ManualPaperIntentRequest) -> ManualPaperIntent:
         raise RequestValidationError(error.errors()) from error
 
 
+# 按下面的显式字段映射还原 PaperAccountPageResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_page_response(page: PaperAccountPage) -> PaperAccountPageResponse:
     return PaperAccountPageResponse(
         items=tuple(_to_summary_response(item) for item in page.items),
@@ -317,6 +376,7 @@ def _to_page_response(page: PaperAccountPage) -> PaperAccountPageResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperAccountDetailResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_detail_response(detail: PaperAccountDetail) -> PaperAccountDetailResponse:
     account = _to_account_response(detail.account)
     return PaperAccountDetailResponse(
@@ -339,6 +399,7 @@ def _to_detail_response(detail: PaperAccountDetail) -> PaperAccountDetailRespons
     )
 
 
+# 按下面的显式字段映射还原 PaperAccountResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_account_response(account: PaperAccount) -> PaperAccountResponse:
     return PaperAccountResponse(
         id=account.id,
@@ -362,6 +423,7 @@ def _to_account_response(account: PaperAccount) -> PaperAccountResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperAccountSummaryResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_summary_response(summary: PaperAccountSummary) -> PaperAccountSummaryResponse:
     return PaperAccountSummaryResponse(
         id=summary.id,
@@ -375,6 +437,7 @@ def _to_summary_response(summary: PaperAccountSummary) -> PaperAccountSummaryRes
     )
 
 
+# 按下面的显式字段映射还原 PaperPositionResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_position_response(position: PaperPosition) -> PaperPositionResponse:
     return PaperPositionResponse(
         quantity=position.quantity,
@@ -385,6 +448,7 @@ def _to_position_response(position: PaperPosition) -> PaperPositionResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperMarketSnapshotResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_snapshot_response(snapshot: PaperMarketSnapshot) -> PaperMarketSnapshotResponse:
     return PaperMarketSnapshotResponse(
         price=snapshot.price,
@@ -395,6 +459,7 @@ def _to_snapshot_response(snapshot: PaperMarketSnapshot) -> PaperMarketSnapshotR
     )
 
 
+# 按下面的显式字段映射还原 PaperOrderResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_order_response(order: SimulatedOrder) -> PaperOrderResponse:
     return PaperOrderResponse(
         action=order.action,
@@ -405,6 +470,7 @@ def _to_order_response(order: SimulatedOrder) -> PaperOrderResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperFillResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_fill_response(fill: SimulatedFill) -> PaperFillResponse:
     return PaperFillResponse(
         action=fill.action,
@@ -419,6 +485,7 @@ def _to_fill_response(fill: SimulatedFill) -> PaperFillResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperLedgerEntryResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_ledger_response(entry: PaperLedgerEntry) -> PaperLedgerEntryResponse:
     return PaperLedgerEntryResponse(
         occurred_at=entry.occurred_at,
@@ -432,6 +499,7 @@ def _to_ledger_response(entry: PaperLedgerEntry) -> PaperLedgerEntryResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperAuditEventResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_event_response(event: PaperAuditEvent) -> PaperAuditEventResponse:
     return PaperAuditEventResponse(
         sequence=event.sequence,
@@ -442,6 +510,7 @@ def _to_event_response(event: PaperAuditEvent) -> PaperAuditEventResponse:
     )
 
 
+# 按下面的显式字段映射还原 PaperActionOutcomeResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_outcome_response(outcome: PaperActionOutcome) -> PaperActionOutcomeResponse:
     return PaperActionOutcomeResponse(
         kind=outcome.kind.value,
@@ -451,6 +520,7 @@ def _to_outcome_response(outcome: PaperActionOutcome) -> PaperActionOutcomeRespo
     )
 
 
+# 按下面的显式字段映射还原 PaperPerformanceResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_performance_response(
     snapshot: PaperPerformanceSnapshot,
 ) -> PaperPerformanceResponse:
@@ -482,12 +552,14 @@ def _to_performance_response(
     )
 
 
+# 按下面的显式字段映射还原 PaperDecisionStatsResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_decision_stats_response(
     stats: PaperDecisionStats,
 ) -> PaperDecisionStatsResponse:
     return PaperDecisionStatsResponse(**stats.model_dump())
 
 
+# 按下面的显式字段映射还原 PaperPerformancePointResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_performance_point_response(
     point: PaperPerformancePoint,
 ) -> PaperPerformancePointResponse:

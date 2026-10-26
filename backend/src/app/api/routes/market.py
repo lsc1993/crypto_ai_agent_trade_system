@@ -1,3 +1,6 @@
+# 将实时公开行情服务映射到市场摘要和 K 线 HTTP 接口。
+# 先校验币种目录准入与查询去重，再调用公开行情服务并转换展示字段。
+# ResearchSymbol 是研究范围；接口不会扩大静态交易合约或生成下单请求。
 from __future__ import annotations
 
 from typing import Annotated, cast
@@ -19,10 +22,12 @@ from app.symbols.repository import SymbolRepository
 router = APIRouter(tags=["market"])
 
 
+# 从应用 state 取得已装配的 market_service 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_market_service(request: Request) -> MarketQueryService:
     return cast(MarketQueryService, request.app.state.market_service)
 
 
+# 接收路由声明的请求参数，委托 service.get_summaries，返回 MarketSummaryListResponse。
 @router.get("/markets", response_model=MarketSummaryListResponse)
 async def list_markets(
     symbols: Annotated[list[ResearchSymbol], Query(min_length=1, max_length=20)],
@@ -36,6 +41,7 @@ async def list_markets(
     return MarketSummaryListResponse(items=summaries)
 
 
+# 接收路由声明的请求参数，委托 service.get_market，返回 MarketDetailResponse。
 @router.get("/market/{symbol}", response_model=MarketDetailResponse)
 async def get_market(
     symbol: ResearchSymbol,

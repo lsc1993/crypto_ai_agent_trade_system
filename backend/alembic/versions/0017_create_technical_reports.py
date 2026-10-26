@@ -1,3 +1,5 @@
+# 增加独立不可变技术报告并扩展 Harness 技术研究种类。
+# 保存冻结证据哈希；报告插入要求对应运行已准入且已开始，并原子追加终态。
 """Add independent immutable technical reports and bounded Harness policy."""
 
 from collections.abc import Sequence
@@ -13,6 +15,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
     op.drop_constraint("ck_harness_runs_run_kind", "harness_runs", type_="check")
     op.create_check_constraint(
@@ -26,6 +29,7 @@ def upgrade() -> None:
         "harness_runs",
         "policy_version IN ('market_research_v1', 'technical_research_v1', 'unregistered')",
     )
+    # 冻结技术报告与证据保存在一起，版本内容用 JSONB 保留。
     op.create_table(
         "technical_reports",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -85,5 +89,6 @@ def upgrade() -> None:
     """)
 
 
+# 前向迁移明确拒绝回退，避免删除已保存的研究和审计历史。
 def downgrade() -> None:
     raise NotImplementedError("技术报告与审计不可逆，禁止删除历史数据")

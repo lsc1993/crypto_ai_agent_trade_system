@@ -1,3 +1,6 @@
+# 静态核对研究依赖、装配路径及跨领域访问边界。
+# 读取包配置和源码，不调用模型或交易服务。
+# 检查包括源码文本，新增注释也不能被误写为受禁止的依赖或能力声明。
 import tomllib
 from pathlib import Path
 
@@ -22,6 +25,7 @@ def test_agent_dependencies_include_required_packages_and_exclude_forbidden_pack
     }
 
 
+# 扫描范围含注释，维护说明也不能错误地宣称协调层拥有外部实现依赖。
 def test_harness_source_has_no_risk_execution_or_persistence_implementation_dependency() -> None:
     harness_files = sorted((BACKEND_ROOT / "src" / "app" / "harness").rglob("*.py"))
     assert harness_files

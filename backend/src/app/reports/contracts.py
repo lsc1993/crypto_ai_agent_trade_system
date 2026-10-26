@@ -1,3 +1,6 @@
+# 综合研究报告、冻结证据与持久化结果契约，集中校验展示文本、时间、财务值及引用归属。
+# 旧单周期报告与当前双周期结构保留兼容；降级结果必须说明限制，不能伪装成完成结论。
+# 载荷指纹和不可变结构用于复核，原始证据与安全展示摘要遵循不同边界。
 from __future__ import annotations
 
 import re
@@ -46,6 +49,7 @@ _VALIDATION_FAILURE_CATEGORIES = frozenset(
         "trading_instruction",
     }
 )
+# 主报告契约拒绝具体操作措辞；技术计划术语使用独立版本化校验，不能混用。
 _PROHIBITED_PHRASES = (
     "买入",
     "卖出",
@@ -136,6 +140,7 @@ def _require_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+# 移除仅用于识别的空白并做交易语言检查，正常未平仓市场术语不视作平仓指令。
 def _validate_display_text(value: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -143,6 +148,7 @@ def _validate_display_text(value: str) -> str:
     if len(normalized) > _MAX_TEXT_LENGTH:
         raise ValueError("报告文本不能超过 1000 个字符")
     guard_text = _normalize_text(normalized)
+    # 这里仅改用于检测的临时文本，最终保存正文仍是原始内容去首尾空白后的值。
     for market_term in ("未平仓量", "未平仓合约"):
         guard_text = guard_text.replace(market_term, "")
     prohibited = next(
@@ -201,6 +207,7 @@ def _validate_source_url(value: str) -> str:
     return normalized
 
 
+# 单条待保存证据带来源、观测和抓取时间及载荷指纹，保存前核对载荷完整性。
 class AnalysisEvidenceDraft(_ReportModel):
     id: UUID = Field(default_factory=uuid4, exclude=True)
     report_id: UUID
@@ -239,6 +246,7 @@ class AnalysisEvidenceDraft(_ReportModel):
     @field_validator("payload")
     @classmethod
     def validate_payload(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        # 有界载荷还需可规范哈希；防止过大或不可稳定序列化的输入进入冻结证据。
         if len(str(value).encode("utf-8")) > _MAX_PAYLOAD_BYTES:
             raise ValueError("证据载荷不能超过 64 KiB")
         report_payload_sha256(value)
@@ -248,11 +256,13 @@ class AnalysisEvidenceDraft(_ReportModel):
     def validate_evidence(self) -> AnalysisEvidenceDraft:
         if self.fetched_at < self.observed_at:
             raise ValueError("抓取时间不能早于观测时间")
+        # 指纹必须从当前载荷重新计算，不能相信调用者提供的任意哈希字符串。
         if self.payload_sha256 != report_payload_sha256(self.payload):
             raise ValueError("证据载荷哈希不匹配")
         return self
 
 
+# 报告头部区分事实、推断、风险及限制，降级状态不允许方向性事实或推断。
 class AnalysisReportDraft(_ReportModel):
     id: UUID = Field(default_factory=uuid4)
     analysis_id: UUID = Field(default_factory=uuid4)
@@ -288,6 +298,7 @@ class AnalysisReportDraft(_ReportModel):
     def validate_status_fields(self) -> AnalysisReportDraft:
         if self.data_cutoff_at is not None and self.data_cutoff_at > self.generated_at:
             raise ValueError("数据截止时间不能晚于生成时间")
+        # 降级只保留失败解释及可审计证据，不能在头部继续展示未验证市场结论。
         if self.status is AnalysisReportStatus.DEGRADED:
             if self.facts or self.inferences:
                 raise ValueError("降级报告不能包含市场事实或推断")
@@ -296,12 +307,14 @@ class AnalysisReportDraft(_ReportModel):
         return self
 
 
+# 报告与证据共同组成保存输入；证据关联标识必须一致，完成结果至少需要一条证据。
 class AnalysisReportCreation(_ReportModel):
     report: AnalysisReportDraft
     evidences: tuple[AnalysisEvidenceDraft, ...]
 
     @model_validator(mode="after")
     def validate_creation(self) -> AnalysisReportCreation:
+        # 保存前检查所有证据归属，拒绝把另一报告的已冻结证据挂到本次创建对象。
         if any(evidence.report_id != self.report.id for evidence in self.evidences):
             raise ValueError("证据报告 ID 必须与报告一致")
         if self.report.status is AnalysisReportStatus.COMPLETED and not self.evidences:
@@ -309,6 +322,7 @@ class AnalysisReportCreation(_ReportModel):
         return self
 
 
+# 程序计算的正十进制价格区间，模型解释不能颠倒上下界或生成新价位。
 class PriceZone(_ReportModel):
     lower: DecimalValue
     upper: DecimalValue
@@ -318,6 +332,7 @@ class PriceZone(_ReportModel):
     @field_validator("lower", "upper", mode="before")
     @classmethod
     def validate_decimal(cls, value: object) -> Decimal:
+        # 字符串与十进制对象保留精确含义，浮点和布尔值不得隐式转换为金融价格。
         if isinstance(value, bool) or not isinstance(value, (Decimal, str)):
             raise ValueError("价位必须是 Decimal 或十进制字符串")
         try:
@@ -340,6 +355,7 @@ class PriceZone(_ReportModel):
         return self
 
 
+# 有证据支持的催化说明，方向为研究枚举，时间文本仍接受非交易语言校验。
 class Catalyst(_ReportModel):
     category: Annotated[str, Field(min_length=1, max_length=100)]
     direction: MarketOutlook
@@ -368,6 +384,7 @@ class Catalyst(_ReportModel):
         return _require_evidence_ids(value)
 
 
+# 冻结证据支撑的复核条件与影响，不是止损或订单参数。
 class RiskAndInvalidation(_ReportModel):
     condition: str
     impact: str
@@ -384,6 +401,7 @@ class RiskAndInvalidation(_ReportModel):
         return _require_evidence_ids(value)
 
 
+# 中文驱动因素必须保留独立引用，防止正文无法追溯到本次事实。
 class EvidenceBackedClaim(_ReportModel):
     label: str
     detail: str
@@ -400,6 +418,7 @@ class EvidenceBackedClaim(_ReportModel):
         return _require_evidence_ids(value)
 
 
+# 市场概况的标题、正文和引用作为同一中文章节保存。
 class MarketOverview(_ReportModel):
     headline: str
     summary: str
@@ -416,6 +435,7 @@ class MarketOverview(_ReportModel):
         return _require_evidence_ids(value)
 
 
+# 短期或长期观点包含有界驱动与失效条件，两种周期不能互换。
 class ResearchPerspective(_ReportModel):
     horizon: Literal["short_term", "long_term"]
     outlook: MarketOutlook
@@ -450,6 +470,7 @@ class ResearchPerspective(_ReportModel):
         return value
 
 
+# 组合概况和双周期章节，校验章节自身周期与所在位置一致。
 class AgentResearchNarrative(_ReportModel):
     market_overview: MarketOverview
     short_term: ResearchPerspective
@@ -457,6 +478,7 @@ class AgentResearchNarrative(_ReportModel):
 
     @model_validator(mode="after")
     def validate_perspective_horizons(self) -> AgentResearchNarrative:
+        # 字段类型相同仍可能放错章节，跨字段校验确保短期与长期语义不互换。
         if self.short_term.horizon != "short_term":
             raise ValueError("短期市场观点必须使用 short_term 周期")
         if self.long_term.horizon != "long_term":
@@ -464,6 +486,7 @@ class AgentResearchNarrative(_ReportModel):
         return self
 
 
+# 将行情时效、缺失输入与新闻覆盖分别保存，避免合并成笼统置信度。
 class AgentDataQuality(_ReportModel):
     freshness: FreshnessStatus
     missing_inputs: tuple[Annotated[str, Field(min_length=1, max_length=100)], ...]
@@ -523,6 +546,7 @@ class FrozenMarketMetrics(_ReportModel):
             self.fear_greed_classification,
             self.fear_greed_change_7d,
         )
+        # 情绪当前值、分类和七日变化同属一个冻结上下文，不能只展示局部制造完整感。
         if any(value is None for value in sentiment) and any(
             value is not None for value in sentiment
         ):
@@ -530,6 +554,7 @@ class FrozenMarketMetrics(_ReportModel):
         return self
 
 
+# 保留历史兼容；双周期必须同时带中文叙事与冻结指标，确定性区间和模型观点分字段保存。
 class AgentAnalysis(_ReportModel):
     horizon: Literal["1_to_3_days", "dual_horizon"]
     outlook: MarketOutlook
@@ -556,12 +581,14 @@ class AgentAnalysis(_ReportModel):
 
     @model_validator(mode="after")
     def validate_narrative(self) -> AgentAnalysis:
+        # 保留历史契约原貌；不能把双周期字段回填到旧周期而改变历史报告含义。
         if self.horizon == "1_to_3_days":
             if self.narrative is not None:
                 raise ValueError("历史一至三天报告不能包含双层叙事")
             if self.market_metrics is not None:
                 raise ValueError("历史一至三天报告不能包含冻结市场指标")
             return self
+        # 当前双周期正文与冻结市场指标缺一不可，方向性字段不能脱离可复核事实。
         if self.narrative is None:
             raise ValueError("双层市场报告必须包含中文叙事")
         if self.market_metrics is None:
@@ -585,6 +612,7 @@ class ModelValidationFailure(_ReportModel):
     @field_validator("field_paths")
     @classmethod
     def validate_field_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        # 失败摘要只接受去重且有界的字段路径，不保存模型原文或完整校验错误。
         if len(set(value)) != len(value) or any(
             _VALIDATION_FAILURE_FIELD_PATH.fullmatch(item) is None for item in value
         ):
@@ -599,6 +627,7 @@ class ModelValidationFailure(_ReportModel):
         return tuple(sorted(value))
 
 
+# 保存运行时段、模型诊断与引用关系，最终统一校验所有研究引用属于当前报告证据。
 class AgentReportCreation(AnalysisReportCreation):
     started_at: UtcDateTime
     completed_at: UtcDateTime
@@ -607,6 +636,7 @@ class AgentReportCreation(AnalysisReportCreation):
     validation_failure: ModelValidationFailure | None = None
     agent_analysis: AgentAnalysis
 
+    # 保存 Agent 输入时显式带证据标识，否则草稿默认隐藏标识会破坏模型引用关联。
     @field_serializer("evidences", when_used="json")
     def serialize_agent_evidences(
         self,
@@ -647,6 +677,7 @@ class AgentReportCreation(AnalysisReportCreation):
         ):
             raise ValueError("模型格式失败摘要只能关联格式校验错误")
         evidence_ids = {evidence.id for evidence in self.evidences}
+        # 主叙事、催化、风险和专题统一收集引用，最终保存门防止遗漏嵌套引用检查。
         referenced_ids = _agent_analysis_evidence_ids(self.agent_analysis)
         if not referenced_ids <= evidence_ids:
             raise ValueError("Agent 结论只能引用本报告的冻结证据")
@@ -693,22 +724,26 @@ def _agent_analysis_evidence_ids(analysis: AgentAnalysis) -> set[UUID]:
     return referenced_ids
 
 
+# 仓储读回的证据包含创建时间与公开标识，草稿隐藏标识的序列化规则在此解除。
 class PersistedAnalysisEvidence(AnalysisEvidenceDraft):
     id: UUID = Field(default_factory=uuid4)
     created_at: UtcDateTime
 
 
+# 分页列表使用报告头部和生成器信息，避免列表读取完整原始证据载荷。
 class AnalysisReportSummary(AnalysisReportDraft):
     created_at: UtcDateTime
     generator_kind: ReportGeneratorKind = ReportGeneratorKind.DETERMINISTIC
 
 
+# 详情结果增加关联证据、可选研究分析及安全模型失败摘要。
 class PersistedAnalysisReport(AnalysisReportSummary):
     evidence: tuple[PersistedAnalysisEvidence, ...]
     agent_analysis: AgentAnalysis | None = None
     validation_failure: ModelValidationFailure | None = None
 
 
+# 有界分页契约；列表项是报告摘要，总数独立于当前页长度。
 class ReportPage(_ReportModel):
     items: tuple[AnalysisReportSummary, ...]
     page: Annotated[int, Field(ge=1)]

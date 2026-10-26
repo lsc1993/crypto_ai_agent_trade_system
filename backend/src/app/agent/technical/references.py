@@ -1,3 +1,5 @@
+# 建立类型化冻结事实引用目录，校验章节引用后将占位符确定性渲染为标签及数值。
+# 方法只能解释分析方式，不能当市场证据；历史触发和到期说明由渲染器固定表达。
 """Typed fact references and deterministic rendering of numeric anchors."""
 
 import re
@@ -37,12 +39,14 @@ _LABELS = {
 _PLACEHOLDER = re.compile(r"\{\{([A-Za-z0-9_.]+)\}\}")
 
 
+# 目录绑定当前上下文，字段路径只映射该次冻结值，不能查询实时状态。
 @dataclass(frozen=True)
 class ReferenceCatalog:
     context: TechnicalContext
     values: dict[str, str]
 
 
+# 递归展开事实、候选及无计划原因；跳过空值，防止不存在的值成为可引用证据。
 def build_reference_catalog(context: TechnicalContext) -> ReferenceCatalog:
     values: dict[str, str] = {}
 
@@ -66,6 +70,7 @@ def build_reference_catalog(context: TechnicalContext) -> ReferenceCatalog:
     return ReferenceCatalog(context=context, values=values)
 
 
+# 重新验证进程内对象，并核对候选方向、各章节价格角色以及所有等待原因的覆盖。
 def validate_decision(
     summary: TechnicalDecisionSummary, catalog: ReferenceCatalog
 ) -> TechnicalDecisionSummary:
@@ -84,6 +89,7 @@ def validate_decision(
     for section in SECTIONS:
         for claim in getattr(summary, section):
             validate_claim(claim, catalog, section=section, waiting=summary.stance == "wait")
+    # 候选各角色必须在对应章节正文出现，不能仅列在引用数组里而漏掉读者可见说明。
     if summary.selected_plan_ref:
         for section, required in (
             ("entry_conditions", "plans.0.triggerLevel"),
@@ -96,6 +102,7 @@ def validate_decision(
             incompatible = {"plans.0.stopLoss", "plans.0.target"} - {required}
             if any(incompatible & set(claim.fact_refs) for claim in claims):
                 raise ValueError("plan_role_reference")
+    # 无候选时等待清单必须覆盖全部程序原因，防止模型选择性省略拒绝依据。
     if not analysis.plans:
         reasons = {f"noPlanReasons.{i}" for i in range(len(analysis.no_plan_reasons))}
         if reasons and not reasons <= {
@@ -105,6 +112,7 @@ def validate_decision(
     return summary
 
 
+# 同时校验证据、事实和方法归属；等待立场不得引用候选，止损与目标字段不可串用。
 def validate_claim(
     claim: PlanClaim, catalog: ReferenceCatalog, *, section: str, waiting: bool
 ) -> None:
@@ -132,6 +140,7 @@ def validate_claim(
         raise ValueError("plan_role_reference")
 
 
+# 完整验证通过才替换数值占位符，额外写入冻结触发状态与有效期，禁止推断实时可执行性。
 def render_plan_book(book: TechnicalDecisionSummary, catalog: ReferenceCatalog) -> RenderedPlanBook:
     book = validate_decision(book, catalog)
     payload: dict[str, object] = {

@@ -1,3 +1,5 @@
+# 独立技术 v1 报告及 v2 复用的事实、方法和候选契约，公开财务值序列化为十进制字符串。
+# 计划是条件研究结构；数值几何同时检查内部精度和公开舍入，冻结状态不能解释成实时执行许可。
 """Public, bounded contracts for the independent technical research report."""
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ def _camel(value: str) -> str:
     return head + "".join(word.capitalize() for word in tail)
 
 
+# 拒绝浮点和布尔值，只允许有限十进制或其字符串，避免精度损失进入金融计算。
 def _decimal_only(value: object) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, (Decimal, str)):
         raise ValueError("金融数值必须是 Decimal 或十进制字符串")
@@ -79,6 +82,7 @@ class _TechnicalModel(BaseModel):
     )
 
 
+# 研究候选方向与无突破状态，枚举本身不授权订单或账户访问。
 class TechnicalDirection(StrEnum):
     LONG = "long"
     SHORT = "short"
@@ -118,6 +122,7 @@ def wire_plan_prices_valid(
     return False
 
 
+# 保留各周期样本数量、最新收盘时间及明确质量原因，便于复核拒绝依据。
 class TechnicalQuality(_TechnicalModel):
     status: str
     reasons: tuple[str, ...]
@@ -132,6 +137,7 @@ class TechnicalQuality(_TechnicalModel):
         return value
 
 
+# 冻结审查方法的来源、版本与改写指纹，方法说明不是行情证据。
 class TechnicalMethod(_TechnicalModel):
     id: str
     version: str
@@ -141,6 +147,7 @@ class TechnicalMethod(_TechnicalModel):
     adaptation_note: str
 
 
+# 所有指标和形态由程序从冻结行情计算；模型只能解释，不能重写财务值。
 class TechnicalFacts(_TechnicalModel):
     trend_alignment: dict[str, str]
     sma20: dict[str, DecimalText]
@@ -158,6 +165,7 @@ class TechnicalFacts(_TechnicalModel):
     resistance_levels: tuple[DecimalText, ...]
 
 
+# 假设空仓的有限条件候选，包含有效期和每侧成本假设，不包含金额、仓位或订单。
 class TechnicalPlan(_TechnicalModel):
     direction: TechnicalDirection
     state: str
@@ -234,6 +242,7 @@ class TechnicalPlan(_TechnicalModel):
         return self
 
 
+# 组合质量、可选事实、有限候选及无计划原因，统一挂到本次证据标识。
 class TechnicalAnalysis(_TechnicalModel):
     quality: TechnicalQuality
     facts: TechnicalFacts | None
@@ -264,6 +273,7 @@ _FINANCIAL_CHINESE = re.compile(
 )
 
 
+# 区分正常含数字字形的词语与具体数量，不修改或删除原始叙事字符。
 def _contains_quantitative_number(text: str) -> bool:
     # Chinese numeral characters also occur in ordinary words such as 一致 and 一旦.
     # Recognize quantities without deleting or rewriting the original narrative.
@@ -277,6 +287,7 @@ def _contains_quantitative_number(text: str) -> bool:
     )
 
 
+# 技术 v1 的纯定性中文论断；数值、操作指令与收益承诺由确定性校验拒绝。
 class TechnicalClaim(_TechnicalModel):
     text: str
     evidence_ids: tuple[UUID, ...]
@@ -307,12 +318,14 @@ class TechnicalClaim(_TechnicalModel):
         return text
 
 
+# 模型主判断、反向情景及风险，每条由适配器核对当前冻结证据。
 class TechnicalNarrative(_TechnicalModel):
     thesis: TechnicalClaim
     alternative: TechnicalClaim
     risks: tuple[TechnicalClaim, ...]
 
 
+# v1 完成状态必须有模型叙事且无错误码，降级必须明确错误并移除叙事。
 class TechnicalReport(_TechnicalModel):
     version: Literal["technical-v1"] = "technical-v1"
     id: UUID

@@ -1,3 +1,6 @@
+# 集中定义环境配置、模型白名单、请求超时与 CORS 来源。
+# 优先读取后端本地配置，缺失时寻找根目录配置，再由 Pydantic 校验并冻结实例。
+# 连接串和模型密钥使用 SecretStr 包装；配置模型不授权真实交易，也不负责记录配置值。
 from pathlib import Path
 from typing import Any, Literal
 
@@ -19,6 +22,7 @@ def _find_local_env_file() -> Path | None:
     return None
 
 
+# 不可变应用配置契约；读取环境时校验类型和范围，敏感字段保留 SecretStr 包装。
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=_find_local_env_file(),
@@ -46,6 +50,7 @@ class AppSettings(BaseSettings):
     technical_composition_timeout_seconds: int = Field(default=90, ge=15, le=90)
     technical_run_timeout_seconds: int = Field(default=600, ge=120, le=600)
 
+    # 校验各模型阶段超时不超过任务截止；返回同一配置实例而不改写用户值。
     @model_validator(mode="after")
     def technical_timeouts(self) -> "AppSettings":
         if (
@@ -55,6 +60,7 @@ class AppSettings(BaseSettings):
             raise ValueError("技术模型阶段超时不能超过任务截止")
         return self
 
+    # 输入必须是允许模型名称的字符串；只去除首尾空白，不对未知模型自动回退。
     @field_validator("deepseek_model", mode="before")
     @classmethod
     def validate_deepseek_model(cls, value: Any) -> str:
@@ -65,6 +71,7 @@ class AppSettings(BaseSettings):
             raise ValueError("DeepSeek 模型不在允许列表")
         return value.strip()
 
+    # 拒绝 CORS 通配符并返回原始来源列表，避免扩大浏览器跨域访问范围。
     @field_validator("cors_allowed_origins")
     @classmethod
     def reject_wildcard_origin(

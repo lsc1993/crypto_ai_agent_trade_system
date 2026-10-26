@@ -1,3 +1,5 @@
+# 将手动综合研究包装成带 UTC 时间和独立运行标识的受控请求。
+# 工作流只委托固定研究服务，权限和审计由统一运行时执行，结果仍是冻结报告。
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -17,7 +19,9 @@ from app.market.symbols import ResearchSymbol
 from app.reports.contracts import PersistedAnalysisReport
 
 
+# 被协调的研究服务端口；关联标识传入报告链路，避免新建不相干审计运行。
 class AgentResearchGenerator(Protocol):
+    # 构造请求并交给运行时，准入拒绝时不会先调用底层研究服务。
     async def generate(
         self,
         symbol: Any,
@@ -26,6 +30,7 @@ class AgentResearchGenerator(Protocol):
     ) -> PersistedAnalysisReport: ...
 
 
+# 声明综合研究所需能力，并沿用受控运行标识生成报告。
 class MarketResearchWorkflow(HarnessWorkflow[PersistedAnalysisReport]):
     kind = HarnessRunKind.MARKET_RESEARCH
     required_capabilities: tuple[HarnessCapability, ...] = (
@@ -42,6 +47,7 @@ class MarketResearchWorkflow(HarnessWorkflow[PersistedAnalysisReport]):
         )
 
 
+# 对外手动入口注入时钟与标识生成器，使准入与审计可确定性测试。
 class HarnessedMarketResearchService:
     def __init__(
         self,
@@ -54,6 +60,7 @@ class HarnessedMarketResearchService:
         self._clock = clock
         self._new_run_id = new_run_id
 
+    # 构造请求并交给运行时，准入拒绝时不会先调用底层研究服务。
     async def generate(self, symbol: ResearchSymbol) -> PersistedAnalysisReport:
         request = HarnessRunRequest(
             run_id=self._new_run_id(),

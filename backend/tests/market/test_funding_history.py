@@ -1,3 +1,6 @@
+# 验证公开已结算资金费率的时间窗口、记录限额与精度。
+# HTTP 替身返回边界样本，无效行、超大响应和越界来源均需拒绝。
+# 取消信号原样传播，错误内容不能包含上游原始响应。
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta

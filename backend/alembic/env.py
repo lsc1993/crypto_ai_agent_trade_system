@@ -1,3 +1,6 @@
+# 装配异步 Alembic 迁移环境，读取现有模型元数据和受保护数据库配置。
+# 可选 schema 参数经白名单格式验证，用于隔离测试迁移及版本表。
+# 使用无连接池引擎并在 finally 关闭；本文件执行时直接运行在线迁移。
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +27,7 @@ target_metadata = market.Base.metadata
 _SCHEMA_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 
+# 优先读取迁移配置，否则使用应用秘密配置；缺失时明确失败，不输出连接值。
 def _database_url() -> str:
     configured_url = config.get_main_option("sqlalchemy.url")
     if configured_url:
@@ -34,6 +38,7 @@ def _database_url() -> str:
     return database_url.get_secret_value()
 
 
+# 仅允许受限标识符，避免动态搜索路径包含任意 SQL；未提供时使用默认 schema。
 def _schema() -> str | None:
     schema = context.get_x_argument(as_dictionary=True).get("schema")
     if schema is None:
@@ -43,6 +48,7 @@ def _schema() -> str | None:
     return schema
 
 
+# 版本表与业务表使用同一 schema；SET LOCAL 仅影响当前迁移事务。
 def _configure_migrations(connection: Connection) -> None:
     schema = _schema()
     context.configure(
@@ -56,6 +62,7 @@ def _configure_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
+# 异步建立连接，通过同步桥执行迁移；无论失败或成功均释放引擎。
 async def _run_async_migrations() -> None:
     configuration = config.get_section(config.config_ini_section) or {}
     configuration["sqlalchemy.url"] = _database_url()
@@ -71,6 +78,7 @@ async def _run_async_migrations() -> None:
         await connectable.dispose()
 
 
+# 同步入口负责创建本次迁移所需事件循环，不复用服务运行循环。
 def run_migrations_online() -> None:
     asyncio.run(_run_async_migrations())
 

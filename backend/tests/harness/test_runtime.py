@@ -1,3 +1,6 @@
+# 验证运行注册、策略准入、工作流委托与审计生命周期。
+# 记录型及失败型替身观察事件顺序、拒绝原因和异常优先级。
+# 审计写入故障必须阻断执行或覆盖工作流故障，安全日志不能携带原始上下文。
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -59,6 +62,7 @@ def _empty_sequences() -> list[int]:
     return []
 
 
+# 按阶段注入审计写入失败，并记录运行、评估和事件，检验失败关闭的执行边界。
 @dataclass
 class RecordingAuditRepository:
     fail_on: Literal["requested", "evaluation", "started", "failed"] | None = None
@@ -98,6 +102,7 @@ class RecordingAuditRepository:
         return None
 
 
+# 委托执行时读取已保存事件序号，直接观察审计是否先于工作流运行。
 @dataclass
 class RecordingWorkflow:
     required_capabilities: tuple[HarnessCapability, ...]
@@ -115,6 +120,7 @@ class RecordingWorkflow:
         return "completed"
 
 
+# 记录调用后抛出带敏感正文的异常，区分原异常传播与安全失败事件内容。
 @dataclass
 class FailingWorkflow(RecordingWorkflow):
     async def run(self, request: HarnessRunRequest) -> str:
@@ -134,6 +140,7 @@ def _workflow(
     )
 
 
+# 固定耗时时钟使审计持续时间可重复，委托前应已写请求、授权和启动事件。
 @pytest.mark.asyncio
 async def test_runtime_runs_registered_workflow(
     monkeypatch: pytest.MonkeyPatch,
@@ -173,10 +180,12 @@ async def test_runtime_runs_registered_workflow(
     ]
     assert audit.events[1].duration_ms == 0
     assert audit.evaluations[0].decision is HarnessEvaluationDecision.PASSED
+    # 替身在执行瞬间记录的事件位置证明审计先行，最终事件完整不能单独证明此顺序。
     assert workflow.event_sequences_at_call == [0, 1, 2]
     assert workflow.calls == [REQUEST]
 
 
+# 故意绕过类型检查声明未知能力，运行时仍必须拒绝并保持委托零调用。
 @pytest.mark.asyncio
 async def test_runtime_rejects_unknown_capability_before_delegation(
     monkeypatch: pytest.MonkeyPatch,
@@ -321,6 +330,7 @@ async def test_runtime_records_safe_workflow_failure_before_reraising() -> None:
     assert workflow.calls == [REQUEST]
 
 
+# 请求、策略评估或启动任一步审计失败，都必须阻断工作流执行。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_on", ["requested", "evaluation", "started"])
 async def test_runtime_fails_closed_when_an_audit_write_fails(
@@ -337,9 +347,11 @@ async def test_runtime_fails_closed_when_an_audit_write_fails(
     with pytest.raises(HarnessAuditStorageUnavailableError):
         await runtime.run(REQUEST)
 
+    # 三个写入阶段均复用零调用断言，任何一步失败都不能以无审计方式继续执行。
     assert workflow.calls == []
 
 
+# 工作流已失败后再模拟终态审计失败，存储错误优先上抛且日志不泄露两个异常正文。
 @pytest.mark.asyncio
 async def test_runtime_audit_failure_while_recording_workflow_failure_takes_precedence() -> None:
     workflow = FailingWorkflow(
@@ -357,6 +369,7 @@ async def test_runtime_audit_failure_while_recording_workflow_failure_takes_prec
             await runtime.run(REQUEST)
 
     assert workflow.calls == [REQUEST]
+    # 只能保留已写成功的前置事件，不能伪称失败终态也已持久化。
     assert [event.sequence for event in audit.events] == [0, 1, 2]
     rendered_logs = repr(logs)
     assert "delegate exception message" not in rendered_logs
@@ -408,6 +421,7 @@ async def test_runtime_logs_only_safe_lifecycle_fields() -> None:
         assert "duration_ms" in entry
 
 
+# 先装配应用并预热日志缓存，再捕获第二次运行，避免安全日志断言只在冷启动时有效。
 @pytest.mark.asyncio
 async def test_runtime_logs_are_captured_after_application_logger_cache_is_warmed() -> None:
     create_app()

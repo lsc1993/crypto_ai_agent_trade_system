@@ -1,3 +1,6 @@
+# 验证收盘决策、下一根开盘成交的确定性回测时间线。
+# 固定策略替身分别产生开仓、重复意图和无仓平仓，观察事件与成交。
+# 未来数据、缺失小时、风控拒绝、熔断和部分成交都需显式处理；末尾持仓按收盘估值。
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -13,6 +16,7 @@ RUN_ID = UUID("00000000-0000-0000-0000-000000000701")
 START = datetime(2026, 7, 3, 12, 0, tzinfo=UTC)
 
 
+# 决策可见窗口截止当前收盘，成交推迟到下一根开盘，避免使用未来价格。
 def test_engine_executes_a_signal_on_the_next_candle_open_without_future_access() -> None:
     strategy = _OpenOnFirstPerformanceCandle()
     result = DeterministicBacktestEngine(strategy=strategy).run(
@@ -59,6 +63,7 @@ def test_engine_rejects_missing_hour_before_strategy_execution() -> None:
         raise AssertionError("有缺口的 K 线不应进入策略执行")
 
 
+# 同一意图重复出现只允许一个订单和成交，并在审计中保持可追溯。
 def test_duplicate_idempotency_key_creates_one_order_and_one_fill() -> None:
     result = DeterministicBacktestEngine(strategy=_DuplicateOpenSignals()).run(
         RUN_ID,

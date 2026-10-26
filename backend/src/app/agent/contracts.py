@@ -1,3 +1,5 @@
+# 定义综合研究图的轻量状态、节点名称及可安全保存的错误枚举。
+# 检查点只携带标识、计数与受控错误，不携带行情载荷、新闻正文或模型原文。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -21,6 +23,7 @@ AgentNodeName = Literal[
 ]
 
 
+# 错误类型采用有限枚举，避免任意上游错误文本进入检查点和诊断。
 class AgentErrorCode(StrEnum):
     """Finite error identifiers that are safe to retain in a checkpoint."""
 
@@ -40,6 +43,7 @@ class AgentErrorCode(StrEnum):
     MODEL_INVALID_EVIDENCE = "model_invalid_evidence"
 
 
+# 冻结的节点间状态；证据以唯一标识关联，请求时间必须为带时区的 UTC。
 class AgentRunState(BaseModel):
     """Checkpoint-safe orchestration state containing no research payloads."""
 
@@ -70,6 +74,7 @@ class AgentRunState(BaseModel):
             raise ValueError("Agent 证据 ID 必须唯一")
         return value
 
+    # 先检查容器与元素类型再转换枚举，拒绝把异常对象或任意文本当错误码。
     @field_validator("error_codes", mode="before")
     @classmethod
     def require_safe_error_codes(cls, value: object) -> object:
@@ -85,6 +90,7 @@ class AgentRunState(BaseModel):
             raise ValueError("Agent 状态只能包含最小安全错误码") from error
         return values
 
+    # 来源总数必须等于成功与失败之和，防止覆盖情况在节点更新时失真。
     @model_validator(mode="after")
     def require_consistent_news_counts(self) -> AgentRunState:
         if self.news_success_count + self.news_failure_count != self.news_source_count:

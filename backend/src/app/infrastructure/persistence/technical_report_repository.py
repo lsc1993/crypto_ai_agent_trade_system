@@ -1,3 +1,6 @@
+# 保存版本化技术报告及冻结证据，并分页读取历史。
+# 保存前按公开 JSON 精度解析文档；有租约时在事务中锁定并校验任务所有权。
+# 报告只追加，终态审计由数据库触发器关联；读取解析既有版本，不重新计算历史计划。
 from typing import cast
 from uuid import UUID
 
@@ -15,10 +18,13 @@ from app.reports.technical_repository import TechnicalReportPage
 from app.reports.technical_runs import TechnicalRunLease
 
 
+# SqlAlchemyTechnicalReportRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyTechnicalReportRepository:
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._factory = session_factory
 
+    # 按公开精度重新解析报告；可选租约在数据库时间下验证并锁定，事务追加报告和证据哈希。
     async def persist(
         self,
         report: TechnicalReportDocument,
@@ -37,12 +43,15 @@ class SqlAlchemyTechnicalReportRepository:
                             TechnicalRunRecord.id == lease.run_id,
                             TechnicalRunRecord.owner == lease.owner,
                             TechnicalRunRecord.status == "running",
+                            # 提交时采用数据库当前时间核验租约，避免 worker
+                            # 本地时钟误判所有权仍有效。
                             TechnicalRunRecord.lease_expires_at > func.clock_timestamp(),
                         )
                         .with_for_update()
                     )
                     if run is None or run.analysis_id != report.analysis_id:
                         raise ReportStorageUnavailableError("技术研究任务租约已失效")
+                # 租约锁与报告插入处于同一事务；数据库触发器终态审计依赖对应迁移已应用。
                 session.add(
                     TechnicalReportRecord(
                         id=report.id,
@@ -60,6 +69,7 @@ class SqlAlchemyTechnicalReportRepository:
             raise ReportStorageUnavailableError("技术报告保存不可用") from None
         return report
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get(self, report_id: UUID) -> TechnicalReportDocument | None:
         try:
             async with self._factory() as session:
@@ -68,6 +78,7 @@ class SqlAlchemyTechnicalReportRepository:
         except SQLAlchemyError:
             raise ReportStorageUnavailableError("技术报告读取不可用") from None
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_by_analysis_id(self, analysis_id: UUID) -> TechnicalReportDocument | None:
         try:
             async with self._factory() as session:
@@ -80,6 +91,7 @@ class SqlAlchemyTechnicalReportRepository:
         except SQLAlchemyError:
             raise ReportStorageUnavailableError("技术报告读取不可用") from None
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list(
         self,
         *,

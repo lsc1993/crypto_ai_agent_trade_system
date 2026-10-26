@@ -1,3 +1,6 @@
+# 组装 FastAPI 应用、领域服务、公开 HTTP 客户端和数据库仓储。
+# 先读取配置并选择注入依赖或默认实现，再在 lifespan 中启动 worker 和 checkpoint。
+# 关闭时按依赖顺序回收后台任务、客户端与引擎；研究工作流与确定性模拟盘分别装配。
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -141,11 +144,14 @@ from app.trades.repository import TradeRepository
 from app.trades.service import TradeService
 
 
+# 缺少对应依赖时使用的显式失败实现；保留协议形状，不用伪造数据冒充可用服务。
 class _UnavailablePersistedMarketReader(PersistedMarketReader):
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def load_snapshot(self, snapshot_id: UUID) -> NoReturn:
         del snapshot_id
         _raise_market_research_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def load_latest_snapshot(
         self,
         symbol: ResearchSymbol,
@@ -153,6 +159,7 @@ class _UnavailablePersistedMarketReader(PersistedMarketReader):
         del symbol
         _raise_market_research_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def load_recent_candles(
         self,
         symbol: ResearchSymbol,
@@ -163,7 +170,9 @@ class _UnavailablePersistedMarketReader(PersistedMarketReader):
         _raise_market_research_unavailable()
 
 
+# 缺少对应依赖时使用的显式失败实现；保留协议形状，不用伪造数据冒充可用服务。
 class _UnavailableAnalysisReportRepository(AnalysisReportRepository):
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def persist(
         self,
         creation: AnalysisReportCreation,
@@ -171,14 +180,17 @@ class _UnavailableAnalysisReportRepository(AnalysisReportRepository):
         del creation
         _raise_analysis_report_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def get_by_id(self, report_id: UUID) -> NoReturn:
         del report_id
         _raise_analysis_report_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def get_by_analysis_id(self, analysis_id: UUID) -> NoReturn:
         del analysis_id
         _raise_analysis_report_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def list(
         self,
         *,
@@ -191,7 +203,9 @@ class _UnavailableAnalysisReportRepository(AnalysisReportRepository):
         _raise_analysis_report_storage_unavailable()
 
 
+# 缺少对应依赖时使用的显式失败实现；保留协议形状，不用伪造数据冒充可用服务。
 class _UnavailableTradeRepository(TradeRepository):
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def create(
         self,
         *,
@@ -203,6 +217,7 @@ class _UnavailableTradeRepository(TradeRepository):
         del draft, pnl, occurred_at, correlation_id
         _raise_trade_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def replace(
         self,
         *,
@@ -215,6 +230,7 @@ class _UnavailableTradeRepository(TradeRepository):
         del trade_id, draft, pnl, occurred_at, correlation_id
         _raise_trade_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def archive(
         self,
         trade_id: UUID,
@@ -225,20 +241,25 @@ class _UnavailableTradeRepository(TradeRepository):
         del trade_id, occurred_at, correlation_id
         _raise_trade_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def get_by_id(self, trade_id: UUID) -> NoReturn:
         del trade_id
         _raise_trade_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def list(self, filters: TradeFilters) -> NoReturn:
         del filters
         _raise_trade_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def list_closed(self, filters: TradeFilters) -> NoReturn:
         del filters
         _raise_trade_storage_unavailable()
 
 
+# 缺少对应依赖时使用的显式失败实现；保留协议形状，不用伪造数据冒充可用服务。
 class _UnavailableHistoricalCandleGateway(HistoricalCandleGateway):
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def load_closed_candles(
         self,
         symbol: ContractSymbol,
@@ -251,7 +272,9 @@ class _UnavailableHistoricalCandleGateway(HistoricalCandleGateway):
         _raise_backtest_history_unavailable()
 
 
+# 缺少对应依赖时使用的显式失败实现；保留协议形状，不用伪造数据冒充可用服务。
 class _UnavailableBacktestRepository(BacktestRepository):
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def create_pending(
         self,
         request: BacktestRequest,
@@ -261,6 +284,7 @@ class _UnavailableBacktestRepository(BacktestRepository):
         del request, occurred_at
         _raise_backtest_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def complete(
         self,
         run_id: UUID,
@@ -272,6 +296,7 @@ class _UnavailableBacktestRepository(BacktestRepository):
         del run_id, result, candles, occurred_at
         _raise_backtest_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def fail(
         self,
         run_id: UUID,
@@ -283,16 +308,20 @@ class _UnavailableBacktestRepository(BacktestRepository):
         del run_id, code, message, occurred_at
         _raise_backtest_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def list(self, filters: BacktestFilters) -> NoReturn:
         del filters
         _raise_backtest_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def get_by_id(self, run_id: UUID) -> NoReturn:
         del run_id
         _raise_backtest_storage_unavailable()
 
 
+# 缺少对应依赖时使用的显式失败实现；保留协议形状，不用伪造数据冒充可用服务。
 class _UnavailablePaperTradingRepository(PaperTradingRepository):
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def create_account(
         self,
         request: PaperAccountCreate,
@@ -302,18 +331,22 @@ class _UnavailablePaperTradingRepository(PaperTradingRepository):
         del request, occurred_at
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def list(self, filters: PaperAccountFilters) -> NoReturn:
         del filters
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def get_by_id(self, account_id: UUID) -> NoReturn:
         del account_id
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def get_performance_data(self, account_id: UUID) -> NoReturn:
         del account_id
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def find_outcome(
         self,
         account_id: UUID,
@@ -322,6 +355,7 @@ class _UnavailablePaperTradingRepository(PaperTradingRepository):
         del account_id, idempotency_key
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def apply_transition(
         self,
         account_id: UUID,
@@ -333,6 +367,7 @@ class _UnavailablePaperTradingRepository(PaperTradingRepository):
         del account_id, idempotency_key, transition, occurred_at
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def record_market_failure(
         self,
         account_id: UUID,
@@ -344,11 +379,13 @@ class _UnavailablePaperTradingRepository(PaperTradingRepository):
         del account_id, idempotency_key, code, occurred_at
         _raise_paper_storage_unavailable()
 
+    # 实现缺失依赖的协议方法：接受原契约输入后抛出固定不可用异常，不返回占位成功结果。
     async def archive(self, account_id: UUID, *, occurred_at: datetime) -> NoReturn:
         del account_id, occurred_at
         _raise_paper_storage_unavailable()
 
 
+# 仅对默认 Binance 公共网关组合衍生品和情绪采集器，注入其他网关时返回 None。
 def build_public_research_context_collector(
     *,
     market_gateway: PublicMarketGateway,
@@ -368,6 +405,7 @@ def build_public_research_context_collector(
     )
 
 
+# 按已登记来源顺序共享一个 HTTP 客户端创建 RSS 适配器；不扩展来源或抓取范围。
 def build_news_sources(
     *,
     client: httpx.AsyncClient,
@@ -385,6 +423,7 @@ def build_news_sources(
     )
 
 
+# 接收可替换的网关、仓储与时钟，返回完成路由及 state 装配的 FastAPI；资源启停交给 lifespan。
 def create_app(
     market_gateway: PublicMarketGateway | None = None,
     market_research_reader: PersistedMarketReader | None = None,
@@ -436,6 +475,7 @@ def create_app(
             clock=lambda: datetime.now(UTC),
         )
 
+    # 历史网关只复用能够提供公开历史的默认适配器；其他注入网关不被强行替换。
     if historical_candle_gateway is None:
         historical_candle_gateway = (
             market_gateway
@@ -671,6 +711,7 @@ def create_app(
                 clock=lambda: datetime.now(UTC),
             )
 
+    # v2 技术任务使用独立客户端和专用 worker，与 v1 同步服务分别装配。
     technical_plan_client: httpx.AsyncClient | None = None
     technical_plan_worker: TechnicalResearchWorker | None = None
     if technical_run_repository is None and session_factory is not None:
@@ -700,8 +741,10 @@ def create_app(
             repository=technical_run_repository, executor=executor, clock=lambda: datetime.now(UTC)
         )
 
+    # 在服务存活期间运行同步与技术研究 worker；退出时停止任务并关闭本函数组装的资源。
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # 每次 lifespan 创建独立停止信号；worker 消费既有队列，不定时生成报告。
         stop_sync = asyncio.Event()
         stop_plan = asyncio.Event()
         plan_task = (
@@ -719,12 +762,15 @@ def create_app(
                 async with AsyncPostgresSaver.from_conn_string(
                     checkpoint_connection,
                 ) as checkpointer:
+                    # checkpoint 的准备与连接仅覆盖服务 lifespan，
+                    # 固定研究服务在资源就绪后才替换默认实现。
                     await checkpointer.setup()
                     app.state.analysis_report_service = agent_service_factory(checkpointer)
                     yield
             else:
                 yield
         finally:
+            # 技术任务先协作停止；超过五秒取消并收集结果，再关闭其 HTTP 客户端。
             stop_plan.set()
             if plan_task is not None:
                 try:
@@ -736,6 +782,7 @@ def create_app(
                 await technical_plan_client.aclose()
             if technical_model_client is not None:
                 await technical_model_client.aclose()
+            # 币种同步使用停止事件后等待退出；此处没有套用技术 worker 的五秒取消逻辑。
             stop_sync.set()
             if sync_task is not None:
                 await sync_task
@@ -757,6 +804,7 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+    # state 是路由依赖桥接点，集中注入可避免 HTTP 处理器私自创建网关或数据库连接。
     app.state.market_service = MarketQueryService(market_gateway)
     app.state.symbol_repository = symbol_repository
     app.state.symbol_service = symbol_service
@@ -821,6 +869,7 @@ def create_app(
 app = create_app()
 
 
+# 查询目录项并返回其是否存在且启用，仅检查目录状态，不检查同步已就绪。
 async def _is_enabled_research_symbol(
     repository: SymbolRepository,
     symbol: ResearchSymbol,
@@ -829,6 +878,7 @@ async def _is_enabled_research_symbol(
     return entry is not None and entry.enabled
 
 
+# 只有目录项存在、启用且 can_research 为真才授权研究，供 Harness 的注入门禁调用。
 async def _is_research_ready_symbol(
     repository: SymbolRepository,
     symbol: ResearchSymbol,

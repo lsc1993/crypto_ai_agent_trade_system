@@ -1,3 +1,6 @@
+# 模拟盘状态机：推进账户时钟后，无信号直接返回；存在意图时先检查风险退出。
+# 风控与模拟撮合后返回账户、仓位、账本和审计事件，由调用方保存状态转换。
+# 模拟盘领域：手动请求或单次策略评估推进本地账户、仓位和审计；仅支持当前静态标的契约。
 """模拟盘领域状态机。
 
 数据流：活动账户、仓位、可选 TradeIntent 与冻结报价 → 推进账户时钟和风控 → 模拟
@@ -33,12 +36,14 @@ from app.risk.engine import RiskEngine
 from app.strategy.contracts import IntentAction, IntentSource, TradeIntent
 
 
+# 只根据冻结报价和领域状态推进模拟账户。
 class PaperTradingEngine:
     """只根据冻结报价和领域状态推进模拟账户。
 
     该引擎是纯领域状态机：返回完整 transition，由服务层在事务中一次性持久化。
     """
 
+    # 在单个冻结报价上推进一次模拟盘状态。
     def apply(
         self,
         *,
@@ -73,6 +78,7 @@ class PaperTradingEngine:
         )
         events: list[PaperAuditEvent] = []
 
+        # 当前无信号路径先返回审计转换，不进入下面的风险退出检查；调用方应按此实际顺序理解行为。
         if intent is None:
             # 无信号同样写入审计序列，区分“策略未触发”与“系统没有执行”。
             _append_event(
@@ -157,6 +163,7 @@ class PaperTradingEngine:
             outcome_reason=None,
         )
 
+    # 验证账户、仓位、意图、报价和 K 线时刻属于同一可操作上下文。
     @staticmethod
     def _validate_inputs(
         account: PaperAccount,
@@ -182,6 +189,7 @@ class PaperTradingEngine:
         ):
             raise ValueError("最近已收盘 K 线时间必须是 UTC 且带时区")
 
+    # 以最新已收盘 K 线推进权益高水位、日损失、冷却期和账户时钟。
     def _advance_account(
         self,
         account: PaperAccount,
@@ -197,6 +205,7 @@ class PaperTradingEngine:
             and latest_close < account.last_closed_candle_at
         ):
             raise PaperAccountStateError("最近已收盘 K 线时间不能倒退")
+        # 冷却按已收盘小时 K 线推进，相同收盘时点的重复操作不会额外消耗冷却根数。
         elapsed_candles = 0
         if account.last_closed_candle_at is not None:
             elapsed_candles = int(
@@ -206,6 +215,7 @@ class PaperTradingEngine:
         peak_equity = max(account.peak_equity, equity)
         daily_day = latest_close.date()
         if daily_day != account.daily_day:
+            # 跨 UTC 日时以当前估值重设日初权益并清零当日已实现损失，不回滚账户总盈亏。
             daily_start_equity = equity
             daily_realized_loss = Decimal("0")
         else:
@@ -223,6 +233,7 @@ class PaperTradingEngine:
             }
         )
 
+    # 将模拟盘账户与仓位投影为 RiskEngine 所需的最小风控快照。
     @staticmethod
     def _portfolio(
         account: PaperAccount,
@@ -240,6 +251,7 @@ class PaperTradingEngine:
             cooldown_remaining=account.cooldown_remaining,
         )
 
+    # 在策略或手工意图前检查止损与回撤熔断，必要时返回风险平仓原因。
     def _risk_exit_reason(
         self,
         risk_engine: RiskEngine,
@@ -261,6 +273,7 @@ class PaperTradingEngine:
             return "circuit_breaker"
         return None
 
+    # 让意图经过确定性风控、订单构造、模拟撮合并生成完整 transition。
     def _evaluate_and_fill(
         self,
         *,
@@ -370,6 +383,7 @@ class PaperTradingEngine:
             ),
         )
 
+    # 把一笔模拟成交应用到账户、仓位和账本。
     @staticmethod
     def _apply_fill(
         account: PaperAccount,
@@ -467,6 +481,7 @@ class PaperTradingEngine:
         return account_after, position_after, ledger
 
 
+# 按报价重新标记权益和高水位，并只替换本次转换明确改变的账户字段。
 def _mark_account(
     account: PaperAccount,
     position: PaperPosition,
@@ -493,6 +508,7 @@ def _mark_account(
     )
 
 
+# 追加一个带连续 sequence 的审计事件，保存 transition 内的因果顺序。
 def _append_event(
     events: list[PaperAuditEvent],
     *,
@@ -514,6 +530,7 @@ def _append_event(
     )
 
 
+# 对冻结报价的规范化字段计算 SHA-256，供市场快照与后续审计关联。
 def _snapshot_hash(quote: ExecutionQuote) -> str:
     """对冻结报价的规范化字段计算 SHA-256，供市场快照与后续审计关联。"""
     payload = {
@@ -526,6 +543,7 @@ def _snapshot_hash(quote: ExecutionQuote) -> str:
     return sha256(dumps(payload, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
 
 
+# None 转为空字符串；其余 Decimal 输出普通十进制字符串，供审计载荷使用。
 def _decimal_text(value: Decimal | None) -> str:
     if value is None:
         return ""

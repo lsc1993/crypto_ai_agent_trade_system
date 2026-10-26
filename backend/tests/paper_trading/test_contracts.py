@@ -1,3 +1,6 @@
+# 验证模拟账户初始现金必须使用精确十进制输入。
+# 合法金额用于确认契约可构造，浮点值则在边界处拒绝。
+# 测试针对本地账户模型，不访问交易所账户。
 from __future__ import annotations
 
 from decimal import Decimal

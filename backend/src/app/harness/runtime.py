@@ -1,3 +1,5 @@
+# 协调注册策略、工作流与审计端口，先保存请求再验证权限，最后调用固定工作流。
+# 审计存储失败不能静默放行；日志只记录关联标识、计数与异常类型。
 """受控工作流运行时。
 
 数据流：HarnessRunRequest → 创建请求审计记录 → 策略/标的/能力白名单校验 → 工作流
@@ -39,6 +41,7 @@ from app.harness.contracts import (
 from app.market.symbols import ResearchSymbol
 
 
+# 运行入口对同一类别只允许唯一策略和工作流，避免重复注册覆盖权限。
 class HarnessRuntime[ResultT]:
     """受控工作流的统一入口：先审计，再白名单校验，最后执行。"""
 
@@ -210,12 +213,14 @@ class HarnessRuntime[ResultT]:
         except KeyError as error:
             raise HarnessPolicyViolation("run_kind_not_registered") from error
 
+    # 可要求全部标的重新目录授权，以尊重排队期间的归档；默认模式保留预置标的兼容。
     async def _require_symbol_allowed(
         self,
         policy: HarnessPolicy,
         symbol: ResearchSymbol,
     ) -> None:
         """检查静态白名单，或核验目录中的已完成同步的研究币对。"""
+        # 队列可在提交后才执行，严格模式连预置标的也重新检查，防止归档后仍开始研究。
         if self._require_all_symbols_authorized and (
             self._symbol_authorizer is None or not await self._symbol_authorizer(symbol)
         ):
@@ -241,6 +246,7 @@ class HarnessRuntime[ResultT]:
         ):
             raise HarnessPolicyViolation("capability_not_allowed")
 
+    # 通过准入后执行；失败和取消尝试记录终态，取消路径的审计等待有上限。
     async def _run_logged(
         self,
         workflow: HarnessWorkflow[ResultT],

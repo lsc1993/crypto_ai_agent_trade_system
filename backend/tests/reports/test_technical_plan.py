@@ -1,3 +1,6 @@
+# 验证技术报告版本判别与旧 v1 JSON 往返兼容。
+# 现存 v1 样本序列化后保持同一契约。
+# 未知版本必须明确拒绝，不能默默按当前结构解释。
 from uuid import uuid4
 
 import pytest

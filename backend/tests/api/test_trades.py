@@ -1,3 +1,6 @@
+# 验证手动交易日志创建、修改、归档与响应序列化。
+# 服务和仓储替身保持本地事实记录，金额以安全十进制字符串输出。
+# 未知日志和无效输入统一映射标准错误，不依赖真实交易账户。
 from __future__ import annotations
 
 from datetime import UTC, datetime

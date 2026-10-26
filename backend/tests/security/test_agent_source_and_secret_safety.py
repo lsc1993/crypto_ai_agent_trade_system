@@ -1,3 +1,6 @@
+# 静态核对公开来源、研究最小权限与共享运行文档。
+# 源码全文和配置文本断言保障来源固定、无私有交易及模型工具入口。
+# 文档需保持手动研究与安全降级边界，配置只传可选密钥名称而不内置值。
 from pathlib import Path
 
 from app.news.contracts import ALLOWED_NEWS_SOURCES

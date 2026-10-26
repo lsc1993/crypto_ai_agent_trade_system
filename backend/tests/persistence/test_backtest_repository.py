@@ -1,3 +1,6 @@
+# 验证回测运行、不可变 K 线快照与事件的数据库保存。
+# 固定请求与结果便于核对数值和创建时间倒序列表。
+# 预期失败只记录失败状态，不能留下部分成功结果。
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Protocol

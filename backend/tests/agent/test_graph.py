@@ -1,3 +1,6 @@
+# 验证固定研究图的采集、冻结、证据门、模型与持久化路径。
+# 记录型替身保留调用及日志，使降级原因、模型调用次数和安全字段可直接断言。
+# 未来 K 线和可变行情表不能改变冻结输入；来源失败需隔离，报告保存失败仍应传播。
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
@@ -199,6 +202,7 @@ async def test_graph_collects_seven_days_and_freezes_policy_topic_with_missing_f
     assert model.requests[0].factor_analysis is not None
 
 
+# 将日志事件和字段保留在内存，以核对生命周期完整且没有原始新闻或数据库异常泄露。
 class RecordingLogger:
     def __init__(self) -> None:
         self.entries: list[dict[str, object]] = []
@@ -217,6 +221,7 @@ def _record_agent_logs(monkeypatch: pytest.MonkeyPatch) -> RecordingLogger:
     return logger
 
 
+# 记录采集标的和冻结时刻，返回固定行情或注入异常，不依赖外部公开源。
 class FakeMarketCapture:
     def __init__(
         self,
@@ -239,6 +244,7 @@ class FakeMarketCapture:
         return self.market
 
 
+# 记录新闻时间窗并返回覆盖统计，让图测试能分辨采集阶段与模型阶段的输入。
 class FakeNewsIngestion:
     def __init__(self, collection: NewsCollection) -> None:
         self.collection = collection
@@ -255,6 +261,7 @@ class FakeNewsIngestion:
         return self.collection
 
 
+# 按序消费成功或异常结果，保留每次冻结请求，用调用次数验证有限重试。
 class RecordingModel:
     def __init__(
         self,
@@ -289,6 +296,7 @@ class LimitedProposalModel(RecordingModel):
         return _proposal(request.evidences[0].id, limitations=self._limitations)
 
 
+# 记录一次性报告与证据创建请求，再回传领域模型，供断言不可变保存输入。
 class RecordingRepository:
     def __init__(self) -> None:
         self.creations: list[AgentReportCreation] = []
@@ -311,6 +319,7 @@ class RecordingRepository:
         )
 
 
+# 模拟最终保存失败并携带敏感标记，验证错误继续传播且日志只保留安全元数据。
 class FailingRepository:
     async def persist_agent(self, creation: AgentReportCreation) -> PersistedAnalysisReport:
         del creation
@@ -381,6 +390,7 @@ class StaticMarketReader:
         return series.candles
 
 
+# 可变近期行情故意返回空值，只有冻结快照输入可用，用调用计数检测意外回读。
 class ImmutableInputMarketReader(StaticMarketReader):
     def __init__(self, market: CapturedAgentMarket) -> None:
         super().__init__(market)
@@ -410,6 +420,7 @@ class ImmutableInputMarketReader(StaticMarketReader):
         return ()
 
 
+# 给已保存行情追加运行开始后的 K 线，验证冻结证据严格按本次时刻裁剪。
 @pytest.mark.asyncio
 async def test_persisted_market_capture_excludes_candles_after_run_start() -> None:
     market = _market()
@@ -452,6 +463,8 @@ async def test_persisted_market_capture_excludes_candles_after_run_start() -> No
     )
 
 
+# 冻结快照后可变行情表发生变化也不能改变研究输入，防止报告无法复算。
+# 冻结输入与近期行情设置为不同来源，研究必须复用原快照而不是重新拼接可变数据。
 @pytest.mark.asyncio
 async def test_persisted_market_capture_uses_immutable_snapshot_input_not_mutable_candles() -> None:
     market = _market()
@@ -463,6 +476,7 @@ async def test_persisted_market_capture_uses_immutable_snapshot_input_not_mutabl
 
     frozen = await capture.capture(ContractSymbol.BTCUSDT, captured_at=NOW)
 
+    # 调用计数必须为零，证明冻结输入读取没有悄悄退回可变行情路径。
     assert reader.recent_candle_calls == 0
     assert frozen.snapshot_input_sha256 == "b" * 64
     assert all(series.candles for series in frozen.detail.series)
@@ -482,6 +496,7 @@ async def test_persisted_market_capture_keeps_snapshot_when_context_is_unavailab
     assert frozen.research_context_error is AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE
 
 
+# 过期行情在证据门阻断模型，仍保存带原因的降级报告，而非丢失本次运行。
 @pytest.mark.asyncio
 async def test_graph_persists_degraded_without_model_when_market_is_stale() -> None:
     model = RecordingModel()
@@ -557,6 +572,7 @@ async def test_graph_persists_degraded_for_an_unexpected_model_failure() -> None
     assert "secret model failure" not in repr(repository.creations[0])
 
 
+# 模型拒绝诊断只保存有界计数、字段路径和类别，不能把原始响应塞入报告。
 @pytest.mark.asyncio
 async def test_graph_persists_bounded_format_validation_failure_summary() -> None:
     repository = RecordingRepository()
@@ -591,6 +607,7 @@ async def test_graph_persists_bounded_format_validation_failure_summary() -> Non
     assert repository.creations[0].validation_failure == report.validation_failure
 
 
+# 重复新闻先冻结去重，模型只接收本次证据，最终保存必须沿用相同引用身份。
 @pytest.mark.asyncio
 async def test_graph_freezes_deduplicated_evidence_and_calls_model_once() -> None:
     duplicate = _news_item("same", "Raw governed news body")
@@ -649,6 +666,8 @@ async def test_graph_continues_after_one_news_source_fails() -> None:
     assert report.agent_analysis.data_quality.source_coverage == "partial"
 
 
+# 新闻全失败和行情失效是不同情形，市场证据仍可支持有限且注明覆盖不足的报告。
+# 新闻全失败意味着覆盖不足，行情足够时仍可完成研究，但必须显示输入缺口。
 @pytest.mark.asyncio
 async def test_graph_persists_market_only_completed_report_when_all_news_fail() -> None:
     service = _service(
@@ -722,6 +741,7 @@ async def test_graph_completes_with_a_visible_public_context_input_gap() -> None
     assert report.agent_analysis.market_metrics.fear_greed_change_7d is None
 
 
+# 模型自报高置信度不能超过确定性行情覆盖得到的上限。
 @pytest.mark.asyncio
 async def test_graph_caps_model_confidence_at_the_frozen_structure_confidence() -> None:
     market = _market_with_sparse_timeframes()
@@ -760,6 +780,7 @@ async def test_graph_bounds_model_limitations_before_adding_source_coverage_limi
     assert repository.creations[0].error_code is None
 
 
+# 图层的空响应重试与模型格式纠正是不同路径，此处只允许两次模型调用。
 @pytest.mark.asyncio
 async def test_graph_retries_empty_model_output_once_then_persists_degraded(
     monkeypatch: pytest.MonkeyPatch,
@@ -828,6 +849,7 @@ async def test_agent_run_logs_safe_lifecycle_and_node_metadata(
         if entry["event"] == "agent_research_node_details" and entry["phase"] == "completed"
     ]
     assert all(isinstance(entry["duration_ms"], int) for entry in node_details)
+    # 既检查成功节点数量，也检查最终日志内容，防止正常路径遗漏脱敏。
     serialized = repr(logs)
     assert "LEAKED_NEWS_BODY" not in serialized
     assert "api_key" not in serialized.lower()
@@ -885,11 +907,13 @@ async def test_graph_degrades_when_model_references_unknown_evidence() -> None:
 
     report = await service.generate(ContractSymbol.BTCUSDT)
 
+    # 陌生引用不得通过保存正常报告来掩盖，最终状态必须明确降级。
     assert report.status is AnalysisReportStatus.DEGRADED
     assert report.agent_analysis is not None
     assert "model_invalid_evidence" in report.limitations[0]
 
 
+# 检查点关联运行标识即可，冻结新闻正文、行情载荷和提示词不应进入检查点状态。
 @pytest.mark.asyncio
 async def test_graph_uses_supplied_analysis_id_as_checkpoint_thread_without_research_payloads() -> (
     None

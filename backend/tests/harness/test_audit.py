@@ -1,3 +1,6 @@
+# 验证审计对象不可变、安全字段及生命周期序号契约。
+# 固定运行记录同时校验时间、哈希、持续时长与拒绝原因。
+# 合法终态和事件位置独立断言，防止任意详情载荷混入审计。
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -31,6 +34,7 @@ REQUEST = HarnessRunRequest(
 EXPECTED_REQUEST_SHA256 = "5dfd2af46cd2be9bc0574b10e98280a07d82760f40b1eb49f53ed80cb0ecb0d5"
 
 
+# 固定请求、策略版本和身份构造基线，后续只改目标字段以定位契约拒绝原因。
 def _audit_run() -> HarnessAuditRun:
     return HarnessAuditRun(
         run_id=RUN_ID,
@@ -44,6 +48,7 @@ def _audit_run() -> HarnessAuditRun:
     )
 
 
+# 审计对象既禁止额外上下文，也禁止保存后修改字段，保证安全且不可变。
 def test_audit_models_are_frozen_and_only_accept_safe_details() -> None:
     event = HarnessAuditEvent(
         run_id=RUN_ID,
@@ -55,12 +60,14 @@ def test_audit_models_are_frozen_and_only_accept_safe_details() -> None:
         details=HarnessEventDetails(declared_capability_count=4),
     )
     assert event.details.model_dump(mode="json") == {"declared_capability_count": 4}
+    # 分别尝试额外字段注入与字段修改，检查安全白名单和不可变性两层约束。
     with pytest.raises(ValidationError):
         HarnessAuditEvent.model_validate({**event.model_dump(), "raw_context": "secret"})
     with pytest.raises(ValidationError):
         event.duration_ms = 1
 
 
+# 固定预期摘要检测规范化编码变化，防止同一请求因序列化差异失去稳定身份。
 def test_policy_and_request_hashes_are_stable_and_safe() -> None:
     policy_hash = policy_sha256(MARKET_RESEARCH_POLICY)
     assert policy_hash == policy_sha256(MARKET_RESEARCH_POLICY)
@@ -112,6 +119,7 @@ def test_audit_events_enforce_terminal_error_and_detail_rules() -> None:
         )
 
 
+# 合法请求、授权、启动与终态分别占固定位置，事件类别与序号必须一起成立。
 @pytest.mark.parametrize(
     ("kind", "sequence", "error_code", "details"),
     [
@@ -169,6 +177,7 @@ def test_audit_events_accept_valid_lifecycle_positions(
     assert event.sequence == sequence
 
 
+# 逐类枚举错误位置，不能只检查序号非负而允许生命周期事件乱序。
 @pytest.mark.parametrize(
     ("kind", "sequence", "error_code", "details"),
     [

@@ -1,3 +1,5 @@
+# 建立本地模拟账户、仓位、快照、订单、成交、账本与审计表。
+# 活动账户及意图幂等键由数据库约束，成交和账本等历史记录只允许追加。
 """Create immutable manual paper trading tables."""
 
 from collections.abc import Sequence
@@ -29,7 +31,9 @@ _IMMUTABLE_TABLES = (
 )
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 当前账户状态可推进，部分唯一索引限制同时活动的账户数量。
     op.create_table(
         "paper_accounts",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -94,6 +98,7 @@ def upgrade() -> None:
         postgresql_where=sa.text("status = 'active'"),
     )
 
+    # 仓位保存当前数量、成本及止损状态，历史成交仍由独立表保留。
     op.create_table(
         "paper_positions",
         sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -152,6 +157,7 @@ def upgrade() -> None:
         ["account_id", "observed_at", "id"],
     )
 
+    # 订单以本地模拟契约保存，不对应真实交易所下单能力。
     op.create_table(
         "paper_orders",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -196,6 +202,7 @@ def upgrade() -> None:
         ["account_id", "submitted_at", "id"],
     )
 
+    # 成交金额与费用使用精确数值，关联本地模拟订单和行情快照。
     op.create_table(
         "paper_fills",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -231,6 +238,7 @@ def upgrade() -> None:
         ["account_id", "filled_at", "id"],
     )
 
+    # 资金变化以追加账本表达，不能仅改余额而失去变化依据。
     op.create_table(
         "paper_ledger_entries",
         sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -270,6 +278,7 @@ def upgrade() -> None:
         ["account_id", "occurred_at", "sequence"],
     )
 
+    # 意图幂等索引和追加事件共同防止重复模拟操作且保留拒绝原因。
     op.create_table(
         "paper_audit_events",
         sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -323,6 +332,7 @@ def upgrade() -> None:
         )
 
 
+# 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
     for table, function, trigger in reversed(_IMMUTABLE_TABLES):
         op.execute(f"DROP TRIGGER {trigger} ON {table}")

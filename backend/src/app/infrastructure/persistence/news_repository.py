@@ -1,3 +1,6 @@
+# 去重保存受治理新闻元数据并维护研究币种关联。
+# 输入先取每个去重键的首项，数据库冲突不覆写旧新闻，再读取实际记录返回。
+# 新增关联不等于改写新闻快照；这里只保存标题摘要，不抓取正文或解释外部指令。
 from __future__ import annotations
 
 from uuid import UUID, uuid4
@@ -16,12 +19,15 @@ from app.news.contracts import (
 )
 
 
+# SqlAlchemyNewsRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyNewsRepository:
     """追加保存去重后的受治理新闻，并返回数据库中的不可变快照。"""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 以去重键保留首个输入，忽略数据库新闻冲突并追加关联；返回数据库实际保存的新闻。
     async def ingest_many(self, items: tuple[NewsItemDraft, ...]) -> tuple[NewsItemDraft, ...]:
         unique_items = _first_items_by_key(items)
         if not unique_items:
@@ -45,6 +51,7 @@ class SqlAlchemyNewsRepository:
                         )
                     ).scalars()
                 )
+                # 冲突忽略后必须读取实际落库记录，使后续关联引用旧新闻的真实 UUID，而非新候选 ID。
                 records_by_key = {record.deduplication_key: record for record in records}
                 links = [
                     {
@@ -92,6 +99,7 @@ def _first_items_by_key(items: tuple[NewsItemDraft, ...]) -> dict[str, NewsItemD
     return unique
 
 
+# 按下面的显式字段映射还原 dict[str, object]，保留可选值与已有顺序；不重新执行业务计算。
 def _to_values(item: NewsItemDraft) -> dict[str, object]:
     return {
         "id": uuid4(),
@@ -111,6 +119,7 @@ def _to_values(item: NewsItemDraft) -> dict[str, object]:
     }
 
 
+# 按下面的显式字段映射还原 NewsItemDraft，保留可选值与已有顺序；不重新执行业务计算。
 def _to_draft(record: NewsItemRecord, linked_symbols: tuple[str, ...] = ()) -> NewsItemDraft:
     return NewsItemDraft(
         source_id=record.source_id,

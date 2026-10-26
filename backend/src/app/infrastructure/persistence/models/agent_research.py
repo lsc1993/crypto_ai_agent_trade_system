@@ -1,3 +1,6 @@
+# 声明 Agent 运行元数据、有限校验诊断及报告定性详情 的 PostgreSQL ORM 映射。
+# 字段、外键与索引供仓储构造查询及关联；导入模型只注册元数据，不执行数据库迁移。
+# JSONB 保留结构化载荷，时间列按 timezone 声明；不可变触发器等数据库保护以已应用迁移为准。
 from datetime import datetime
 from uuid import UUID
 
@@ -9,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.infrastructure.persistence.base import Base
 
 
+# 以 analysis_id 唯一关联综合报告，保存生成器类型、起止时刻和有限校验失败诊断；不保存模型原文。
 class AgentAnalysisRunRecord(Base):
     __tablename__ = "agent_analysis_runs"
     __table_args__ = (
@@ -37,6 +41,7 @@ class AgentAnalysisRunRecord(Base):
     )
 
 
+# 以报告 ID 为主键保存定性分析、双周期叙事和确定性专题；可空字段兼容旧版历史。
 class AgentReportDetailRecord(Base):
     __tablename__ = "agent_report_details"
 

@@ -1,3 +1,6 @@
+# 验证手动日志、腿、现金流与追加审计的数据库事务。
+# 更新以作废旧事实并追加新事实表达，归档保留可追溯记录。
+# 未知报告关联和重复活动成交需拒绝，审计触发器阻止历史篡改。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

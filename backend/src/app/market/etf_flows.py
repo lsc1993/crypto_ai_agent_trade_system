@@ -1,3 +1,6 @@
+# ETF 资金流：只读取固定 BTC/ETH 公开表，按纽约交易日解析披露状态，百万美元转美元；
+# 实时页面不可回填历史时点。
+# 公开行情领域：统一研究行情模型、固定公开来源适配器与冻结快照读取；不访问私有账户。
 from __future__ import annotations
 
 import re
@@ -42,16 +45,20 @@ _MONTHS = {
 _MISSING_VALUES = frozenset({"", "-", "–", "—", "N/A"})
 
 
+# ETF 资金流契约的冻结基类，拒绝额外字段。
 class _EtfFlowModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+# 纽约交易日的逐基金美元流量与总额，空值表示未披露，完整标志必须与数据覆盖相符。
 class EtfFlowDay(_EtfFlowModel):
     trading_date: date
     funds: dict[str, Decimal | None]
     total_net_flow_usd: Decimal | None
     complete: bool
 
+    # 校验funds 字段，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：ETF 基金资金流不能为空；ETF 基金代码无效。
     @field_validator("funds", mode="before")
     @classmethod
     def validate_funds(cls, value: object) -> object:
@@ -64,12 +71,15 @@ class EtfFlowDay(_EtfFlowModel):
             _validate_optional_decimal(flow)
         return funds
 
+    # 校验total_net_flow_usd 字段，返回规范化值或模型；不满足约束时抛出验证错误。
     @field_validator("total_net_flow_usd", mode="before")
     @classmethod
     def validate_total(cls, value: object) -> object:
         _validate_optional_decimal(value)
         return value
 
+    # 校验当前模型的跨字段约束，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：ETF 披露完整状态与基金数据不一致。
     @model_validator(mode="after")
     def validate_completeness(self) -> Self:
         expected = self.total_net_flow_usd is not None and all(
@@ -80,12 +90,15 @@ class EtfFlowDay(_EtfFlowModel):
         return self
 
 
+# 一次公开 ETF 表读取的冻结结果，包含来源、UTC 抓取时刻与升序交易日。
 class EtfFlowSnapshot(_EtfFlowModel):
     symbol: ResearchSymbol
     fetched_at: datetime
     source_url: str
     days: tuple[EtfFlowDay, ...]
 
+    # 校验fetched_at 字段，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：ETF 抓取时间必须是 UTC 且带时区。
     @field_validator("fetched_at")
     @classmethod
     def validate_fetched_at(cls, value: datetime) -> datetime:
@@ -93,6 +106,8 @@ class EtfFlowSnapshot(_EtfFlowModel):
             raise ValueError("ETF 抓取时间必须是 UTC 且带时区")
         return value
 
+    # 校验source_url 字段，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：ETF 来源地址无效。
     @field_validator("source_url")
     @classmethod
     def validate_source_url(cls, value: str) -> str:
@@ -100,6 +115,8 @@ class EtfFlowSnapshot(_EtfFlowModel):
             raise ValueError("ETF 来源地址无效")
         return value
 
+    # 校验当前模型的跨字段约束，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：ETF 交易日必须非空、升序且不能重复；ETF 交易日超过读取上限。
     @model_validator(mode="after")
     def validate_days(self) -> Self:
         dates = tuple(day.trading_date for day in self.days)
@@ -110,7 +127,9 @@ class EtfFlowSnapshot(_EtfFlowModel):
         return self
 
 
+# 固定 ETF 公开页面读取器，仅支持实时 BTC/ETH 研究，不提供通用爬取或历史回填。
 class FarsideEtfFlowGateway:
+    # 初始化本实例依赖和配置；输入 client、clock。
     def __init__(
         self,
         *,
@@ -131,6 +150,7 @@ class FarsideEtfFlowGateway:
         self._client = client
         self._clock = clock
 
+    # 检查实时采集窗口，读取固定 ETF 页面并按纽约交易日解析，返回最近最多十五个交易日。
     async def collect(
         self,
         symbol: Any,
@@ -139,8 +159,10 @@ class FarsideEtfFlowGateway:
     ) -> EtfFlowSnapshot:
         started_at = _utc_time_or_error(self._clock(), "ETF 数据时钟必须返回 UTC 时间")
         requested_at = _utc_time_or_error(as_of, "ETF 数据截止时间必须使用 UTC 时间")
+        # ETF 日期按美国市场的纽约时区解释，不能直接用 UTC 日期截断交易日。
         fetch_date = started_at.astimezone(_NEW_YORK).date()
         requested_date = requested_at.astimezone(_NEW_YORK).date()
+        # 实时网页会持续更新，因此只接受同日且延迟很小的研究请求，避免回填产生未来数据泄漏。
         if (
             requested_date != fetch_date
             or requested_at > started_at
@@ -168,6 +190,7 @@ class FarsideEtfFlowGateway:
             days=days[-MAX_ETF_DAYS:],
         )
 
+    # 读取固定公开页面并限制响应大小；网络、状态码与编码错误统一转为安全领域错误。
     async def _read_page(self, source_url: str) -> str:
         try:
             async with self._client.stream(
@@ -230,7 +253,9 @@ class FarsideEtfFlowGateway:
             ) from error
 
 
+# 轻量公开表解析状态机，仅为顶层表建立行列结构；已有单元格仍累计内部文本。
 class _TableParser(HTMLParser):
+    # 初始化实例内部缓冲或预置状态，供后续方法复用。
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tables: list[list[list[str]]] = []
@@ -239,6 +264,7 @@ class _TableParser(HTMLParser):
         self._current_row: list[str] | None = None
         self._current_cell: list[str] | None = None
 
+    # 按嵌套深度仅建立顶层行列状态；嵌套文字仍由 handle_data 写入当前单元格。
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         del attrs
         if tag == "table":
@@ -253,10 +279,12 @@ class _TableParser(HTMLParser):
         elif tag in {"td", "th"} and self._current_row is not None:
             self._current_cell = []
 
+    # 将解析器当前单元格内的文本片段累计起来，等待闭合时统一清理。
     def handle_data(self, data: str) -> None:
         if self._current_cell is not None:
             self._current_cell.append(data)
 
+    # 关闭单元格、行或顶层表时依次提交缓冲内容，并维护表格嵌套深度。
     def handle_endtag(self, tag: str) -> None:
         if tag == "table":
             if self._table_depth == 1 and self._current_table is not None:
@@ -277,6 +305,7 @@ class _TableParser(HTMLParser):
             self._current_row = None
 
 
+# 从公开 HTML 表识别基金列与交易日，拒绝冲突日期，剔除纽约当前日期之后记录并升序返回。
 def _parse_flow_days(html: str, *, current_new_york_date: date) -> tuple[EtfFlowDay, ...]:
     parser = _TableParser()
     try:
@@ -328,6 +357,7 @@ def _parse_flow_days(html: str, *, current_new_york_date: date) -> tuple[EtfFlow
     return days
 
 
+# 识别基金代码表头，允许总计列标题为空，但拒绝重复基金代码。
 def _find_ticker_header(table: list[list[str]]) -> tuple[str, ...] | None:
     for row in table:
         if len(row) < 3 or row[0]:
@@ -351,6 +381,7 @@ def _find_ticker_header(table: list[list[str]]) -> tuple[str, ...] | None:
     return None
 
 
+# 解析基金列和总计列，检查数量与披露总额误差，保存缺失值和完整披露标记。
 def _parse_date_row(
     row: list[str],
     *,
@@ -371,6 +402,7 @@ def _parse_date_row(
             "ETF 完整基金披露缺少总流量",
         )
     if total is not None:
+        # 公开表以百万美元小数披露，每个已披露基金保留舍入容差，不能要求展示金额绝对精确求和。
         tolerance = Decimal("100000") * len(disclosed)
         if abs(sum(disclosed, start=Decimal(0)) - total) > tolerance:
             raise MarketDataUnavailableError(
@@ -387,8 +419,10 @@ def _parse_date_row(
     )
 
 
+# 将百万美元文本解析成美元 Decimal；横线等未披露标记返回空值，括号表示负流量。
 def _parse_flow_value(value: str) -> Decimal | None:
     normalized = _normalize_text(value)
+    # 未披露与真实零流量语义不同，保留空值供完整性校验和前端显示。
     if normalized in _MISSING_VALUES:
         return None
     negative_parentheses = normalized.startswith("(") and normalized.endswith(")")
@@ -421,6 +455,7 @@ def _parse_flow_value(value: str) -> Decimal | None:
     return amount
 
 
+# 按公开表的日、英文月份和年解析日期；非日期行或无效日期返回空值。
 def _parse_date(value: str) -> date | None:
     parts = _normalize_text(value).split(" ")
     if len(parts) != 3 or not parts[0].isdigit() or not parts[2].isdigit():
@@ -434,6 +469,7 @@ def _parse_date(value: str) -> date | None:
         return None
 
 
+# 只将静态 BTC/ETH 标的映射为固定来源页面；其他研究币种返回不支持。
 def _source_url(symbol: ResearchSymbol) -> str:
     paths: dict[str, str] = {
         ContractSymbol.BTCUSDT.value: "/btc/",
@@ -449,6 +485,7 @@ def _source_url(symbol: ResearchSymbol) -> str:
     return f"{FARSIDE_BASE_URL}{path}"
 
 
+# 核对 ETF 响应固定主机、端口、请求路径且无查询参数，拒绝非批准页面。
 def _validate_response_boundary(response: httpx.Response, source_url: str) -> None:
     expected = httpx.URL(source_url)
     if (
@@ -464,12 +501,14 @@ def _validate_response_boundary(response: httpx.Response, source_url: str) -> No
         )
 
 
+# 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
 def _utc_time_or_error(value: datetime, message: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise MarketDataUnavailableError("market_data_invalid_request", message)
     return value
 
 
+# 空值表示未披露；非空金额必须是有限 Decimal，拒绝布尔值和其他类型。
 def _validate_optional_decimal(value: object) -> None:
     if value is None:
         return
@@ -477,5 +516,6 @@ def _validate_optional_decimal(value: object) -> None:
         raise ValueError("ETF 资金流必须是有限 Decimal 或缺失值")
 
 
+# 清理不可见空格和多余空白，保留公开表的文字内容。
 def _normalize_text(value: str) -> str:
     return " ".join(value.replace("\xa0", " ").split())

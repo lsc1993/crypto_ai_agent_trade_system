@@ -1,3 +1,5 @@
+# 按当前冻结事实提供诚实标注的规则降级，不能把规则拼接冒充完整模型分析。
+# 有有效分析摘要时确定性渲染摘要；分析缺失时仅展示程序候选、限制及重新研究条件。
 """Clearly labelled rule composition from current frozen facts."""
 
 from app.agent.technical.references import build_reference_catalog, render_plan_book
@@ -25,12 +27,14 @@ REASONS = {
 }
 
 
+# 编排失败时保留已通过校验的分析摘要，渲染继续使用同一冻结引用目录。
 def build_decision_plan_book(
     context: TechnicalContext, decision: TechnicalDecisionSummary
 ) -> RenderedPlanBook:
     return render_plan_book(decision, build_reference_catalog(context))
 
 
+# 分析不可用时使用固定规则文本；没有候选时不给价格，有候选也不视为实时可执行。
 def build_rules_plan_book(context: TechnicalContext) -> RenderedPlanBook:
     analysis = context.analysis
     catalog = build_reference_catalog(context)

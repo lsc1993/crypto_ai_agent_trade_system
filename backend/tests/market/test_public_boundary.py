@@ -1,3 +1,6 @@
+# 验证采集命令的安全诊断及公开行情模块依赖边界。
+# 动态加载脚本只用于检查入口行为，缺失数据库时不输出连接配置。
+# 静态扫描防止公开采集混入私有账户或执行能力。
 from __future__ import annotations
 
 from collections.abc import Callable

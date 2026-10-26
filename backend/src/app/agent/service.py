@@ -1,3 +1,6 @@
+# 手动综合研究的应用编排入口：冻结采集、确定性结构、受限模型提案及关联报告保存。
+# 成功报告使用当前双周期契约；旧的一至三天结构保留在兼容和降级路径，不能据旧说明扩展能力。
+# 研究不产生交易意图、不读取私有账户，也不调用订单或资金执行链路。
 """Agent 市场研究应用服务。
 
 数据流：采集并冻结行情/新闻/公开上下文 → 计算技术结构 → 构造最小证据请求 →
@@ -99,6 +102,7 @@ class CapturedAgentMarket:
     research_context_error: AgentErrorCode | None = None
 
 
+# 行情采集端口返回已冻结的完整输入，后续节点不能重新抓取来替换当前证据。
 class AgentMarketCapture(Protocol):
     async def capture(
         self,
@@ -108,6 +112,7 @@ class AgentMarketCapture(Protocol):
     ) -> CapturedAgentMarket: ...
 
 
+# 从已保存快照读取摘要与完整输入；二者必须关联同一采集标识。
 class AgentSnapshotInputReader(Protocol):
     async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None: ...
 
@@ -117,6 +122,7 @@ class AgentSnapshotInputReader(Protocol):
     ) -> PersistedMarketSnapshotInput | None: ...
 
 
+# 固定标的及时间窗的公开新闻采集端口，返回来源覆盖与有限元数据。
 class AgentNewsCollector(Protocol):
     async def collect(
         self,
@@ -127,6 +133,7 @@ class AgentNewsCollector(Protocol):
     ) -> NewsCollection: ...
 
 
+# 采集本次公开衍生品与情绪上下文，故障与缺失在报告中显式保留。
 class AgentResearchContextCollector(Protocol):
     async def collect(
         self,
@@ -136,6 +143,7 @@ class AgentResearchContextCollector(Protocol):
     ) -> PublicResearchContext: ...
 
 
+# 把报告、冻结证据与研究运行信息作为一个关联结果交给仓储保存。
 class AgentReportPersister(Protocol):
     async def persist_agent(
         self,
@@ -173,6 +181,7 @@ class PersistedAgentMarketCapture:
             symbol,
             captured_at=captured_at,
         )
+        # 先保存后读取保证下游使用可追溯事实；不能以网关临时响应替代已冻结输入。
         snapshot = await self._reader.load_snapshot(snapshot_id)
         if snapshot is None or snapshot.summary.symbol != symbol:
             raise MarketDataUnavailableError(
@@ -197,6 +206,7 @@ class PersistedAgentMarketCapture:
                 for timeframe in _TIMEFRAMES
             ]
         )
+        # 公开上下文属于可选补充，失败保留缺口，不伪造为全部指标正常。
         context: PublicResearchContext | None = None
         context_error: AgentErrorCode | None = None
         if self._research_context is not None:
@@ -258,6 +268,7 @@ class PersistedAgentMarketCapture:
         )
 
 
+# 集中注入受限采集、模型、保存端口与时钟，使研究可用替身验证。
 @dataclass(frozen=True)
 class AgentResearchDependencies:
     market: AgentMarketCapture
@@ -300,6 +311,7 @@ class AgentResearchService:
             symbol=symbol,
             started_at=started_at,
         )
+        # 每次请求单独编译固定图，检查点键沿用研究标识，避免跨请求共享正文。
         graph = build_agent_graph(run, checkpointer=self._checkpointer)
         run_started_at = perf_counter()
         logger.info(
@@ -350,6 +362,7 @@ class AgentResearchService:
         return run.persisted_report
 
 
+# 每个请求独占的大载荷工作区；模型候选和降级状态不跨运行共享。
 @dataclass
 class _AgentResearchRun:
     """LangGraph 各节点共享的请求内工作区，不作为持久化领域模型使用。"""
@@ -379,6 +392,7 @@ class _AgentResearchRun:
                 captured_at=self.started_at,
             )
             self._validate_market(market, state.symbol)
+            # 只有标的与结构输入验证通过才冻结到运行对象，失败不能留下半有效行情。
             self.market = market
             self.market_evidence = _market_evidence(market)
             self.market_context_evidence = (
@@ -405,6 +419,7 @@ class _AgentResearchRun:
         self.degraded_error = code
         return self._update(state, node_name="collect_market", error_code=code)
 
+    # 新闻与两个专题失败互不伪装成成功；专题采集并行但证据始终归属本次运行。
     async def collect_news(self, state: AgentRunState) -> dict[str, object]:
         """图节点：收集固定时间窗内新闻；失败时保留空集合并进入可审计降级路径。"""
         collection_failed = False
@@ -423,6 +438,7 @@ class _AgentResearchRun:
                 failed_source_count=0,
                 error_codes=(),
             )
+        # 对来源全部返回结果再按标的、七天窗口和证据预算筛选，新闻不决定流程。
         selected = select_news(
             self.news.items, symbol=self.symbol, as_of=self.started_at, limit=_MAX_NEWS_EVIDENCE
         )
@@ -432,6 +448,7 @@ class _AgentResearchRun:
             collect_etf(self.dependencies.etf, symbol=self.symbol, as_of=self.started_at),
         )
         self.factor_evidence = tuple(item for item in (funding[1], etf[1]) if item is not None)
+        # 新闻条目与冻结证据按同序严格配对，官方专题引用因此可追溯到正确事件。
         self.factor_analysis = FactorAnalysis(
             policy=policy_topic(
                 tuple(
@@ -461,8 +478,10 @@ class _AgentResearchRun:
 
     async def compute_structure(self, state: AgentRunState) -> dict[str, object]:
         """图节点：确认行情新鲜、K 线完整且模型已配置后计算确定性结构。"""
+        # 前序采集失败已记降级原因；无行情时保留该原因，不重复制造结构值。
         if self.market is None:
             return self._update(state, node_name="compute_structure")
+        # 当前研究只能使用本次足够新鲜的快照，历史保存不等于当前有效。
         if _is_stale(self.market, self.started_at):
             self.degraded_error = AgentErrorCode.MARKET_STALE
             return self._update(
@@ -470,6 +489,7 @@ class _AgentResearchRun:
                 node_name="compute_structure",
                 error_code=self.degraded_error,
             )
+        # 每个必要周期都需已收盘样本，缺一周期就不能把其他周期冒充完整结构。
         if not _has_required_closed_series(self.market.detail, self.started_at):
             self.degraded_error = AgentErrorCode.MARKET_CLOSED_CANDLE_MISSING
             return self._update(
@@ -489,6 +509,7 @@ class _AgentResearchRun:
                 node_name="compute_structure",
                 error_code=self.degraded_error,
             )
+        # 程序结构已计算仍不代表报告完成；模型未装配时保留结构并明确降级。
         if self.dependencies.model is None:
             self.degraded_error = AgentErrorCode.MODEL_NOT_CONFIGURED
             return self._update(
@@ -507,6 +528,7 @@ class _AgentResearchRun:
         state: AgentRunState,
     ) -> Literal["model", "degraded"]:
         """图条件边：只有此前节点没有设置降级错误码时才允许进入模型节点。"""
+        # 分支依据请求内保存的确定性结果，图状态不包含模型正文或可执行命令。
         del state
         return "degraded" if self.degraded_error is not None else "model"
 
@@ -553,6 +575,7 @@ class _AgentResearchRun:
                             "model_invalid_evidence",
                             "模型引用了错误专题证据",
                         ) from error
+                # 引用及专题解释全部通过后才接受候选，失败提案不进入完成报告。
                 self.proposal = proposal
         except ModelOutputError as error:
             self.degraded_error = _safe_error_code(error.code)
@@ -588,6 +611,7 @@ class _AgentResearchRun:
         await self._persist(completed=self.proposal is not None and self.degraded_error is None)
         return self._update(state, node_name="validate_and_persist_report")
 
+    # 应用层只额外重试一次空响应，与适配器的有限格式纠正属于不同规则。
     async def _generate_with_one_empty_retry(
         self,
         model: ResearchLanguageModel,
@@ -653,6 +677,7 @@ class _AgentResearchRun:
                 "factor_analysis": self.factor_analysis,
             }
         )
+        # 完成结果与失败结果使用同一保存入口，报告、运行和证据不能彼此脱离。
         self.persisted_report = await self.dependencies.repository.persist_agent(
             AgentReportCreation(
                 report=report,
@@ -704,6 +729,7 @@ class _AgentResearchRun:
         news_failure_count: int | None = None,
         error_code: AgentErrorCode | None = None,
     ) -> dict[str, object]:
+        # 各节点错误去重累计；空参数表示保留原状态，而非清空已有证据和覆盖计数。
         errors = state.error_codes
         if error_code is not None and error_code not in errors:
             errors = (*errors, error_code)
@@ -821,6 +847,7 @@ def _news_evidence(item: NewsItemDraft) -> _FrozenEvidence:
     )
 
 
+# 沿用冻结证据标识并计算载荷指纹，建立报告与本次采集事实的可审计关联。
 def _to_report_evidence(
     evidence: _FrozenEvidence,
     *,
@@ -901,6 +928,7 @@ def _degraded_report(
     )
 
 
+# 完成路径采用程序结构并限制模型置信度；降级路径不保留方向性市场结论。
 def _agent_analysis(
     *,
     completed: bool,
@@ -1058,6 +1086,7 @@ def _bounded_confidence(
     )
 
 
+# 取冻结证据中最早的观测时点，显式反映不同输入的时间差，而非当前实时行情。
 def _data_cutoff(evidence: tuple[AnalysisEvidenceDraft, ...]) -> datetime | None:
     return None if not evidence else min(item.observed_at for item in evidence)
 

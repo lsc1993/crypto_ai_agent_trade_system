@@ -1,3 +1,6 @@
+# 验证官方政策的市场上下文相关性，而非仅匹配币名。
+# 相关政策即使没有币名也可覆盖两个预置币种。
+# 无关官方发布不能因为来源权威就自动成为加密政策证据。
 from datetime import UTC, datetime
 
 import pytest

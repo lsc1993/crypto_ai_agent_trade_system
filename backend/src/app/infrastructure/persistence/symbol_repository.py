@@ -1,3 +1,6 @@
+# 维护研究目录、操作审计和具有租约的初始同步队列。
+# 登记/归档与队列事件在事务中保存，领取使用行锁，续租和完成核对 lease_token。
+# 可研究状态依赖目录启用及成功/部分成功同步记录；动态目录不扩展交易枚举。
 """PostgreSQL implementation of the research-symbol directory.
 
 The directory is intentionally separate from the trading ``ContractSymbol`` enum.
@@ -36,12 +39,15 @@ _ACTIVE_STATUSES = ("queued", "running")
 _ADMITTED_STATUSES = ("ready", "partial")
 
 
+# SqlAlchemySymbolRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemySymbolRepository:
     """Atomically manage admission rows, audit events, and leased sync jobs."""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list(self, *, include_archived: bool = False) -> tuple[ResearchSymbolEntry, ...]:
         statement = select(ResearchSymbolRecord).order_by(ResearchSymbolRecord.symbol.asc())
         if not include_archived:
@@ -56,6 +62,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as exception:
             raise _storage_error(exception) from exception
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get(self, symbol: str) -> ResearchSymbolEntry | None:
         try:
             async with self._session_factory() as session:
@@ -64,6 +71,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
+    # 用通过检查的元数据 upsert 目录，同事务复用活跃任务或新建初始同步并追加操作事件。
     async def add(
         self,
         check: CheckResult,
@@ -123,6 +131,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
+    # 锁定目录行，禁用币种并增加版本，同时取消活跃同步任务并释放租约；历史记录保留。
     async def archive(self, symbol: str, *, now: datetime) -> ResearchSymbolEntry:
         try:
             async with self._session_factory() as session:
@@ -183,6 +192,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_run(self, run_id: UUID) -> SyncRun | None:
         try:
             async with self._session_factory() as session:
@@ -191,6 +201,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
+    # 用 skip_locked 领取启用币种的最早 queued 任务，分配随机租约令牌和三十秒有效期。
     async def claim(self, *, now: datetime) -> SyncRun | None:
         try:
             async with self._session_factory() as session:
@@ -223,6 +234,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
+    # 锁定同步任务并核对令牌；过期则标记失败，否则续租并追加审计。
     async def renew(self, run: SyncRun, *, now: datetime) -> bool:
         try:
             async with self._session_factory() as session:
@@ -244,6 +256,7 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
+    # 仅允许 ready/partial/failed，所有权和有效期检查通过后保存来源、快照及同步终态。
     async def finish(
         self,
         run: SyncRun,
@@ -361,6 +374,7 @@ def _add_event(
     )
 
 
+# 只检查运行状态与令牌身份；时间有效性由 renew/finish 随后单独校验。
 def _owns_lease(record: ResearchSymbolSyncRunRecord | None, run: SyncRun) -> bool:
     return bool(
         record is not None
@@ -370,6 +384,7 @@ def _owns_lease(record: ResearchSymbolSyncRunRecord | None, run: SyncRun) -> boo
     )
 
 
+# 把到期任务终结为失败并释放令牌，追加 lease_expired 事件；不会自动重排任务。
 def _expire_run(
     session: AsyncSession,
     record: ResearchSymbolSyncRunRecord,
@@ -384,6 +399,8 @@ def _expire_run(
     _add_event(session, record.symbol, "lease_expired", now, run_id=record.id)
 
 
+# 按下面的显式字段映射还原 ResearchSymbolEntry，保留可选值与已有顺序；不重新执行业务计算。
+# 读取最新同步展示信息，并独立检查任意 ready/partial 历史；can_research 还要求目录启用。
 async def _to_entry(
     session: AsyncSession,
     record: ResearchSymbolRecord,
@@ -427,6 +444,7 @@ async def _to_entry(
     )
 
 
+# 按下面的显式字段映射还原 SyncRun，保留可选值与已有顺序；不重新执行业务计算。
 def _to_run(record: ResearchSymbolSyncRunRecord) -> SyncRun:
     return SyncRun(
         id=record.id,
@@ -445,6 +463,7 @@ def _to_run(record: ResearchSymbolSyncRunRecord) -> SyncRun:
     )
 
 
+# 丢弃底层数据库异常正文，构造固定安全错误码和 503 消息供 API 映射。
 def _storage_error(error: SQLAlchemyError) -> SymbolError:
     del error
     return SymbolError("research_symbol_storage_unavailable", "研究币对存储暂时不可用。", 503)

@@ -1,3 +1,6 @@
+# 验证本地模拟账户的读写操作和只读绩效接口。
+# 服务替身提供固定账户与绩效，接口不能接受浮点现金输入。
+# 不存在账户和存储失败使用安全信封，绩效响应不授权交易或网络账户访问。
 from __future__ import annotations
 
 from datetime import UTC, datetime

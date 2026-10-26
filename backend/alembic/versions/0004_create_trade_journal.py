@@ -1,3 +1,5 @@
+# 建立手动交易日志、成交腿、现金流、标签和追加审计表。
+# 活动成交唯一索引防止重复事实，审计触发器保留修改历史。
 """Create append-only manual trade journal tables."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 日志主体可被修改或归档；实际成交事实和修改审计由关联表保存。
     op.create_table(
         "trades",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -57,6 +61,7 @@ def upgrade() -> None:
     op.create_index("ix_trades_active_updated_at", "trades", ["archived_at", "updated_at"])
     op.create_index("ix_trades_symbol_status", "trades", ["symbol", "status"])
 
+    # 成交腿包含作废标志，替换事实时保留旧腿而非覆盖历史价格。
     op.create_table(
         "trade_legs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -94,6 +99,7 @@ def upgrade() -> None:
         ["trade_id", "voided_at", "executed_at"],
     )
 
+    # 手续费之外的资金费现金流独立保存，避免混入成交数量。
     op.create_table(
         "trade_cashflows",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -126,6 +132,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("trade_id", "tag_id", name="uq_trade_tags_scope"),
     )
 
+    # 修改审计保留关联标识和安全详情，稍后安装不可变触发器。
     op.create_table(
         "trade_audit_events",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -167,6 +174,7 @@ def upgrade() -> None:
     )
 
 
+# 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
     op.execute("DROP TRIGGER trg_trade_audit_events_immutable ON trade_audit_events")
     op.execute("DROP FUNCTION prevent_trade_audit_mutation")

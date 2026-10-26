@@ -1,3 +1,5 @@
+# 加载随包发布、已审查的静态研究方法，并校验改写文本的预期指纹。
+# 原始技能只保留来源与改写说明，不执行其指令、脚本或外部数据采集。
 """Reviewed, static method bundle with provenance from the original runtime Skills.
 
 The source Skills are untrusted reference material. Only these curated resources are
@@ -52,6 +54,7 @@ def _text(method_id: str) -> str:
     )
 
 
+# 运行时校验方法文本完整性；注释任务不能修改方法资源，否则改变指纹与模型输入。
 def _verified_hash(method_id: str) -> str:
     digest = sha256(_text(method_id).encode("utf-8")).hexdigest()
     if digest != _EXPECTED_ADAPTED_SHA256[method_id]:
@@ -59,6 +62,7 @@ def _verified_hash(method_id: str) -> str:
     return digest
 
 
+# 默认使用三个固定方法，仅在确定性形态条件满足时附加反转方法描述。
 def selected_methods(*, include_reversal: bool = False) -> tuple[TechnicalMethod, ...]:
     selected = _METHODS if include_reversal else _METHODS[:3]
     return tuple(
@@ -74,6 +78,7 @@ def selected_methods(*, include_reversal: bool = False) -> tuple[TechnicalMethod
     )
 
 
+# 只返回冻结描述对应的批准文本，未知标识、版本或改写指纹不匹配时拒绝。
 def method_instructions(methods: tuple[TechnicalMethod, ...] | None = None) -> str:
     """Return only approved text corresponding to the frozen method descriptors."""
     selected = methods if methods is not None else selected_methods()

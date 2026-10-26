@@ -1,3 +1,6 @@
+# 日志绩效：仅聚合未归档且完整平仓记录，按平仓时间累计净盈亏、回撤与 UTC 日历；
+# 持平交易不计入胜率分母。
+# 手工交易日志领域：记录用户录入的历史成交与复盘，按先进先出核算盈亏；不生成交易请求。
 """已实现交易绩效统计模块。
 
 数据流：仓储返回的已平仓交易 → 应用层资格筛选与稳定排序 → 累积权益曲线、回撤、
@@ -22,13 +25,17 @@ from app.trades.contracts import (
 )
 
 
+# ClosedTradeReader 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class ClosedTradeReader(Protocol):
+    # 读取满足筛选的已平仓手工交易，供应用层再次核对统计资格。
     async def list_closed(self, filters: TradeFilters) -> tuple[PersistedTrade, ...]: ...
 
 
+# 按需汇总已完整平仓、未归档交易的已实现净盈亏。
 class PerformanceAnalyticsService:
     """按需汇总已完整平仓、未归档交易的已实现净盈亏。"""
 
+    # 初始化本实例依赖和配置；输入 repository、clock。
     def __init__(
         self,
         *,
@@ -38,6 +45,7 @@ class PerformanceAnalyticsService:
         self._repository = repository
         self._clock = clock
 
+    # 读取并二次筛选符合条件的已平仓交易，返回按 UTC 时间生成的统计快照。
     async def get_snapshot(self, filters: AnalyticsFilters) -> AnalyticsSnapshot:
         """读取并二次筛选符合条件的已平仓交易，返回按 UTC 时间生成的统计快照。"""
         trades = await self._repository.list_closed(_repository_filters(filters))
@@ -55,6 +63,7 @@ class PerformanceAnalyticsService:
         return _aggregate(completed, generated_at=_utc_time(self._clock()))
 
 
+# 将统计筛选投影为仓储查询，只请求 closed 状态以缩小读取范围。
 def _repository_filters(filters: AnalyticsFilters) -> TradeFilters:
     """将统计筛选投影为仓储查询，只请求 closed 状态以缩小读取范围。"""
     return TradeFilters(
@@ -70,6 +79,7 @@ def _repository_filters(filters: AnalyticsFilters) -> TradeFilters:
     )
 
 
+# 在应用层确认交易已完全平仓、未归档且满足所有可选筛选条件。
 def _is_eligible(trade: PersistedTrade, filters: AnalyticsFilters) -> bool:
     """在应用层确认交易已完全平仓、未归档且满足所有可选筛选条件。"""
     if (
@@ -91,6 +101,7 @@ def _is_eligible(trade: PersistedTrade, filters: AnalyticsFilters) -> bool:
     return filters.to_at is None or trade.closed_at <= filters.to_at
 
 
+# 按平仓时间顺序累积交易净盈亏并计算权益、回撤、日历和汇总指标。
 def _aggregate(
     trades: tuple[PersistedTrade, ...],
     *,
@@ -143,6 +154,7 @@ def _aggregate(
         if win_rate_denominator
         else Decimal(0)
     )
+    # 没有已实现亏损时盈亏比没有有限分母，返回空值；所有已平仓记录仍参与单笔期望计算。
     profit_factor = None if gross_loss == Decimal(0) else gross_profit / gross_loss
     expectancy = net_pnl / Decimal(trade_count) if trade_count else Decimal(0)
     trade_calendar = tuple(
@@ -161,6 +173,7 @@ def _aggregate(
     )
 
 
+# 拒绝非 UTC 时钟结果，避免统计生成时间与 UTC 日历边界产生歧义。
 def _utc_time(value: datetime) -> datetime:
     """拒绝非 UTC 时钟结果，避免统计生成时间与 UTC 日历边界产生歧义。"""
     offset = value.utcoffset()

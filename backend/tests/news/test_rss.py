@@ -1,3 +1,6 @@
+# 验证受治理 RSS/Atom 来源的元数据读取与资源限制。
+# 本地 XML 和跟踪字节流替身覆盖来源、流式截断、压缩响应及 HTML 清洗。
+# 不跟随跳转、不读取文章正文，非法时间在发请求之前拒绝。
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path

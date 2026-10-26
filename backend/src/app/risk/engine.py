@@ -1,3 +1,5 @@
+# 风控引擎：验证价格，区分平仓与开仓，检查账户限制后按现金和最大敞口计算获准数量；只返回决策。
+# 确定性风控领域：依据账户快照、行情价格和固定配置审核意图；模型结论不能作为放行依据。
 """风控决策模块。
 
 数据流：TradeIntent 与 PortfolioSnapshot、当前价格进入 RiskEngine，按固定顺序检查
@@ -17,6 +19,7 @@ from app.risk.contracts import (
 from app.strategy.contracts import IntentAction, TradeIntent
 
 
+# 在订单进入执行层前运行的确定性风控关卡。
 class RiskEngine:
     """在订单进入执行层前运行的确定性风控关卡。
 
@@ -24,9 +27,11 @@ class RiskEngine:
     得出可复现的放行或拒绝结果。
     """
 
+    # 初始化本实例依赖和配置；输入 config。
     def __init__(self, config: RiskConfig) -> None:
         self._config = config
 
+    # 审核一条交易意图并计算允许成交的数量。
     def evaluate(
         self,
         intent: TradeIntent,
@@ -44,6 +49,7 @@ class RiskEngine:
                 approved=False,
                 reason=RiskRejectionCode.INVALID_MARK_PRICE,
             )
+        # 平仓允许退出已有持仓；开仓熔断、冷却与预算限制不应阻止账户减小风险。
         if intent.action is IntentAction.CLOSE_LONG:
             # 平仓只能关闭已有仓位，且不受开仓预算、冷却期等限制影响。
             if portfolio.position_quantity <= Decimal("0"):
@@ -89,6 +95,7 @@ class RiskEngine:
         )
         return RiskDecision(approved=True, quantity=quantity)
 
+    # 根据持仓实际入场价判断当前价格是否已触发固定比例止损。
     def stop_loss_triggered(
         self,
         portfolio: PortfolioSnapshot,
@@ -102,6 +109,7 @@ class RiskEngine:
         threshold = portfolio.entry_price * (Decimal("1") - self._config.stop_loss_fraction)
         return close_price <= threshold
 
+    # 用账户历史权益高点计算回撤，避免峰值为零时发生除零。
     def _circuit_breaker_triggered(self, portfolio: PortfolioSnapshot) -> bool:
         """用账户历史权益高点计算回撤，避免峰值为零时发生除零。"""
         if portfolio.peak_equity <= Decimal("0"):

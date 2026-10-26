@@ -1,3 +1,6 @@
+# 验证技术 v1 的行情冻结、模型降级和报告关联。
+# 行情、模型、仓储与固定时钟替身隔离外部依赖，观察保存内容与运行标识。
+# 缺失模型仍保留确定性结果，行情故障不调用模型也不暴露异常原文。
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,6 +18,7 @@ from app.reports.technical_runs import TechnicalRunLease
 from tests.agent.test_technical_engine import NOW, make_technical_detail
 
 
+# 公开行情替身断言标的和三个周期，失败时返回含敏感文本的领域异常以检查安全映射。
 class Market:
     def __init__(self, *, failed: bool = False) -> None:
         self.failed = failed
@@ -32,6 +36,7 @@ class Market:
         return ()
 
 
+# 记录报告与冻结证据保存参数，供验证公开响应与内部审计载荷的分离。
 class Repository:
     def __init__(self) -> None:
         self.records: list[tuple[TechnicalReportDocument, dict[str, JsonValue]]] = []
@@ -58,6 +63,7 @@ class Repository:
         raise NotImplementedError
 
 
+# 只引用传入分析证据的定性模型替身，记录次数并模拟未配置模型的降级。
 class Model:
     def __init__(self, *, failed: bool = False) -> None:
         self.calls = 0
@@ -80,6 +86,7 @@ def technical_clock() -> datetime:
     return NOW
 
 
+# 冻结证据保存行情和方法，但公开报告不暴露原始行情；运行标识贯穿保存结果。
 @pytest.mark.asyncio
 async def test_freezes_closed_evidence_and_saves_report_with_run_id() -> None:
     repository, model = Repository(), Model()
@@ -124,6 +131,7 @@ async def test_market_failure_never_calls_model_or_leaks_exception() -> None:
     assert "private" not in report.model_dump_json()
 
 
+# 早期重复行必须被完整冻结，重新用保存样本回放应复现相同质量失败而非得到正常分析。
 @pytest.mark.asyncio
 async def test_frozen_series_reproduce_quality_failure_in_older_rows() -> None:
     detail = make_technical_detail()
@@ -146,6 +154,7 @@ async def test_frozen_series_reproduce_quality_failure_in_older_rows() -> None:
     report = await service.generate("BTCUSDT", analysis_id=uuid4())
     frozen = repository.records[0][1]["market"]
     assert isinstance(frozen, dict)
+    # 用已保存原样行情重新计算，检验冻结证据足以复现早期坏行的质量判定。
     replay = MarketDetail.model_validate({"summary": frozen["summary"], "series": frozen["series"]})
     assert calculate_technical_analysis(replay, captured_at=NOW) == report.analysis
     assert report.analysis.quality.status == "invalid"

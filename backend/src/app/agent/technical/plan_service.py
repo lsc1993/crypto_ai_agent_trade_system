@@ -1,3 +1,6 @@
+# 技术 v2 固定流程：公开采集、质量与候选计算、分析、校验、编排、确定性渲染及保存。
+# 各阶段共享冻结上下文与有界时间；降级质量区分数据不足、分析不可用和编排失败。
+# 保存前复核队列所有权，保留证据、方法文本和安全诊断，原始思考不会进入结果。
 """Fixed research path with bounded model stages and honest fallback."""
 
 import asyncio
@@ -37,6 +40,7 @@ from app.reports.technical_repository import TechnicalReportRepository
 from app.reports.technical_runs import TechnicalRunLease, TechnicalRunPhase
 
 
+# 组合公开行情、受限模型与不可变仓储，进度和保存租约由队列执行器注入。
 class TechnicalPlanResearchService:
     def __init__(
         self,
@@ -55,6 +59,7 @@ class TechnicalPlanResearchService:
             timeout_seconds,
         )
 
+    # 为单次运行建立上下文并报告阶段；计算窗口预留十五秒用于所有权复核和最终保存。
     async def generate(
         self,
         symbol: ResearchSymbol,
@@ -155,6 +160,7 @@ class TechnicalPlanResearchService:
                         decision = validate_decision(
                             result.summary, build_reference_catalog(context)
                         )
+                        # 已通过分析校验后再提升降级质量；编排失败仍可保留该冻结摘要。
                         quality = "composition_fallback"
                         await progress("composing")
                         composed = await self._model.compose(context, decision)
@@ -175,6 +181,7 @@ class TechnicalPlanResearchService:
             error_code = "run_timeout"
         finally:
             model_deadline.reset(deadline_token)
+        # 分析可用时渲染已验摘要，否则明确使用规则编排；两者都不能伪装为完整模型结果。
         if book is None:
             book = (
                 build_decision_plan_book(context, decision)
@@ -206,6 +213,7 @@ class TechnicalPlanResearchService:
         )
         async with asyncio.timeout(15):
             await progress("saving")
+            # 计算完成不代表仍拥有任务；提交前再确认租约，避免旧 worker 保存抢占后的结果。
             lease = await before_save()
             saved = await self._repository.persist(report, evidence, lease=lease)
         if not isinstance(saved, TechnicalPlanReport):

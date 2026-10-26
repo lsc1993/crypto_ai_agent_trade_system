@@ -1,3 +1,6 @@
+# 验证手动日志服务的计算、单时钟与关联审计标识。
+# 记录型仓储观察创建和替换写入，固定草稿用于可重复损益计算。
+# 未知日志或计算失败不得发生写入，防止形成不完整记录。
 from __future__ import annotations
 
 from dataclasses import dataclass

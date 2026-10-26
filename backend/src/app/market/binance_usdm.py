@@ -1,3 +1,6 @@
+# 固定公开行情适配器：校验主机和路径，有限重试读取响应，转为十进制行情和 UTC 时间，
+# 再按短期缓存复用。
+# 公开行情领域：统一研究行情模型、固定公开来源适配器与冻结快照读取；不访问私有账户。
 """Binance USDⓈ-M 公共市场数据适配器。
 
 数据流：受限的公开 REST 路径 → 严格 JSON/Decimal/UTC 校验 → 短 TTL 缓存的行情摘要
@@ -57,6 +60,7 @@ MAX_FUNDING_POINTS = 1000
 Sleep = Callable[[float], Awaitable[None]]
 
 
+# 来自三个公开衍生品端点、且以同一读取时刻封装的研究指标。
 @dataclass(frozen=True)
 class PublicDerivativesMetrics:
     """来自三个公开衍生品端点、且以同一读取时刻封装的研究指标。"""
@@ -67,9 +71,11 @@ class PublicDerivativesMetrics:
     fetched_at: datetime
 
 
+# Binance USDⓈ-M 公共 REST 的唯一只读边界。
 class BinanceUsdmPublicMarketGateway:
     """Binance USDⓈ-M 公共 REST 的唯一只读边界。"""
 
+    # 初始化本实例依赖和配置；输入 client、clock、sleep。
     def __init__(
         self,
         *,
@@ -93,6 +99,7 @@ class BinanceUsdmPublicMarketGateway:
         self._candle_cache: AsyncTtlCache[CandleSeries] = AsyncTtlCache(clock)
         self._exchange_info_cache: AsyncTtlCache[dict[str, str] | None] = AsyncTtlCache(clock)
 
+    # 读取公开合约元数据作为目录准入依据；未找到标的时返回空值。
     async def get_exchange_info(self, symbol: str) -> dict[str, str] | None:
         """Read only contract metadata used to admit an eligible research symbol."""
         return await self._exchange_info_cache.get_or_load(
@@ -101,6 +108,7 @@ class BinanceUsdmPublicMarketGateway:
             EXCHANGE_INFO_TTL,
         )
 
+    # 从公开合约列表定位唯一标的，只返回所需字符串元数据；缺失返回空值，重复或字段异常拒绝。
     async def _fetch_exchange_info(self, symbol: str) -> dict[str, str] | None:
         payload = _mapping_payload(await self._get_public_json("/fapi/v1/exchangeInfo", {}))
         rows = payload.get("symbols")
@@ -133,6 +141,7 @@ class BinanceUsdmPublicMarketGateway:
             values[field] = value.strip()
         return values
 
+    # 并发获取多个白名单标的的缓存行情摘要。
     async def get_summaries(
         self,
         symbols: tuple[ResearchSymbol, ...],
@@ -143,6 +152,7 @@ class BinanceUsdmPublicMarketGateway:
         )
         return tuple(summaries)
 
+    # 获取一个标的的摘要与指定周期 K 线，并由各缓存独立控制新鲜度。
     async def get_market(
         self,
         symbol: ResearchSymbol,
@@ -155,6 +165,7 @@ class BinanceUsdmPublicMarketGateway:
         )
         return MarketDetail(summary=summary, series=tuple(series))
 
+    # 读取基差、多空账户比与主动买卖比，并以最早观测时间标识数据截止点。
     async def get_research_metrics(
         self,
         symbol: ResearchSymbol,
@@ -191,6 +202,7 @@ class BinanceUsdmPublicMarketGateway:
             fetched_at=fetched_at,
         )
 
+    # 读取指定 UTC 窗口内的已结算资金费率。
     async def get_funding_history(
         self,
         symbol: ResearchSymbol,
@@ -259,6 +271,7 @@ class BinanceUsdmPublicMarketGateway:
             points=tuple(points),
         )
 
+    # 为回测加载指定 UTC 区间内连续的已收盘 1h K 线。
     async def load_closed_candles(
         self,
         symbol: ResearchSymbol,
@@ -308,6 +321,7 @@ class BinanceUsdmPublicMarketGateway:
             )
         return requested_candles
 
+    # 通过摘要缓存读取一个标的，缓存未命中时调用 _fetch_summary。
     async def _get_summary(self, symbol: ResearchSymbol) -> MarketSummary:
         """通过摘要缓存读取一个标的，缓存未命中时调用 _fetch_summary。"""
         return await self._summary_cache.get_or_load(
@@ -316,6 +330,7 @@ class BinanceUsdmPublicMarketGateway:
             SUMMARY_TTL,
         )
 
+    # 并发读取 ticker、资金费率和未平仓量，并组装为带来源时间的摘要。
     async def _fetch_summary(self, symbol: ResearchSymbol) -> MarketSummary:
         """并发读取 ticker、资金费率和未平仓量，并组装为带来源时间的摘要。"""
         ticker, premium, open_interest = await asyncio.gather(
@@ -347,6 +362,7 @@ class BinanceUsdmPublicMarketGateway:
             ),
         )
 
+    # 通过周期缓存读取 K 线序列，避免页面轮询频繁访问上游。
     async def _get_candles(
         self,
         symbol: ResearchSymbol,
@@ -359,6 +375,7 @@ class BinanceUsdmPublicMarketGateway:
             CANDLE_TTL,
         )
 
+    # 请求最多 200 根 K 线，并只保留采集时已经结束的行。
     async def _fetch_candles(
         self,
         symbol: ResearchSymbol,
@@ -380,6 +397,7 @@ class BinanceUsdmPublicMarketGateway:
             candles=candles,
         )
 
+    # 访问白名单公开端点并将网络、限流、状态码和 JSON 异常映射为稳定错误码。
     async def _get_public_json(self, path: str, params: dict[str, str]) -> object:
         """访问白名单公开端点并将网络、限流、状态码和 JSON 异常映射为稳定错误码。"""
         # 路径校验在发请求前执行，即使此方法被未来调用点复用也不能越过白名单。
@@ -457,6 +475,7 @@ class BinanceUsdmPublicMarketGateway:
 
         raise AssertionError("公开市场数据重试流程未返回结果")
 
+    # 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
     def _now(self) -> datetime:
         now = self._clock()
         if now.tzinfo is None or now.utcoffset() != timedelta(0):
@@ -464,6 +483,7 @@ class BinanceUsdmPublicMarketGateway:
         return now
 
 
+# 验证历史 K 线的半开时间区间使用 UTC 且起点早于终点。
 def _validate_utc_range(start_at: datetime, end_at: datetime) -> None:
     """验证历史 K 线的半开时间区间使用 UTC 且起点早于终点。"""
     for value in (start_at, end_at):
@@ -473,6 +493,7 @@ def _validate_utc_range(start_at: datetime, end_at: datetime) -> None:
         raise ValueError("历史 K 线开始时间必须早于结束时间")
 
 
+# 验证资金费率窗口为带时区 UTC 且起点早于终点，输入错误转为受控领域异常。
 def _validate_funding_range(since: datetime, until: datetime) -> None:
     for value in (since, until):
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
@@ -487,6 +508,7 @@ def _validate_funding_range(since: datetime, until: datetime) -> None:
         )
 
 
+# 校验 Binance K 线数组并转换成统一的 Candle 模型，只返回已收盘记录。
 def _closed_candles_from_payload(
     payload: object,
     *,
@@ -538,6 +560,7 @@ def _closed_candles_from_payload(
     return tuple(sorted(candles, key=lambda candle: candle.open_at))
 
 
+# 将上游响应限定为映射结构，结构错误转换成安全行情错误。
 def _mapping_payload(payload: object) -> Mapping[str, object]:
     if not isinstance(payload, Mapping):
         raise MarketDataUnavailableError(
@@ -547,6 +570,7 @@ def _mapping_payload(payload: object) -> Mapping[str, object]:
     return cast(Mapping[str, object], payload)
 
 
+# 将上游响应限定为列表结构，避免后续按记录遍历错误类型。
 def _list_payload(payload: object) -> list[object]:
     if not isinstance(payload, list):
         raise MarketDataUnavailableError(
@@ -556,6 +580,7 @@ def _list_payload(payload: object) -> list[object]:
     return cast(list[object], payload)
 
 
+# 读取公开指标列表的末条记录，空列表明确标记为缺失。
 def _latest_metric_payload(payload: object) -> Mapping[str, object]:
     rows = _list_payload(payload)
     if not rows:
@@ -566,10 +591,12 @@ def _latest_metric_payload(payload: object) -> Mapping[str, object]:
     return _mapping_payload(rows[-1])
 
 
+# 按字段提取上游数值，再交给严格十进制解析器。
 def _decimal(payload: Mapping[str, object], field: str) -> Decimal:
     return _decimal_value(payload.get(field))
 
 
+# 把上游十进制字符串转换为有限 Decimal，拒绝 float、布尔值和非数值。
 def _decimal_value(value: object) -> Decimal:
     """把上游十进制字符串转换为有限 Decimal，拒绝 float、布尔值和非数值。"""
     if isinstance(value, bool) or not isinstance(value, str):
@@ -592,10 +619,12 @@ def _decimal_value(value: object) -> Decimal:
     return parsed
 
 
+# 按字段提取上游毫秒时间戳，再转换成带时区 UTC 时间。
 def _timestamp(payload: Mapping[str, object], field: str) -> datetime:
     return _timestamp_value(payload.get(field))
 
 
+# 把上游毫秒 Unix 时间戳转换为带 UTC 时区的 datetime。
 def _timestamp_value(value: object) -> datetime:
     """把上游毫秒 Unix 时间戳转换为带 UTC 时区的 datetime。"""
     if isinstance(value, bool) or not isinstance(value, int):
@@ -613,6 +642,7 @@ def _timestamp_value(value: object) -> datetime:
         ) from error
 
 
+# 读取限流响应的 Retry-After；无效或负值退化为立即重试。
 def _retry_after(response: httpx.Response) -> float:
     """读取限流响应的 Retry-After；无效或负值退化为立即重试。"""
     header = response.headers.get("Retry-After")
@@ -627,6 +657,7 @@ def _retry_after(response: httpx.Response) -> float:
     return float(seconds)
 
 
+# 逐块累计公开响应字节，超过大小上限立即失败；返回完整受限响应体。
 async def _read_bounded_body(response: httpx.Response) -> bytes:
     chunks: list[bytes] = []
     size = 0
@@ -641,6 +672,7 @@ async def _read_bounded_body(response: httpx.Response) -> bytes:
     return b"".join(chunks)
 
 
+# 核对实际响应仍来自固定 HTTPS 主机、标准端口和获准路径，防止公开读取的地址边界漂移。
 def _validate_public_response_boundary(response: httpx.Response, path: str) -> None:
     if (
         response.url.scheme != "https"

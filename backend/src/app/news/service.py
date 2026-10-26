@@ -1,3 +1,6 @@
+# 新闻采集协调：并发读取批准来源、隔离失败，补充目录币种归因，过滤时间窗与标的后去重保存，
+# 返回覆盖统计。
+# 研究新闻领域：登记的英文订阅源经规范化、归因和去重后成为证据；外部文本不具备执行权限。
 """白名单 RSS 新闻采集服务。
 
 数据流：启动时注入的获准适配器 → 并发抓取和按来源隔离失败 → 去重后的仓储写入 →
@@ -24,30 +27,39 @@ from app.news.contracts import (
 from app.symbols.contracts import ResearchSymbolEntry
 
 
+# NewsSourceAdapter 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class NewsSourceAdapter(Protocol):
+    # 提供适配器声明的来源定义，供采集服务与固定白名单核对。
     @property
     def source(self) -> NewsSourceDefinition: ...
 
+    # 从登记的订阅源读取有界响应，解析条目并规范化为新闻草稿；最多返回来源限定数量。
     async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]: ...
 
 
+# NewsRepository 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class NewsRepository(Protocol):
+    # 将候选新闻交给仓储去重保存，返回已持久化的规范化条目。
     async def ingest_many(
         self,
         items: tuple[NewsItemDraft, ...],
     ) -> tuple[NewsItemDraft, ...]: ...
 
 
+# ResearchSymbolDirectory 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class ResearchSymbolDirectory(Protocol):
+    # 按筛选或归档选项读取领域记录集合/分页结果。
     async def list(self, *, include_archived: bool = False) -> tuple[ResearchSymbolEntry, ...]: ...
 
 
+# 将已核验的适配器与获准来源绑定，供收集过程核对归因。
 @dataclass(frozen=True)
 class _ApprovedSourceAdapter:
     adapter: NewsSourceAdapter
     source: NewsSourceDefinition
 
 
+# 一次新闻收集的项目、来源覆盖计数和不含上游细节的安全错误码。
 class NewsCollection(BaseModel):
     """一次新闻收集的项目、来源覆盖计数和不含上游细节的安全错误码。"""
 
@@ -61,6 +73,8 @@ class NewsCollection(BaseModel):
     successful_source_ids: tuple[str, ...] = Field(default=(), max_length=30)
     failed_source_ids: tuple[str, ...] = Field(default=(), max_length=30)
 
+    # 校验error_codes 字段，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：新闻采集结果只能包含最小安全错误码。
     @field_validator("error_codes", mode="before")
     @classmethod
     def require_safe_error_codes(cls, value: object) -> object:
@@ -71,6 +85,9 @@ class NewsCollection(BaseModel):
             raise ValueError("新闻采集结果只能包含最小安全错误码")
         return values
 
+    # 校验当前模型的跨字段约束，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：新闻来源计数不一致；新闻错误码数量与失败来源数量不一致；
+    # 新闻来源明细与覆盖计数不一致。
     @model_validator(mode="after")
     def require_consistent_counts(self) -> NewsCollection:
         if self.successful_source_count + self.failed_source_count != self.source_count:
@@ -88,9 +105,11 @@ class NewsCollection(BaseModel):
         return self
 
 
+# 只从启动时注入、且经白名单批准的 RSS 适配器收集新闻。
 class NewsIngestionService:
     """只从启动时注入、且经白名单批准的 RSS 适配器收集新闻。"""
 
+    # 验证所有适配器与静态来源白名单匹配，并冻结其运行时顺序。
     def __init__(
         self,
         *,
@@ -125,6 +144,7 @@ class NewsIngestionService:
         self._repository = repository
         self._symbol_repository = symbol_repository
 
+    # 在指定 UTC 时间窗内收集新闻并按来源隔离异常。
     async def collect(
         self,
         symbol: Any,
@@ -151,6 +171,7 @@ class NewsIngestionService:
         failure_ids: list[str] = []
         failed_count = 0
         for source, result in zip(self._sources, results, strict=True):
+            # 取消属于任务生命周期信号，必须继续传播；不能当作某个来源失败后继续写入。
             if isinstance(result, asyncio.CancelledError):
                 raise result
             if isinstance(result, BaseException) or not _has_expected_attribution(
@@ -182,18 +203,21 @@ class NewsIngestionService:
             failed_source_ids=tuple(failure_ids),
         )
 
+    # 依据已启用目录记录给新闻补充研究币种归因，无目录或条目时保持原输入。
     async def _attribute_research_symbols(
         self,
         items: tuple[NewsItemDraft, ...],
     ) -> tuple[NewsItemDraft, ...]:
         if self._symbol_repository is None or not items:
             return items
+        # 只给已启用目录记录补充归因，归档币种不参与新的研究关联。
         entries = tuple(entry for entry in await self._symbol_repository.list() if entry.enabled)
         if not entries:
             return items
         return tuple(_with_research_symbols(item, entries) for item in items)
 
 
+# 验证并标准化新闻窗口边界为 UTC，确保跨来源时间过滤可比较。
 def _require_utc(value: datetime) -> datetime:
     """验证并标准化新闻窗口边界为 UTC，确保跨来源时间过滤可比较。"""
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
@@ -201,6 +225,7 @@ def _require_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+# 确认适配器返回的每条新闻都归属于其声明的获准来源。
 def _has_expected_attribution(
     value: object,
     source: NewsSourceDefinition,
@@ -227,6 +252,7 @@ _BROAD_POLICY_SOURCES = frozenset(
 )
 
 
+# 根据已启用目录的受限别名或官方宏观监管范围，补充去重后的研究币种关联。
 def _with_research_symbols(
     item: NewsItemDraft,
     entries: tuple[ResearchSymbolEntry, ...],
@@ -247,6 +273,7 @@ def _with_research_symbols(
     return item.model_copy(update={"related_symbols": tuple(dict.fromkeys(related))})
 
 
+# 按不区分大小写且带词边界的字面别名匹配，避免短代码误命中更长单词。
 def _contains_alias(content: str, alias: str) -> bool:
     normalized = alias.casefold()
     return bool(re.search(rf"(?<![\w]){re.escape(normalized)}(?![\w])", content))

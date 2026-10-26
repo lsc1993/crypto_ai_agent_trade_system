@@ -1,3 +1,6 @@
+# 验证新闻规范化、英文筛选、来源准入和稳定去重。
+# 固定标题及摘要覆盖 HTML、跟踪参数、混合文字和超长内容。
+# 来源标识优先，缺失时使用规范 URL 或内容哈希；政策关联与币种识别需保留。
 from datetime import UTC, datetime
 from typing import Literal, cast
 

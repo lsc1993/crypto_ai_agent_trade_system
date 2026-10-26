@@ -1,3 +1,6 @@
+# 验证模拟盘引擎的风控限量、止损顺序与资金账本追加。
+# 固定账户、仓位和报价可直接核对成交、现金和审计变化。
+# 已有仓位止损先于新的手动开仓请求，不能跳过风险处理顺序。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -45,6 +48,7 @@ def test_engine_opens_at_risk_limited_quote_and_appends_ledger() -> None:
     assert transition.outcome.kind is PaperActionOutcomeKind.FILLED
 
 
+# 先处理已有风险再评估新意图，避免手动请求覆盖已触发的止损。
 def test_engine_executes_stop_loss_before_the_requested_manual_open() -> None:
     transition = PaperTradingEngine().apply(
         account=_account(cash="500", peak_equity="1000"),

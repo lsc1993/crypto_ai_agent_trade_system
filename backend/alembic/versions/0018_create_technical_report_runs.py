@@ -1,3 +1,6 @@
+# 建立手动请求的持久化技术研究队列及请求幂等映射。
+# 单例队列行用于执行协调，活动币种唯一索引和状态约束保护任务生命周期。
+# 报告关联、失败错误和租约字段随状态受约束，不表示定时研究或自动交易。
 """Durable manually requested technical research queue."""
 
 from collections.abc import Sequence
@@ -13,13 +16,16 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 单例行是事务锁的共同锚点，容量检查与任务领取据此串行协调。
     op.create_table(
         "technical_report_queue",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.CheckConstraint("id = 1", name="ck_technical_queue_singleton"),
     )
     op.execute("INSERT INTO technical_report_queue (id) VALUES (1)")
+    # 可变任务状态与不可变报告分开；终态、错误和租约字段必须一致。
     op.create_table(
         "technical_report_runs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -71,6 +77,7 @@ def upgrade() -> None:
         postgresql_where=sa.text("status IN ('queued','running')"),
     )
     op.create_index("ix_technical_run_created", "technical_report_runs", ["created_at", "id"])
+    # 请求 UUID 映射已存在运行，重放请求不应再次生成研究报告。
     op.create_table(
         "technical_report_requests",
         sa.Column("request_id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -83,5 +90,6 @@ def upgrade() -> None:
     )
 
 
+# 前向迁移明确拒绝回退，避免删除已保存的研究和审计历史。
 def downgrade() -> None:
     raise NotImplementedError("技术研究任务和审计历史禁止删除")

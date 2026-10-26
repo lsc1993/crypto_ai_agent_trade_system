@@ -1,9 +1,11 @@
+# 排除本地环境配置和依赖，容器使用构建中安装的锁定依赖。
 .env
 .venv
 __pycache__
 .pytest_cache
 .ruff_cache
 *.pyc
+# 前端产物、浏览器测试报告与 Git 历史不属于后端构建输入。
 node_modules
 dist
 playwright-report

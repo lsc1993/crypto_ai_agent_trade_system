@@ -1,3 +1,5 @@
+# 新闻契约：冻结来源定义、外部条目和规范化草稿；固定英文来源清单、UTC 时间与长度约束限定采集边界。
+# 研究新闻领域：登记的英文订阅源经规范化、归因和去重后成为证据；外部文本不具备执行权限。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -10,6 +12,7 @@ from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
 
 
+# NewsSourceTier 固定可用枚举值：PRIMARY、PROFESSIONAL_MEDIA；外部数据不能自行增加状态或动作。
 class NewsSourceTier(StrEnum):
     PRIMARY = "primary"
     PROFESSIONAL_MEDIA = "professional_media"
@@ -18,10 +21,13 @@ class NewsSourceTier(StrEnum):
 _HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 
 
+# 通过统一网址类型适配器验证新闻链接为 HTTP 或 HTTPS 地址。
 def parse_http_url(value: str) -> AnyHttpUrl:
     return _HTTP_URL_ADAPTER.validate_python(value)
 
 
+# NewsEventCategory 固定可用枚举值：MARKET、REGULATION、ETF、SECURITY、PROTOCOL、MACRO；
+# 外部数据不能自行增加状态或动作。
 class NewsEventCategory(StrEnum):
     MARKET = "market"
     REGULATION = "regulation"
@@ -31,10 +37,12 @@ class NewsEventCategory(StrEnum):
     MACRO = "macro"
 
 
+# 新闻契约冻结基类，不允许额外输入字段。
 class _NewsModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+# 固定批准来源定义，限定来源标识、地址、层级及单次返回条数。
 class NewsSourceDefinition(_NewsModel):
     source_id: Literal[
         "sec_press_releases",
@@ -123,6 +131,7 @@ ALLOWED_NEWS_SOURCES: dict[str, NewsSourceDefinition] = {
 }
 
 
+# 订阅解析的原始英文元数据，先约束长度与 UTC 时间，再进入文本规范化。
 class ExternalNewsItem(_NewsModel):
     source_item_id: str | None = Field(default=None, max_length=300)
     title: str = Field(min_length=1, max_length=4_000)
@@ -131,6 +140,8 @@ class ExternalNewsItem(_NewsModel):
     published_at: UtcDateTime
     language: Literal["en"] = "en"
 
+    # 校验source_item_id 字段，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：来源条目 ID 必须是字符串。
     @field_validator("source_item_id", mode="before")
     @classmethod
     def normalize_source_item_id(cls, value: object) -> str | None:
@@ -141,6 +152,7 @@ class ExternalNewsItem(_NewsModel):
         normalized = value.strip()
         return normalized or None
 
+    # 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
     @field_validator("published_at")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:
@@ -149,6 +161,7 @@ class ExternalNewsItem(_NewsModel):
         return value.astimezone(UTC)
 
 
+# 可保存新闻证据，保留来源、标题摘要、关联币种、分类、内容哈希和去重键。
 class NewsItemDraft(_NewsModel):
     source_id: str
     source_tier: NewsSourceTier
@@ -164,6 +177,7 @@ class NewsItemDraft(_NewsModel):
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     deduplication_key: str = Field(min_length=1, max_length=2_000)
 
+    # 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
     @field_validator("published_at", "fetched_at")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:

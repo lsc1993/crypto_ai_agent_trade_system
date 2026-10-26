@@ -1,3 +1,6 @@
+# 验证技术结构、突破确认与条件计划的确定性计算。
+# 固定多周期 K 线覆盖未来数据、重复记录、零量、趋势冲突和缺失真实目标。
+# 计划几何、时效及十进制线协议必须同时成立，不能延伸目标来凑盈亏比。
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -38,6 +41,7 @@ DURATIONS = {
 }
 
 
+# 固定八十根多周期行情，末根放大成交量；指定历史转折点提供真实止损与目标结构。
 def _series(timeframe: MarketTimeframe, *, falling: bool = False) -> CandleSeries:
     duration = DURATIONS[timeframe]
     candles: list[Candle] = []
@@ -79,6 +83,7 @@ def _series(timeframe: MarketTimeframe, *, falling: bool = False) -> CandleSerie
     return CandleSeries(timeframe=timeframe, candles=tuple(candles))
 
 
+# 将统一时刻的摘要和多周期样本组装为基线，反向模式复用同样结构检验空头路径。
 def make_technical_detail(*, falling: bool = False) -> MarketDetail:
     return MarketDetail(
         summary=MarketSummary(
@@ -117,6 +122,7 @@ def _replace_series(
     )
 
 
+# 突破、量能与历史目标一起成立才生成候选，成本后的盈亏比仍必须由 Decimal 算得。
 def test_confirmed_long_uses_prior_range_volume_and_real_target() -> None:
     analysis = calculate_technical_analysis(_detail(), captured_at=NOW)
 
@@ -141,6 +147,7 @@ def test_confirmed_long_uses_prior_range_volume_and_real_target() -> None:
     assert plan.valid_until == NOW + timedelta(hours=4)
 
 
+# 未来 K 线同时改极端价格和成交量，完整分析应与基线相同而不只是候选方向相同。
 def test_future_candle_cannot_change_analysis() -> None:
     detail = _detail()
     original = calculate_technical_analysis(detail, captured_at=NOW)
@@ -159,6 +166,7 @@ def test_future_candle_cannot_change_analysis() -> None:
         _replace_series(detail, MarketTimeframe.H1, hourly + (future,)), captured_at=NOW
     )
 
+    # 比较整个结果，覆盖事实、质量、证据身份与计划，而非仅判断方向。
     assert changed == original
 
 
@@ -177,6 +185,7 @@ def test_latest_price_outside_triggered_entry_band_suppresses_plan(
     assert "current_price_invalidates_plan" in analysis.no_plan_reasons
 
 
+# 分别注入重复、缺口、过期、错标的和样本不足，数据质量失败时连事实也不能伪装正常。
 @pytest.mark.parametrize("defect", ["duplicate", "gap", "stale", "wrong_symbol", "short"])
 def test_bad_candle_coverage_yields_no_plan(defect: str) -> None:
     detail = _detail()
@@ -268,6 +277,7 @@ def test_future_dated_source_observation_cannot_create_plan() -> None:
     assert analysis.plans == ()
 
 
+# 来源时间与当前时刻直接比较，不能单凭上游自报新鲜标记放行旧数据。
 def test_stale_source_observation_cannot_create_plan_despite_fresh_flag() -> None:
     detail = _detail()
     detail = detail.model_copy(
@@ -301,6 +311,7 @@ def test_zero_volume_baseline_cannot_confirm_breakout_or_plan() -> None:
     assert analysis.plans == ()
 
 
+# 重建交易所闭区间末毫秒格式，验证适配后的结束时间正好落在连续周期边界。
 def test_binance_inclusive_close_time_normalizes_to_contiguous_closed_candles() -> None:
     detail = _detail()
     normalized: list[CandleSeries] = []
@@ -336,6 +347,7 @@ def test_binance_inclusive_close_time_normalizes_to_contiguous_closed_candles() 
     assert len(analysis.plans) == 1
 
 
+# 将重复藏在指标窗口之前，避免只验证最近窗口而冻结证据仍包含坏行。
 def test_duplicate_older_than_latest_sixty_is_rejected() -> None:
     detail = _detail()
     hourly = detail.series[0].candles
@@ -382,6 +394,7 @@ def test_waiting_plan_rejects_current_price_crossing_or_leaving_boundary(
     assert analysis.no_plan_reasons == ("current_price_invalidates_plan",)
 
 
+# 当前价格接近边界只能产生待确认候选，必须等待后续已收盘量价突破。
 def test_waiting_plan_requires_subsequent_closed_breakout() -> None:
     detail = _detail()
     detail = detail.model_copy(
@@ -421,6 +434,7 @@ def test_missing_structural_target_suppresses_plan() -> None:
     assert "no_structural_target" in analysis.no_plan_reasons
 
 
+# 拉近真实目标后应取消低盈亏比候选，算法不能编造更远目标凑条件。
 def test_near_structural_target_is_not_extended_to_meet_reward_risk() -> None:
     detail = _detail()
     four_hour = detail.series[1].candles
@@ -431,6 +445,7 @@ def test_near_structural_target_is_not_extended_to_meet_reward_risk() -> None:
 
     analysis = calculate_technical_analysis(detail, captured_at=NOW)
 
+    # 真实目标太近应不给计划，不能延伸目标来满足最低收益风险要求。
     assert analysis.plans == ()
     assert "reward_risk_below_minimum" in analysis.no_plan_reasons
 
@@ -457,6 +472,7 @@ def test_plan_contract_rejects_binary_float_price() -> None:
         TechnicalPlan.model_validate(payload)
 
 
+# 价格在内部 Decimal 可区分也不够，序列化精度不能把入场区间压成同价或放大溢出。
 @pytest.mark.parametrize(
     ("stop", "lower", "upper", "target"),
     [

@@ -1,3 +1,6 @@
+# 建立动态研究目录、租约同步任务、追加事件和新闻关联表。
+# 初始化预置币种并扩展研究表的符号约束，不扩展交易或模拟盘的静态契约。
+# 历史新闻通过关联表建立链接，终态任务及审计历史由触发器保护。
 """Persist research directory, leased synchronization and append-only associations."""
 
 # ruff: noqa: E501
@@ -29,7 +32,9 @@ RESEARCH_TABLES = (
 )
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 研究目录保存合约元数据、能力与版本，归档保留历史关联。
     symbols = op.create_table(
         "research_symbols",
         sa.Column("symbol", sa.String(32), primary_key=True),
@@ -50,6 +55,7 @@ def upgrade() -> None:
             "AND contract_type = 'PERPETUAL'", name="ck_research_symbols_market"
         ),
     )
+    # 同步领取使用租约标识，状态、时间与租约字段由跨字段约束绑定。
     runs = op.create_table(
         "research_symbol_sync_runs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -76,6 +82,7 @@ def upgrade() -> None:
     )
     op.create_index("uq_research_sync_active_symbol", "research_symbol_sync_runs", ["symbol"], unique=True, postgresql_where=sa.text("status IN ('queued', 'running')"))
     op.create_index("ix_research_sync_symbol_created", "research_symbol_sync_runs", ["symbol", "created_at"])
+    # 目录操作只追加审计，不回写既有同步与检查历史。
     events = op.create_table(
         "research_symbol_events",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -87,6 +94,7 @@ def upgrade() -> None:
         sa.Column("payload", postgresql.JSONB(), nullable=False),
     )
     op.create_index("ix_research_symbol_events_scope", "research_symbol_events", ["symbol", "occurred_at"])
+    # 新闻与动态研究目录多对多关联，不修改旧新闻载荷和证据哈希。
     op.create_table(
         "research_news_links",
         sa.Column("news_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("news_items.id"), primary_key=True),
@@ -148,5 +156,6 @@ def upgrade() -> None:
     op.execute("CREATE TRIGGER trg_research_sync_terminal BEFORE UPDATE OR DELETE ON research_symbol_sync_runs FOR EACH ROW EXECUTE FUNCTION protect_research_sync_terminal()")
 
 
+# 前向迁移明确拒绝回退，避免删除已保存的研究和审计历史。
 def downgrade() -> None:
     raise NotImplementedError("研究币对目录和同步审计不可逆，禁止删除历史数据")

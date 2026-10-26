@@ -1,3 +1,6 @@
+# 验证固定 ETF 表解析、日期语义与公开读取限制。
+# 表格替身覆盖真实表头形态，未披露、零值、负值和暂定数据不能混淆。
+# 固定来源、响应上限和实时采集窗口受检查；历史查询不能冒充历史回填。
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -64,6 +67,7 @@ def _gateway(
     return client, FarsideEtfFlowGateway(client=client, clock=lambda: NOW)
 
 
+# 真实表头与不同披露值一起测试，空白不能被转成已披露零流量。
 @pytest.mark.asyncio
 async def test_collect_parses_real_header_shape_and_preserves_missing_zero_and_negative() -> None:
     requests: list[httpx.Request] = []

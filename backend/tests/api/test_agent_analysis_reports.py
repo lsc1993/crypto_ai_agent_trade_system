@@ -1,3 +1,6 @@
+# 验证综合 Agent 报告创建、重试、详情及双周期响应映射。
+# 服务和审计仓储替身记录关联关系，HTTP 响应只暴露安全诊断摘要。
+# 局部来源覆盖不足应保持可见，内部字段不能直接替代既有前端契约。
 from __future__ import annotations
 
 from dataclasses import dataclass, field

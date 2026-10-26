@@ -1,3 +1,5 @@
+# 技术 v2 契约区分冻结上下文、模型数值占位模板、程序渲染正文与阶段诊断。
+# 完成结果必须是完整模型生成且无错误；规则降级保留质量原因，原始思考不属于契约。
 """Versioned, evidence-bound research plans. No execution contracts."""
 
 from datetime import datetime
@@ -31,6 +33,7 @@ SECTIONS = (
 )
 
 
+# 保存摘要价格、最新已收盘价格与分析截止，提供统一的冻结引用根。
 class TechnicalContext(TechnicalBase):
     analysis: TechnicalAnalysis
     summary_price: DecimalText | None
@@ -43,6 +46,7 @@ class TechnicalContext(TechnicalBase):
         return require_utc(value)
 
 
+# 正文仅允许已绑定事实占位符；直接数值、即时执行语言及重复单位均拒绝。
 class PlanClaim(TechnicalBase):
     text: str = Field(min_length=20, max_length=1200)
     evidence_id: UUID
@@ -55,6 +59,7 @@ class PlanClaim(TechnicalBase):
         import re
 
         text = value.strip()
+        # 先排除合法占位符再检查直接数量，保证引用路径的数字不被误当正文金融数值。
         plain = re.sub(r"\{\{[A-Za-z0-9_.]+\}\}", "", text)
         if "{" in plain or "}" in plain or contains_quantitative_number(plain):
             raise ValueError("unbound_number")
@@ -84,6 +89,7 @@ class PlanClaim(TechnicalBase):
 ClaimList = Annotated[tuple[PlanClaim, ...], Field(min_length=1, max_length=6)]
 
 
+# 模型分析或编排的同一结构，章节和整体长度有界；候选归属还需引用校验。
 class TechnicalDecisionSummary(TechnicalBase):
     stance: Literal["long", "short", "wait"]
     selected_plan_ref: Literal["plans.0"] | None
@@ -109,6 +115,7 @@ class TechnicalDecisionSummary(TechnicalBase):
 TechnicalPlanBook = TechnicalDecisionSummary
 
 
+# 程序替换占位符后的可展示正文，仍保留证据、事实及方法引用供复核。
 class RenderedClaim(TechnicalBase):
     text: str = Field(min_length=1, max_length=5000)
     evidence_id: UUID
@@ -116,6 +123,7 @@ class RenderedClaim(TechnicalBase):
     method_refs: tuple[str, ...]
 
 
+# 冻结渲染结果，不能根据访问时的行情自行刷新触发状态。
 class RenderedPlanBook(TechnicalBase):
     stance: Literal["long", "short", "wait"]
     selected_plan_ref: Literal["plans.0"] | None
@@ -132,6 +140,7 @@ class RenderedPlanBook(TechnicalBase):
     risks: tuple[RenderedClaim, ...]
 
 
+# 只保存阶段、尝试、结果和有界用量统计，不保存模型思考正文。
 class TechnicalStageDiagnostic(TechnicalBase):
     stage: Literal["analysis", "composition"]
     attempt: int = Field(ge=1, le=2)
@@ -148,6 +157,7 @@ class TechnicalStageDiagnostic(TechnicalBase):
     max_tokens: int = Field(ge=1, le=65536)
 
 
+# 明确区分完整模型、编排降级、分析不可用及数据不足，不能把规则结果包装成模型成功。
 class TechnicalGeneration(TechnicalBase):
     source: Literal["model", "rules"]
     quality: Literal[
@@ -157,6 +167,7 @@ class TechnicalGeneration(TechnicalBase):
     diagnostics: tuple[TechnicalStageDiagnostic, ...] = Field(default=(), max_length=4)
 
 
+# 校验分析与上下文相同、截止早于创建时间，完成状态与来源、质量和错误一致。
 class TechnicalPlanReport(TechnicalBase):
     version: Literal["technical-v2"] = "technical-v2"
     id: UUID
@@ -198,6 +209,7 @@ class TechnicalPlanReport(TechnicalBase):
             or self.data_cutoff_at > self.created_at
         ):
             raise ValueError("context_mismatch")
+        # 只有完整模型来源才是完成；规则输出即使文本丰富，也必须保持明确降级状态。
         complete = self.generation.quality == "complete" and self.generation.source == "model"
         if complete != (self.status == "completed") or complete != (self.error_code is None):
             raise ValueError("generation_status")
@@ -209,6 +221,7 @@ class TechnicalPlanReport(TechnicalBase):
 TechnicalReportDocument = TechnicalReport | TechnicalPlanReport
 
 
+# 按显式 v2 版本解析新契约，其余交给 v1 验证，使旧报告保持可读取。
 def parse_technical_report(payload: object) -> TechnicalReportDocument:
     if (
         isinstance(payload, dict)

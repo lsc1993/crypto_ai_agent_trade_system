@@ -1,3 +1,6 @@
+# 验证政策、资金费率与 ETF 专题的证据选择和确定性统计。
+# 结算缺口、未披露与零值具有不同含义，不能用不完整窗口冒充完整统计。
+# 专题引用必须属于当前主题，模型缺失时仍保留事实与可见限制。
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -23,6 +26,7 @@ POLICY_ID = UUID("00000000-0000-0000-0000-000000000811")
 FUNDING_ID = UUID("00000000-0000-0000-0000-000000000812")
 
 
+# 三个样本只能证明已获取窗口的均值与累计，不能把它们描述成完整七天结算历史。
 def test_funding_statistics_use_exact_settled_samples_and_report_partial_coverage() -> None:
     history = FundingHistory(
         symbol=ContractSymbol.BTCUSDT,
@@ -46,6 +50,7 @@ def test_funding_statistics_use_exact_settled_samples_and_report_partial_coverag
     assert topic.observed_at == NOW
 
 
+# 同号样本之间刻意留出结算缺口，验证同号样本数不能升级为真实连续结算次数。
 def test_funding_gap_does_not_claim_continuous_settlement_direction() -> None:
     history = FundingHistory(
         symbol=ContractSymbol.BTCUSDT,
@@ -65,6 +70,7 @@ def test_funding_gap_does_not_claim_continuous_settlement_direction() -> None:
     assert any("不能证明真实结算连续性" in limit for limit in topic.limitations)
 
 
+# 完整披露日用于五日统计，最新部分披露日单独展示；真实零流量与未披露空值必须同时保留。
 def test_etf_five_disclosed_sessions_exclude_partial_latest_and_preserve_zero() -> None:
     dates = [
         date(2026, 8, 28),
@@ -129,6 +135,7 @@ def test_etf_does_not_call_four_sessions_a_five_session_total() -> None:
     assert topic.status == "partial"
 
 
+# UTC 已跨日而纽约仍在当日，数字齐全也不能将未结束交易日计入最终累计。
 def test_etf_current_new_york_session_is_provisional_even_when_all_funds_are_numeric() -> None:
     as_of = datetime(2026, 9, 5, 1, tzinfo=UTC)  # Still September 4 in New York.
     dates = (date(2026, 8, 28), date(2026, 8, 31), *(date(2026, 9, i) for i in range(1, 5)))
@@ -156,6 +163,7 @@ def test_etf_current_new_york_session_is_provisional_even_when_all_funds_are_num
     assert any("纽约当日" in limit for limit in topic.limitations)
 
 
+# 七天窗口中的官方政策优先保留，避免近期大量市场新闻挤掉长期主题证据。
 def test_selection_preserves_week_old_policy_ahead_of_recent_market_chatter() -> None:
     def item(source: str, title: str, age: int):
         return normalize_news_item(
@@ -187,6 +195,7 @@ def test_no_policy_evidence_does_not_claim_no_policies_exist() -> None:
     assert any("覆盖" in limit for limit in topic.limitations)
 
 
+# 引用属于本次报告仍不够，专题解释还必须引用该专题自己的证据。
 def test_interpretation_rejects_citation_from_another_topic() -> None:
     analysis = FactorAnalysis(
         policy=FactorTopic(status="available", window_end=NOW, evidence_ids=(POLICY_ID,)),

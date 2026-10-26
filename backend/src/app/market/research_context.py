@@ -1,3 +1,5 @@
+# 公开研究上下文：并发合并衍生品指标和恐惧贪婪历史，拒绝快照之后的观测；来源失败返回受控不可用错误。
+# 公开行情领域：统一研究行情模型、固定公开来源适配器与冻结快照读取；不访问私有账户。
 """公开衍生品与市场情绪研究上下文模块。
 
 数据流：Binance 公开衍生品指标与 Alternative.me 恐惧贪婪历史并发读取 → 严格校验
@@ -24,6 +26,7 @@ ALTERNATIVE_ME_BASE_URL = "https://api.alternative.me"
 _CONTEXT_ERROR_CODE = "market_context_unavailable"
 
 
+# 可作为 Agent 冻结证据的公开市场上下文，所有数值和时间均已校验。
 class PublicResearchContext(BaseModel):
     """可作为 Agent 冻结证据的公开市场上下文，所有数值和时间均已校验。"""
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -40,6 +43,9 @@ class PublicResearchContext(BaseModel):
     observed_at: datetime
     fetched_at: datetime
 
+    # 校验basis_rate、long_short_account_ratio、taker_buy_sell_ratio 字段，返回规范化值或模型；
+    # 不满足约束时抛出验证错误。
+    # 拒绝条件包括：公开市场上下文必须使用十进制数；公开市场上下文必须使用有限十进制数。
     @field_validator(
         "basis_rate",
         "long_short_account_ratio",
@@ -58,6 +64,8 @@ class PublicResearchContext(BaseModel):
             raise ValueError("公开市场上下文必须使用有限十进制数")
         return parsed
 
+    # 校验fear_greed_classification 字段，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：恐惧贪婪分类不能为空。
     @field_validator("fear_greed_classification")
     @classmethod
     def normalize_classification(cls, value: str) -> str:
@@ -66,11 +74,14 @@ class PublicResearchContext(BaseModel):
             raise ValueError("恐惧贪婪分类不能为空")
         return normalized
 
+    # 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
     @field_validator("fear_greed_7d_start_at", "observed_at", "fetched_at")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:
         return _require_utc(value)
 
+    # 校验当前模型的跨字段约束，返回规范化值或模型；不满足约束时抛出验证错误。
+    # 拒绝条件包括：公开市场上下文观测时间不能晚于抓取时间；恐惧贪婪比较起点不能晚于当前观测时间。
     @model_validator(mode="after")
     def require_observed_before_fetched(self) -> PublicResearchContext:
         if self.observed_at > self.fetched_at:
@@ -80,13 +91,16 @@ class PublicResearchContext(BaseModel):
         return self
 
 
+# PublicDerivativesGateway 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class PublicDerivativesGateway(Protocol):
+    # 读取只读公开衍生品指标并返回带观察和抓取时间的记录。
     async def get_research_metrics(
         self,
         symbol: Any,
     ) -> PublicDerivativesMetrics: ...
 
 
+# 恐惧贪婪指数的单日原始读数及其观测、抓取时间。
 @dataclass(frozen=True)
 class FearGreedReading:
     """恐惧贪婪指数的单日原始读数及其观测、抓取时间。"""
@@ -96,9 +110,11 @@ class FearGreedReading:
     fetched_at: datetime
 
 
+# 固定主机的 Alternative.me 公开恐惧与贪婪指数读取器。
 class AlternativeMeFearGreedGateway:
     """固定主机的 Alternative.me 公开恐惧与贪婪指数读取器。"""
 
+    # 初始化本实例依赖和配置；输入 client、clock。
     def __init__(
         self,
         *,
@@ -116,6 +132,7 @@ class AlternativeMeFearGreedGateway:
         self._client = client
         self._clock = clock
 
+    # 读取最新八条恐惧贪婪数据，以支持当前值与七日前值的比较。
     async def get_history(self) -> tuple[FearGreedReading, ...]:
         """读取最新八条恐惧贪婪数据，以支持当前值与七日前值的比较。"""
         try:
@@ -136,8 +153,10 @@ class AlternativeMeFearGreedGateway:
         return _fear_greed_history(payload, fetched_at=now)
 
 
+# 合并两个固定公开来源，并防止晚于快照的未来数据进入研究。
 class PublicResearchContextCollector:
     """合并两个固定公开来源，并防止晚于快照的未来数据进入研究。"""
+    # 初始化本实例依赖和配置；输入 derivatives、fear_greed。
     def __init__(
         self,
         *,
@@ -147,6 +166,7 @@ class PublicResearchContextCollector:
         self._derivatives = derivatives
         self._fear_greed = fear_greed
 
+    # 并发读取公开指标并构造一个与 captured_at 对齐的研究上下文。
     async def collect(
         self,
         symbol: Any,
@@ -186,6 +206,7 @@ class PublicResearchContextCollector:
             raise _context_unavailable() from error
 
 
+# 从 Alternative.me 响应读取并验证按时间倒序的八条历史记录。
 def _fear_greed_history(
     payload: object,
     *,
@@ -208,6 +229,7 @@ def _fear_greed_history(
     return readings
 
 
+# 验证单条上游记录的分数、分类和时间戳，并标准化为领域模型。
 def _fear_greed_reading(item: object, *, fetched_at: datetime) -> FearGreedReading:
     """验证单条上游记录的分数、分类和时间戳，并标准化为领域模型。"""
     if not isinstance(item, Mapping):
@@ -225,6 +247,7 @@ def _fear_greed_reading(item: object, *, fetched_at: datetime) -> FearGreedReadi
     )
 
 
+# 解析 0 至 100 的字符串分数，拒绝布尔值和越界内容。
 def _fear_greed_value(value: object) -> int:
     """解析 0 至 100 的字符串分数，拒绝布尔值和越界内容。"""
     if isinstance(value, bool) or not isinstance(value, str):
@@ -238,6 +261,7 @@ def _fear_greed_value(value: object) -> int:
     return parsed
 
 
+# 将上游秒级 Unix 时间戳转为 UTC，并把溢出映射为上下文不可用。
 def _unix_timestamp(value: object) -> datetime:
     """将上游秒级 Unix 时间戳转为 UTC，并把溢出映射为上下文不可用。"""
     if isinstance(value, bool) or not isinstance(value, str):
@@ -252,12 +276,14 @@ def _unix_timestamp(value: object) -> datetime:
         raise _context_unavailable() from error
 
 
+# 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
 def _require_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("公开市场上下文时间必须是 UTC 且带时区")
     return value.astimezone(UTC)
 
 
+# 构造或抛出本模块统一的安全不可用错误，避免向调用方暴露底层细节。
 def _context_unavailable() -> MarketDataUnavailableError:
     return MarketDataUnavailableError(
         _CONTEXT_ERROR_CODE,

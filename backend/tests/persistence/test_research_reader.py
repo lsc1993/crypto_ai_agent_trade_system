@@ -1,3 +1,6 @@
+# 验证快照读取、内容哈希和不可变 K 线输入恢复。
+# 真实仓储与伪造行替身分别覆盖正常保存和篡改数据。
+# 指定快照不能被最新快照替换，K 线数量有界且顺序固定。
 from __future__ import annotations
 
 from collections.abc import Sequence

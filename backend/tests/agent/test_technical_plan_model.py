@@ -1,3 +1,6 @@
+# 验证技术 v2 分析与编排使用不同思考配置。
+# 模拟失败和时间预算，检查重试等待有界且剩余预算足以执行完整调用。
+# 格式反馈只传安全字段路径，拒绝原文不进入下一次请求。
 import json
 from typing import Any
 
@@ -13,6 +16,7 @@ from app.shared.config import AppSettings
 from tests.agent.test_technical_references import context, decision
 
 
+# 两个阶段共享冻结上下文但请求预算不同；原始思考内容不得被带进后续编排请求。
 @pytest.mark.asyncio
 async def test_analysis_thinks_composition_does_not() -> None:
     ctx = context()
@@ -52,6 +56,7 @@ async def test_analysis_thinks_composition_does_not() -> None:
     assert "PRIVATE_REASONING" not in json.dumps(calls)
 
 
+# 输出截断、空内容、格式、权限和超时分别驱动错误码，调用次数与诊断脱敏共同断言。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["length", "empty", "invalid", "tools", "auth", "timeout"])
 async def test_failures_are_bounded_and_safe(failure: str) -> None:
@@ -107,6 +112,7 @@ async def test_failures_are_bounded_and_safe(failure: str) -> None:
     )
 
 
+# 模拟上游异常大的限流等待建议，注入记录型等待替身验证等待被截到固定上限。
 @pytest.mark.asyncio
 async def test_retry_after_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
@@ -148,6 +154,7 @@ async def test_retry_after_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert delays == [5]
 
 
+# 单调时钟推进到首次调用已耗时，剩余预算不足完整调用时不能发起第二次尝试。
 @pytest.mark.asyncio
 async def test_retry_requires_remaining_full_call_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.agent.technical import plan_model
@@ -175,10 +182,12 @@ async def test_retry_requires_remaining_full_call_budget(monkeypatch: pytest.Mon
                 await model.analyze(context())
             assert len(error.value.diagnostics) == 1
         assert calls == 1
+    # 测试结束复原上下文截止时间，避免预算状态污染其他异步用例。
     finally:
         plan_model.model_deadline.reset(token)
 
 
+# 将未经引用的具体数字放入止损解释，纠正只包含字段路径，不能带回数字或原文。
 @pytest.mark.asyncio
 async def test_format_retry_uses_safe_field_path_without_rejected_text() -> None:
     import json

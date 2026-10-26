@@ -1,3 +1,6 @@
+# 声明 模拟账户、仓位、估值、模拟订单成交、账本与事件 的 PostgreSQL ORM 映射。
+# 字段、外键与索引供仓储构造查询及关联；导入模型只注册元数据，不执行数据库迁移。
+# 金额列使用 Numeric 映射 Decimal，时间列按 timezone 声明；持久化约束仍以已应用迁移为准。
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -13,6 +16,7 @@ from sqlalchemy.sql import text
 from app.infrastructure.persistence.base import Base
 
 
+# 保存模拟账户当前余额及风险状态；部分唯一索引只允许一个 active 账户。
 class PaperAccountRecord(Base):
     __tablename__ = "paper_accounts"
     __table_args__ = (
@@ -46,6 +50,7 @@ class PaperAccountRecord(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+# 以 account_id 一对一保存当前模拟仓位；均价可空表示无持仓，剩余入场成本单独记录。
 class PaperPositionRecord(Base):
     __tablename__ = "paper_positions"
 
@@ -61,6 +66,7 @@ class PaperPositionRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+# 保存模拟决策使用的公开价格、来源、观测和抓取时间及输入哈希，用于回溯成交依据。
 class PaperMarketSnapshotRecord(Base):
     __tablename__ = "paper_market_snapshots"
     __table_args__ = (
@@ -80,6 +86,7 @@ class PaperMarketSnapshotRecord(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+# 按账户和递增 sequence 保存估值历史，可关联当次价格快照；初始估值无需快照。
 class PaperAccountValuationRecord(Base):
     __tablename__ = "paper_account_valuations"
     __table_args__ = (
@@ -110,6 +117,7 @@ class PaperAccountValuationRecord(Base):
     peak_equity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
 
 
+# 记录模拟订单请求数量、动作、来源及价格快照；这是模拟事实，不是交易所私有订单。
 class PaperOrderRecord(Base):
     __tablename__ = "paper_orders"
     __table_args__ = (
@@ -135,6 +143,7 @@ class PaperOrderRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
+# 通过 order_id 关联模拟订单，唯一约束限制每个订单一条成交；实际数量、费用及状态独立保存。
 class PaperFillRecord(Base):
     __tablename__ = "paper_fills"
     __table_args__ = (
@@ -160,6 +169,7 @@ class PaperFillRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
+# 按账户和 sequence 保存现金及仓位增量、已实现收益与余额，作为模拟账本对账依据。
 class PaperLedgerEntryRecord(Base):
     __tablename__ = "paper_ledger_entries"
     __table_args__ = (
@@ -182,6 +192,7 @@ class PaperLedgerEntryRecord(Base):
     quantity_after: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
 
 
+# 按账户和 sequence 保存审计；intent 的幂等键具有部分唯一索引，其他事件不共用该约束。
 class PaperAuditEventRecord(Base):
     __tablename__ = "paper_audit_events"
     __table_args__ = (

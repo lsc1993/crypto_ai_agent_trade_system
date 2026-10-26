@@ -1,3 +1,6 @@
+# 验证技术队列请求幂等、全局单任务执行和队列容量。
+# 并发提交与固定租约时间复现竞争、超时所有权和进程中断。
+# 已提交报告应恢复为成功终态而非再次入队，已开始的审计轨迹需闭合。
 import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -59,6 +62,7 @@ async def test_only_one_global_run_claimed_and_expired_owner_rejected(
     assert recovered and recovered.status == "failed" and recovered.error_code == "interrupted"
 
 
+# 同时提交超过容量的不同币种，验证容量检查由数据库协调而非先查后写。
 @pytest.mark.asyncio
 async def test_concurrent_queue_capacity_twenty(migrated_database: MigratedDatabase) -> None:
     repo = SqlAlchemyTechnicalRunRepository(migrated_database.session_factory)
@@ -73,6 +77,7 @@ async def test_concurrent_queue_capacity_twenty(migrated_database: MigratedDatab
     assert sum(isinstance(result, TechnicalRunError) for result in results) == 5
 
 
+# 模拟报告提交后任务收尾失败；恢复应读取已提交报告，避免再次执行模型。
 @pytest.mark.asyncio
 async def test_report_commit_recovery_does_not_reenqueue(
     migrated_database: MigratedDatabase,

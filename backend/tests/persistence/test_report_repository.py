@@ -1,3 +1,6 @@
+# 验证确定性报告与冻结证据的保存、筛选及不可变保护。
+# 完整和降级样本覆盖两种报告状态，持久化测试使用隔离 schema。
+# 直接更新或删除也必须被数据库拒绝，不能只依赖服务层限制。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

@@ -1,3 +1,6 @@
+# 验证确定性模拟成交的方向性滑点、手续费和部分成交比例。
+# 只构造已放行订单与固定行情，买卖滑点均应向不利方向调整。
+# 无效配置、拒单意图和错币种报价不能产生模拟成交。
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID

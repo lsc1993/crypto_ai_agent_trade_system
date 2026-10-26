@@ -1,3 +1,5 @@
+# 技术 v1 模型只接收冻结事实的定性投影和审查方法，具体价格与计划由程序另行展示。
+# 关闭思考模式，不接受工具请求；格式错误最多三次，同一证据引用和正文限制始终保持。
 """Bounded qualitative explanation of frozen technical facts; no tool access."""
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from app.agent.technical.methods import method_instructions
 from app.reports.technical import TechnicalAnalysis, TechnicalNarrative
 
 
+# 稳定错误码与白名单字段路径进入诊断，避免保存或复述被拒正文。
 class TechnicalModelError(RuntimeError):
     def __init__(
         self, code: str, *, field_path: str = "response", category: str = "schema"
@@ -25,7 +28,9 @@ class TechnicalModelError(RuntimeError):
         self.category = category
 
 
+# 接收确定性分析并返回定性叙事，价格、金额和候选计划不由模型生成。
 class TechnicalLanguageModel(Protocol):
+    # 缺少密钥直接失败，只有格式失败进入有限纠正；超时和上游错误立即交给降级。
     async def generate(self, analysis: TechnicalAnalysis) -> TechnicalNarrative: ...
 
 
@@ -37,6 +42,7 @@ _FORBIDDEN = re.compile(
 )
 
 
+# 省略具体指标数值并把周期映射为定性名称，降低模型照抄数值的可能。
 def _qualitative_context(analysis: TechnicalAnalysis) -> str:
     context: dict[str, object] = {
         "evidenceId": str(analysis.evidence_id),
@@ -65,6 +71,7 @@ def _qualitative_context(analysis: TechnicalAnalysis) -> str:
     return json.dumps(context, ensure_ascii=False)
 
 
+# 检查正文、风险条数及每条当前证据引用；正文失败不通过替换词语修补。
 def parse_technical_narrative(content: str, evidence_id: UUID) -> TechnicalNarrative:
     if len(content) > 16000:
         raise TechnicalModelError("model_invalid_response", category="response_length")
@@ -114,6 +121,7 @@ def parse_technical_narrative(content: str, evidence_id: UUID) -> TechnicalNarra
     return narrative
 
 
+# 只封装有界格式化调用；凭证仅用于请求头，不进入诊断或冻结证据。
 class DeepSeekTechnicalLanguageModel:
     def __init__(
         self,
@@ -126,6 +134,7 @@ class DeepSeekTechnicalLanguageModel:
         self._api_key = api_key
         self._model = model
 
+    # 缺少密钥直接失败，只有格式失败进入有限纠正；超时和上游错误立即交给降级。
     async def generate(self, analysis: TechnicalAnalysis) -> TechnicalNarrative:
         key = "" if self._api_key is None else self._api_key.get_secret_value().strip()
         if not key:

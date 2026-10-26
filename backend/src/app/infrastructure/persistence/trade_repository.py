@@ -1,3 +1,6 @@
+# 保存交易日志、分腿事实、现金流、标签与修改审计。
+# 创建/替换/归档在事务中写入日志及前后快照，替换使旧事实失效再追加新事实。
+# 归档不物理删除日志；标签关联可重建，审计与成交事实的保存职责不同。
 from __future__ import annotations
 
 from datetime import datetime
@@ -36,12 +39,15 @@ from app.trades.contracts import (
 from app.trades.repository import TradeRepository
 
 
+# SqlAlchemyTradeRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyTradeRepository(TradeRepository):
     """保存交易日志，并为每次替换保留可审计的事实历史。"""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 同事务写入交易主记录、有效事实、标签和创建审计，提交后重新读取日志详情。
     async def create(
         self,
         *,
@@ -102,6 +108,7 @@ class SqlAlchemyTradeRepository(TradeRepository):
             raise TradeStorageUnavailableError("交易日志持久化不可用")
         return persisted
 
+    # 锁定有效日志并保存 before 快照，使旧事实失效再追加新事实、标签和 after 审计。
     async def replace(
         self,
         *,
@@ -147,6 +154,7 @@ class SqlAlchemyTradeRepository(TradeRepository):
 
         return await self.get_by_id(trade_id)
 
+    # 锁定未归档日志并设置归档时刻，同时保存前后审计；找不到有效日志返回 False。
     async def archive(
         self,
         trade_id: UUID,
@@ -183,6 +191,7 @@ class SqlAlchemyTradeRepository(TradeRepository):
             raise TradeStorageUnavailableError("交易日志持久化不可用") from error
         return True
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_by_id(self, trade_id: UUID) -> PersistedTrade | None:
         try:
             async with self._session_factory() as session:
@@ -191,6 +200,7 @@ class SqlAlchemyTradeRepository(TradeRepository):
         except SQLAlchemyError as error:
             raise TradeStorageUnavailableError("交易日志读取不可用") from error
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list(self, filters: TradeFilters) -> TradePage:
         conditions = _active_filters(filters)
         statement = (
@@ -215,6 +225,7 @@ class SqlAlchemyTradeRepository(TradeRepository):
             total=total,
         )
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list_closed(self, filters: TradeFilters) -> tuple[PersistedTrade, ...]:
         conditions = _active_filters(filters, required_status=TradeStatus.CLOSED)
         statement = (
@@ -317,6 +328,7 @@ async def _append_active_facts(
     )
 
 
+# 用 voided_at 标记旧交易腿和现金流失效，保留历史事实以便审计而非删除。
 async def _void_active_facts(
     session: AsyncSession,
     *,
@@ -337,6 +349,7 @@ async def _void_active_facts(
     )
 
 
+# 删除当前日志标签关系后重建；标签定义按文本复用，必要时 flush 新标签父记录。
 async def _replace_tags(
     session: AsyncSession,
     *,
@@ -374,6 +387,7 @@ async def _get_trade(
     return result.scalar_one_or_none()
 
 
+# 按下面的显式字段映射还原 PersistedTrade，保留可选值与已有顺序；不重新执行业务计算。
 async def _to_persisted_trade(
     session: AsyncSession,
     record: TradeRecord,

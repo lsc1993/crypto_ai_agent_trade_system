@@ -1,3 +1,6 @@
+# 验证去重新闻保留第一次不可变快照。
+# 数据库触发器拒绝更新或删除，新的研究币种关联通过独立链接追加。
+# 关联扩展不能重写旧新闻正文及冻结内容。
 from __future__ import annotations
 
 from datetime import UTC, datetime

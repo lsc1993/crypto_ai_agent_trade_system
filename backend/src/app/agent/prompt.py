@@ -1,3 +1,5 @@
+# 组装综合市场研究的固定系统约束和本次冻结证据，不改变研究图的执行权限。
+# 新闻放入明确的不可信内容边界；边界标记先转义，避免正文伪造指令分隔符。
 from __future__ import annotations
 
 import json
@@ -95,10 +97,12 @@ _SYSTEM_PROMPT = """你是受限的中文市场研究格式化器。仅返回一
 }."""
 
 
+# 返回固定系统文本；该文本属于模型行为契约，修改需同步校验与回归。
 def system_prompt() -> str:
     return _SYSTEM_PROMPT
 
 
+# 将结构、专题事实及证据规范序列化；专题投影剔除模型解释和事件正文。
 def research_user_message(request: ResearchModelRequest) -> str:
     payload = {
         "symbol": request.symbol,
@@ -142,6 +146,7 @@ def research_user_message(request: ResearchModelRequest) -> str:
     )
 
 
+# 只转义可能伪装为内容边界的标记，不将新闻正文升级为系统指令。
 def _escape_news_boundary_markers(value: str) -> str:
     return value.replace("UNTRUSTED_NEWS_CONTENT", "UNTRUSTED_NEWS\\u005fCONTENT")
 

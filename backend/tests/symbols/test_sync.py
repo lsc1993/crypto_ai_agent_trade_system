@@ -1,3 +1,6 @@
+# 验证单次初始同步记录行情能力及安全失败。
+# 记录仓储与采集替身保留结束状态，不使用真实公开源。
+# 行情成功与 ETF 不支持分别表达，核心采集失败不能伪装为可研究状态。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

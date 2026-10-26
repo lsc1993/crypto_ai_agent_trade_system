@@ -1,3 +1,6 @@
+# 验证公开衍生品与恐惧贪婪历史的上下文采集。
+# 固定网关替身保留指标范围，非法指数值映射安全错误。
+# 来源地址必须固定且安全，生产装配只复用公开行情网关。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

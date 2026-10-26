@@ -20,6 +20,10 @@
 | 持久化与 HTTP 诊断映射 | [report_repository.py](../backend/src/app/infrastructure/persistence/report_repository.py)、[analysis_reports.py](../backend/src/app/api/routes/analysis_reports.py) |
 | 客户端契约与报告展示 | [report.ts](../frontend/src/domain/report.ts)、[报告页面](../frontend/src/features/reports/) |
 
+## AI Agent 生成与维护代码的注释要求
+
+生成或修改后端代码时，遵循[后端注释规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)：用详细中文注释解释模块职责、契约、关键流程与设计原因，并随代码变更同步维护。研究和 Harness 尤其要说明冻结输入、确定性验证、有限重试、降级、安全日志和交易隔离的实际边界；不要把规划写成当前能力，也不要将实现说明插入模型 Prompt、冻结方法或证据载荷。测试与迁移同样需要场景、断言意图和兼容性说明。
+
 ## 必须保持的约束
 
 - 模型只接收本次冻结的公开证据；引用 UUID 必须属于当前报告，专题解释必须引用对应专题证据。支撑/阻力与市场结构由确定性代码计算，模型不能改写。

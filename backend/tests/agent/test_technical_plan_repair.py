@@ -1,3 +1,6 @@
+# 验证有限纠错保留已通过校验的段落与引用。
+# 缺少价格角色或等待原因的段落不能被当作合法内容保留。
+# 纠正可缩短过长计划书，但不得重写原先合法的声明或回放外来引用。
 import json
 from typing import Any, cast
 
@@ -10,6 +13,7 @@ from app.shared.config import AppSettings
 from tests.agent.test_technical_references import context, decision
 
 
+# 复制结构段落到入场条件也不满足价格角色，合法文字仍须满足字段用途才可保留。
 def test_missing_price_role_is_not_retained_for_retry() -> None:
     from app.agent.technical.plan_repair import validated_retry_claims
     from app.agent.technical.references import build_reference_catalog
@@ -22,6 +26,7 @@ def test_missing_price_role_is_not_retained_for_retry() -> None:
     assert "marketStructure" in retained
 
 
+# 等待条件必须引用真实无候选原因，不能以通用市场结构段落替代。
 def test_missing_waiting_reason_is_not_retained_for_retry() -> None:
     from app.agent.technical.plan_repair import validated_retry_claims
     from app.agent.technical.references import build_reference_catalog
@@ -33,6 +38,7 @@ def test_missing_waiting_reason_is_not_retained_for_retry() -> None:
     assert "waitingConditions" not in retained
 
 
+# 过长正文不锁定为已验证内容，给下一次纠正缩短篇幅留下空间。
 def test_oversized_book_can_be_shortened_during_retry() -> None:
     from app.agent.technical.plan_repair import validated_retry_claims
     from app.agent.technical.references import build_reference_catalog
@@ -52,6 +58,7 @@ def test_oversized_book_can_be_shortened_during_retry() -> None:
     )
 
 
+# 仅回传已通过引用与文本校验的段落；非法正文、外来字段和思考原文全部排除。
 @pytest.mark.asyncio
 async def test_retry_preserves_valid_claims_without_replaying_rejected_or_foreign_claims() -> None:
     ctx = context()
@@ -94,6 +101,7 @@ async def test_retry_preserves_valid_claims_without_replaying_rejected_or_foreig
             settings=AppSettings(),
         )
         assert (await model.analyze(ctx)).summary.stance == "long"
+    # 只保留已合法段落的索引和内容，非法段落不得进入下一次模型上下文。
     assert retry["validatedClaims"]["marketStructure"] == [
         {"index": 0, "claim": valid["marketStructure"][0]}
     ]
@@ -102,6 +110,8 @@ async def test_retry_preserves_valid_claims_without_replaying_rejected_or_foreig
     assert "PRIVATE" not in json.dumps(retry)
 
 
+# 重试候选即使重写合法段落，也不能替换先前已经验证的原始声明。
+# 第二次输出刻意改写先前合法段落，合并结果必须保留第一次已验证的声明。
 @pytest.mark.asyncio
 async def test_retry_keeps_original_valid_claim_when_model_rewrites_it() -> None:
     ctx = context()

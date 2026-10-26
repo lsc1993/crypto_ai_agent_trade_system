@@ -1,3 +1,5 @@
+# 以本次截止前已收盘的行情计算确定性趋势和支撑阻力，不读取外部资源。
+# 区间与置信度来自数据覆盖和固定指标，模型只解释结果，不能改写计算值。
 """确定性市场结构计算模块。
 
 数据流：冻结且已收盘的多周期 K 线 → SMA 趋势、ATR 容差和枢轴价格区间 → 结构化
@@ -15,12 +17,14 @@ from pydantic import BaseModel, ConfigDict
 from app.market.contracts import Candle, MarketDetail, MarketTimeframe
 from app.reports.contracts import PriceZone, TrendDirection
 
+# 短长均线比较的是固定窗口趋势，不对未来价格或收益作估计。
 _SMA_SHORT_PERIOD = 20
 _SMA_LONG_PERIOD = 50
 _ATR_PERIOD = 14
 _MAX_ZONES_PER_TIMEFRAME = 3
 
 
+# 提供冻结的多周期趋势、有限价格区间及覆盖等级，作为模型提案的确定性约束。
 class MarketStructure(BaseModel):
     """供报告和模型提案使用的确定性技术结构快照。"""
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -31,6 +35,7 @@ class MarketStructure(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+# 逐周期过滤未来收盘，再计算均线与枢轴；数据不足保留未知或空区间。
 def calculate_market_structure(
     detail: MarketDetail,
     *,
@@ -42,6 +47,7 @@ def calculate_market_structure(
         用猜测值补全。
     """
     _require_utc(captured_at)
+    # 先为所有契约周期保留未知值，缺少某周期时不从其他周期推断补齐。
     trend_alignment = {timeframe: TrendDirection.UNKNOWN for timeframe in MarketTimeframe}
     support_zones: list[PriceZone] = []
     resistance_zones: list[PriceZone] = []
@@ -58,6 +64,7 @@ def calculate_market_structure(
         support_zones.extend(support)
         resistance_zones.extend(resistance)
 
+    # 统一输出各周期区间，保留周期来源，不能把不同尺度的结构当同一信号。
     return MarketStructure(
         trend_alignment=trend_alignment,
         support_zones=tuple(support_zones),
@@ -68,6 +75,7 @@ def calculate_market_structure(
 
 def _trend_from_sma_20_50(candles: tuple[Candle, ...]) -> TrendDirection:
     """比较 SMA20 与 SMA50，数据不足时明确返回 UNKNOWN。"""
+    # 最长窗口不完整就不比较；只满足短窗口时也不能产生看似可靠的趋势。
     if len(candles) < _SMA_LONG_PERIOD:
         return TrendDirection.UNKNOWN
     short_sma = sum(candle.close_price for candle in candles[-_SMA_SHORT_PERIOD:]) / Decimal(
@@ -80,6 +88,7 @@ def _trend_from_sma_20_50(candles: tuple[Candle, ...]) -> TrendDirection:
         return TrendDirection.BULLISH
     if short_sma < long_sma:
         return TrendDirection.BEARISH
+    # 两个均值恰好相等属于中性，与数据不足的未知状态含义不同。
     return TrendDirection.NEUTRAL
 
 
@@ -96,6 +105,7 @@ def _pivot_zones(
         return (), ()
     support_pivots: list[tuple[datetime, Decimal]] = []
     resistance_pivots: list[tuple[datetime, Decimal]] = []
+    # 三点枢轴依赖左右邻居确认；调用方已过滤未来收盘，不能使用尚未收盘邻居。
     for previous, current, following in zip(candles, candles[1:], candles[2:]):
         if current.low_price <= previous.low_price and current.low_price <= following.low_price:
             if current.low_price < current_price:
@@ -103,6 +113,7 @@ def _pivot_zones(
         if current.high_price >= previous.high_price and current.high_price >= following.high_price:
             if current.high_price > current_price:
                 resistance_pivots.append((current.close_at, current.high_price))
+    # 四分之一波幅用于邻近价格聚类，两侧均保留自身周期和程序理由。
     return (
         _cluster_pivot_zones(
             support_pivots,
@@ -121,8 +132,10 @@ def _pivot_zones(
 
 def _atr14(candles: tuple[Candle, ...]) -> Decimal | None:
     """计算最近 14 个真实波幅的均值，作为价格区间的动态容差。"""
+    # 每个真实波幅还需前一根收盘，因此十四个样本至少需要十五根 K 线。
     if len(candles) < _ATR_PERIOD + 1:
         return None
+    # 同时覆盖日内波幅和跨收盘跳空，避免只看高低差低估波动。
     true_ranges = tuple(
         max(
             current.high_price - current.low_price,
@@ -145,11 +158,13 @@ def _cluster_pivot_zones(
     if not pivots:
         return ()
     clusters: list[list[tuple[datetime, Decimal]]] = []
+    # 按相邻价格距离连接聚类；它不是每个成员都与首个价格比较的固定半径。
     for pivot in sorted(pivots, key=lambda item: item[1]):
         if clusters and pivot[1] - clusters[-1][-1][1] <= tolerance:
             clusters[-1].append(pivot)
         else:
             clusters.append([pivot])
+    # 每组以最低和最高枢轴定义价格带，以最新触点时间决定保留优先级。
     zones = tuple(
         (
             max(timestamp for timestamp, _ in cluster),
@@ -167,6 +182,7 @@ def _cluster_pivot_zones(
     return tuple(zone for _, zone in sorted(most_recent, key=lambda item: item[0]))
 
 
+# 这里衡量可计算的周期覆盖，不能解释为方向预测成功率或收益概率。
 def _confidence(
     trends: dict[MarketTimeframe, TrendDirection],
 ) -> Literal["low", "medium", "high"]:
@@ -174,6 +190,7 @@ def _confidence(
     known = sum(trend is not TrendDirection.UNKNOWN for trend in trends.values())
     if known == len(MarketTimeframe):
         return "high"
+    # 至少两个周期能计算才为中等覆盖；不要求方向一致，也不是预测胜率。
     if known >= 2:
         return "medium"
     return "low"

@@ -1,3 +1,6 @@
+# 追加和读取 Harness 运行、策略评估及有序审计事件。
+# 请求与初始事件、评估与对应事件分别在同一事务保存，再按 sequence 重建轨迹。
+# SQLAlchemy 错误转换为安全存储异常；仓储不执行工作流或给研究增加工具权限。
 from __future__ import annotations
 
 from typing import Literal, cast
@@ -28,12 +31,15 @@ from app.infrastructure.persistence.models.harness import (
 )
 
 
+# SqlAlchemyHarnessAuditRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
     """Append and read immutable Harness audit traces in PostgreSQL."""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 同一事务保存运行和初始事件；先 flush 父运行以满足事件外键。
     async def create_requested_run(
         self,
         run: HarnessAuditRun,
@@ -48,6 +54,7 @@ class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
         except SQLAlchemyError:
             raise HarnessAuditStorageUnavailableError from None
 
+    # 同一事务追加策略评估及对应事件，不更新既有审计结果。
     async def append_policy_evaluation(
         self,
         evaluation: HarnessEvaluation,
@@ -60,6 +67,7 @@ class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
         except SQLAlchemyError:
             raise HarnessAuditStorageUnavailableError from None
 
+    # 追加一条具有运行标识和序号的审计事件，数据库错误不携带原始异常正文向外传播。
     async def append_event(self, event: HarnessAuditEvent) -> None:
         try:
             async with self._session_factory() as session:
@@ -68,6 +76,7 @@ class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
         except SQLAlchemyError:
             raise HarnessAuditStorageUnavailableError from None
 
+    # 按运行 ID 查询身份，再按 sequence 读取事件和评估，返回有序审计轨迹或 None。
     async def get_trace(self, run_id: UUID) -> HarnessAuditTrace | None:
         try:
             async with self._session_factory() as session:
@@ -145,6 +154,7 @@ def _evaluation_record(evaluation: HarnessEvaluation) -> HarnessEvaluationRecord
     )
 
 
+# 按下面的显式字段映射还原 HarnessAuditRun，保留可选值与已有顺序；不重新执行业务计算。
 def _to_run(record: HarnessAuditRunRecord) -> HarnessAuditRun:
     return HarnessAuditRun(
         run_id=record.run_id,
@@ -158,6 +168,7 @@ def _to_run(record: HarnessAuditRunRecord) -> HarnessAuditRun:
     )
 
 
+# 按下面的显式字段映射还原 HarnessAuditEvent，保留可选值与已有顺序；不重新执行业务计算。
 def _to_event(record: HarnessAuditEventRecord) -> HarnessAuditEvent:
     return HarnessAuditEvent(
         run_id=record.run_id,
@@ -170,6 +181,7 @@ def _to_event(record: HarnessAuditEventRecord) -> HarnessAuditEvent:
     )
 
 
+# 按下面的显式字段映射还原 HarnessEvaluation，保留可选值与已有顺序；不重新执行业务计算。
 def _to_evaluation(record: HarnessEvaluationRecord) -> HarnessEvaluation:
     return HarnessEvaluation(
         run_id=record.run_id,

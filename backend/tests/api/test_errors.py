@@ -1,3 +1,6 @@
+# 验证 Harness 和币种准入异常转换为统一安全错误信封。
+# 策略拒绝与审计存储故障使用不同状态和错误码。
+# 准入检查保留可操作的白名单详情，而不转发上游异常原文。
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient

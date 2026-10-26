@@ -1,3 +1,6 @@
+# 验证复盘统计接口的十进制字符串、筛选及安全错误。
+# 没有亏损时利润因子为空，不能用无穷数或随意零值替代。
+# 统计服务替身固定输出，接口测试聚焦响应映射而非重复统计算法。
 from __future__ import annotations
 
 from datetime import UTC, datetime

@@ -1,3 +1,6 @@
+# 持久化公开市场采集批次及可复放的输入快照。
+# 在同一事务中更新 K 线、插入指标、摘要与完整输入，再按输入顺序返回快照 ID。
+# 可更新行情表与冻结快照分开保存；此仓储没有交易所私有访问或执行职责。
 """公开市场快照的 SQLAlchemy 仓储实现。
 
 数据流：MarketCaptureBatch → K 线上传、指标插入、展示快照及完整输入快照 → 单一
@@ -30,12 +33,15 @@ from app.market.repository import (
 )
 
 
+# SqlAlchemyMarketRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyMarketRepository(MarketRepository):
     """以单个事务保存受限的公开市场采集批次。"""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 同一事务保存输入顺序中的采集批次，空批次直接返回；返回值仅为新快照 UUID。
     async def persist_batches(
         self,
         batches: tuple[MarketCaptureBatch, ...],

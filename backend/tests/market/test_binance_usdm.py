@@ -1,3 +1,6 @@
+# 验证公开行情适配器的固定端点、十进制归一化和限流脱敏。
+# HTTP 替身提供行情及合约目录，不接触真实网络或私有账户。
+# 正常的大目录应被接受，同时保持公开派生指标路径白名单。
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal

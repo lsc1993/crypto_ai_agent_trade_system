@@ -1,3 +1,6 @@
+# 验证行情采集的完整批次写入与收盘时间过滤。
+# 记录型仓储区分读取阶段和保存阶段，任一读取失败不能先写部分币种。
+# 单币种采集校验响应币种，快照数据需归一化后持久化。
 from __future__ import annotations
 
 import asyncio
@@ -105,6 +108,7 @@ async def test_capture_persists_two_symbol_batches_only_after_all_reads_succeed(
     ]
 
 
+# 采集准备阶段失败时仓储应完全没有收到写入，避免不完整批次。
 @pytest.mark.asyncio
 async def test_capture_does_not_write_when_one_gateway_read_fails() -> None:
     from app.market.capture import MarketCaptureService

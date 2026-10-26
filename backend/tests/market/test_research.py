@@ -1,3 +1,6 @@
+# 验证研究读取使用最近已存储快照及完整周期行情。
+# 固定时钟区分新鲜和过期数据，缺少快照与缺少周期均应明确失败。
+# K 线按时间排序，不能从实时源隐式补足持久化输入。
 from __future__ import annotations
 
 from dataclasses import dataclass, field

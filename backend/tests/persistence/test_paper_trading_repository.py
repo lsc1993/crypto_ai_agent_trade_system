@@ -1,3 +1,6 @@
+# 验证模拟状态转换的原子保存与幂等结果重用。
+# 临时迁移库检查账户、订单及审计数据的一致性。
+# 有持仓不能归档账户，绩效数据应来自一致的本地读取集合。
 from __future__ import annotations
 
 from datetime import UTC, datetime

@@ -1,3 +1,6 @@
+# 验证快照有界载荷、内容哈希和采集批次一致性。
+# 固定 UTC 与精确指标样本覆盖载荷上限、必需指标与快照唯一标识。
+# 快照时刻之后收盘的 K 线不可保存为当前冻结输入。
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import cast

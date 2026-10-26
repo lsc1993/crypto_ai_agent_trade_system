@@ -1,3 +1,6 @@
+# 验证数据库审计仓储的有序追加、读取与不可变触发器。
+# 临时 schema 内的真实事务区分重复追加与不存在运行。
+# 所有审计记录的修改和删除都需拒绝，原始上下文不能落入 details。
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -98,6 +101,7 @@ async def test_repository_translates_a_duplicate_append_to_the_safe_storage_erro
     assert "harness_run_events" not in str(raised.value)
 
 
+# 直接绕过仓储发起修改，证明保护来自数据库触发器而非调用方自律。
 @pytest.mark.asyncio
 async def test_database_rejects_update_and_delete_of_every_harness_record(
     migrated_database: MigratedDatabase,

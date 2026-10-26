@@ -1,3 +1,6 @@
+# 验证已存储研究行情与现有前端行情契约兼容。
+# 禁止调用的实时网关确保读取失败时不会补采实时数据。
+# 重复币种或周期需拒绝，持久化不可用返回明确安全错误。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

@@ -1,3 +1,5 @@
+# 已保存行情查询：读取冻结摘要和最近 K 线，在当前时钟重算新鲜度；查询不会回源采集实时行情。
+# 公开行情领域：统一研究行情模型、固定公开来源适配器与冻结快照读取；不访问私有账户。
 """持久化市场研究读取模块。
 
 数据流：已保存的快照与 K 线输入 → 新鲜度重算和范围校验 → 只读 MarketSummary/
@@ -29,16 +31,19 @@ _UNAVAILABLE_CODE = "market_research_unavailable"
 _UNAVAILABLE_MESSAGE = "持久化市场研究数据不可用"
 
 
+# 已持久化市场摘要及其冻结时刻的轻量读取模型。
 @dataclass(frozen=True)
 class PersistedMarketSnapshot:
     """已持久化市场摘要及其冻结时刻的轻量读取模型。"""
     summary: MarketSummary
     captured_at: datetime
 
+    # 数据类构造后验证字段一致性，避免无效冻结输入进入读取或回放流程。
     def __post_init__(self) -> None:
         _require_utc(self.captured_at)
 
 
+# 生成研究结论时使用的、带哈希的冻结 K 线输入。
 @dataclass(frozen=True)
 class PersistedMarketSnapshotInput:
     """生成研究结论时使用的、带哈希的冻结 K 线输入。"""
@@ -46,6 +51,7 @@ class PersistedMarketSnapshotInput:
     candles: tuple[Candle, ...]
     payload_sha256: str
 
+    # 校验哈希格式、标的一致性和每周期 K 线数量上限。
     def __post_init__(self) -> None:
         """校验哈希格式、标的一致性和每周期 K 线数量上限。"""
         if not self.candles:
@@ -69,14 +75,18 @@ class PersistedMarketSnapshotInput:
                 CandleSeries(timeframe=timeframe, candles=series_candles)
 
 
+# PersistedMarketReader 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class PersistedMarketReader(Protocol):
+    # 按快照标识读取已保存的市场摘要；不存在时返回空值。
     async def load_snapshot(self, snapshot_id: UUID) -> PersistedMarketSnapshot | None: ...
 
+    # 按标的读取最新已保存市场摘要，不触发新采集。
     async def load_latest_snapshot(
         self,
         symbol: Any,
     ) -> PersistedMarketSnapshot | None: ...
 
+    # 按标的、周期和条数上限读取已保存 K 线。
     async def load_recent_candles(
         self,
         symbol: Any,
@@ -85,9 +95,11 @@ class PersistedMarketReader(Protocol):
     ) -> tuple[Candle, ...]: ...
 
 
+# 从已持久化的公开研究数据构造只读市场响应。
 class MarketResearchQueryService:
     """从已持久化的公开研究数据构造只读市场响应。"""
 
+    # 初始化本实例依赖和配置；输入 reader、clock。
     def __init__(
         self,
         reader: PersistedMarketReader,
@@ -97,6 +109,7 @@ class MarketResearchQueryService:
         self._reader = reader
         self._clock = clock
 
+    # 按请求顺序读取多个标的的最新已保存摘要，并统一以当前 UTC 时钟标注新鲜度。
     async def get_summaries(
         self,
         symbols: tuple[ResearchSymbol, ...],
@@ -108,6 +121,7 @@ class MarketResearchQueryService:
             summaries.append(await self._summary_for(symbol, now=now))
         return tuple(summaries)
 
+    # 读取一个标的指定周期的排序 K 线序列及其最新冻结摘要。
     async def get_market(
         self,
         symbol: ResearchSymbol,
@@ -136,6 +150,7 @@ class MarketResearchQueryService:
             )
         return MarketDetail(summary=summary, series=tuple(series))
 
+    # 读取最近快照并仅更新 freshness 状态，不改变已冻结的行情数值。
     async def _summary_for(
         self,
         symbol: ResearchSymbol,
@@ -158,6 +173,7 @@ class MarketResearchQueryService:
         )
         return snapshot.summary.model_copy(update={"freshness": freshness})
 
+    # 取得并验证服务时钟，保证过期判断始终使用带时区的 UTC 时间。
     def _now(self) -> datetime:
         """取得并验证服务时钟，保证过期判断始终使用带时区的 UTC 时间。"""
         now = self._clock()
@@ -165,10 +181,12 @@ class MarketResearchQueryService:
         return now
 
 
+# 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
 def _require_utc(value: datetime) -> None:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("时间必须是 UTC 且带时区")
 
 
+# 构造或抛出本模块统一的安全不可用错误，避免向调用方暴露底层细节。
 def _raise_unavailable() -> NoReturn:
     raise MarketDataUnavailableError(_UNAVAILABLE_CODE, _UNAVAILABLE_MESSAGE)

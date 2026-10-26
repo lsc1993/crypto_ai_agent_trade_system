@@ -1,3 +1,6 @@
+# 验证回测创建、列表、详情与受限输入范围。
+# 历史行情和仓储替身提供固定结果，金融小数输出须满足前端线协议精度。
+# 不存在的运行和未配置存储分别映射稳定安全错误。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

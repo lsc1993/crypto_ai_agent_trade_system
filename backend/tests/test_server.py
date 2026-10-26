@@ -1,3 +1,6 @@
+# 验证 Windows 在创建事件循环前选择兼容策略。
+# 替换平台和服务器调用观察顺序，不启动真实 API 服务。
+# 非 Windows 平台保持原策略，Windows 循环需兼容 checkpoint 数据库驱动。
 from __future__ import annotations
 
 import asyncio

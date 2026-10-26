@@ -1,3 +1,5 @@
+# 保存受控研究运行的请求与策略指纹、固定序号生命周期事件及白名单评估。
+# 详情只包含安全计数和类型，不能记录模型、凭证、新闻正文或任意外部载荷。
 """受控工作流审计领域模型。
 
 数据流：运行请求与策略指纹 → 固定四阶段事件及白名单评估 → 按 run_id、sequence 重建
@@ -59,6 +61,7 @@ class HarnessEvaluationDecision(StrEnum):
     REJECTED = "rejected"
 
 
+# 当前审计只接受手动接口触发，队列消费不代表允许定时研究或自动交易。
 class HarnessInitiatorKind(StrEnum):
     MANUAL_API = "manual_api"
 
@@ -207,11 +210,13 @@ class HarnessAuditTrace(_AuditModel):
         return self
 
 
+# 安全存储错误供上层映射，不包含连接信息或原始数据库异常。
 class HarnessAuditStorageUnavailableError(RuntimeError):
     def __init__(self) -> None:
         super().__init__("Harness 审计存储不可用")
 
 
+# 仓储端口需关联保存请求和事件、评估和授权结果；不能以日志代替持久化审计。
 class HarnessAuditRepository(Protocol):
     async def create_requested_run(
         self, run: HarnessAuditRun, event: HarnessAuditEvent
@@ -226,6 +231,7 @@ class HarnessAuditRepository(Protocol):
     async def get_trace(self, run_id: UUID) -> HarnessAuditTrace | None: ...
 
 
+# 规范 JSON 固定键顺序；白名单列表保留给定顺序，指纹不额外排序列表元素。
 def policy_sha256(policy: HarnessPolicy) -> str:
     """对策略白名单的规范 JSON 求哈希，使审计能固定本次运行所用规则。"""
     # 规范化 JSON 后再哈希，集合枚举顺序不会造成同一策略产生不同的审计指纹。

@@ -1,3 +1,5 @@
+# 模拟盘绩效：校验估值序号连续性，再计算权益、回撤、已实现盈亏和决策计数；迁移基线需显示部分历史。
+# 模拟盘领域：手动请求或单次策略评估推进本地账户、仓位和审计；仅支持当前静态标的契约。
 """模拟盘绩效聚合模块。
 
 数据流：账户当前状态、连续估值历史、账本、成交和审计事件 → 盈亏/回撤/胜率/决策
@@ -22,6 +24,7 @@ from app.paper_trading.contracts import (
 from app.strategy.contracts import IntentAction, IntentSource
 
 
+# 将一个账户的原始模拟盘历史汇总为供 API 和前端展示的绩效快照。
 def aggregate_paper_performance(
     data: PaperPerformanceData,
     *,
@@ -42,6 +45,7 @@ def aggregate_paper_performance(
     profitable_close_count, unprofitable_close_count, break_even_close_count = _close_counts(
         data
     )
+    # 胜率按账本平仓记录的盈利和亏损次数计算，持平与部分平仓统计应按记录口径理解。
     close_denominator = profitable_close_count + unprofitable_close_count
 
     return PaperPerformanceSnapshot(
@@ -95,6 +99,7 @@ def aggregate_paper_performance(
     )
 
 
+# 确保估值历史非空、从初始值开始且 sequence 连续，避免指标基于残缺时间线。
 def _validate_valuation_history(values: tuple[PaperAccountValuation, ...]) -> None:
     """确保估值历史非空、从初始值开始且 sequence 连续，避免指标基于残缺时间线。"""
     if not values:
@@ -106,6 +111,7 @@ def _validate_valuation_history(values: tuple[PaperAccountValuation, ...]) -> No
         raise ValueError("模拟盘绩效首个估值必须是初始估值")
 
 
+# 扫描估值权益的历史高水位，返回最大金额回撤与最大比例回撤。
 def _maximum_drawdown(
     values: tuple[PaperAccountValuation, ...],
 ) -> tuple[Decimal, Decimal]:
@@ -126,6 +132,7 @@ def _maximum_drawdown(
     return maximum_amount, maximum_fraction
 
 
+# 按账本中已实现平仓盈亏统计盈利、亏损和持平次数。
 def _close_counts(data: PaperPerformanceData) -> tuple[int, int, int]:
     """按账本中已实现平仓盈亏统计盈利、亏损和持平次数。"""
     profitable = 0
@@ -143,6 +150,7 @@ def _close_counts(data: PaperPerformanceData) -> tuple[int, int, int]:
     return profitable, unprofitable, break_even
 
 
+# 从审计事件重建手工/策略决策、无信号、拒绝、风险退出和订单统计。
 def _decision_stats(data: PaperPerformanceData) -> PaperDecisionStats:
     """从审计事件重建手工/策略决策、无信号、拒绝、风险退出和订单统计。"""
     manual_intent_count = 0
@@ -181,6 +189,7 @@ def _decision_stats(data: PaperPerformanceData) -> PaperDecisionStats:
     )
 
 
+# 把事件中的来源字符串解析为有限来源枚举，类型或枚举无效时返回空值。
 def _event_source(value: object) -> IntentSource | None:
     if not isinstance(value, str):
         return None
@@ -190,6 +199,7 @@ def _event_source(value: object) -> IntentSource | None:
         return None
 
 
+# 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
 def _require_utc(value: datetime) -> None:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("模拟盘绩效生成时间必须是 UTC 且带时区")

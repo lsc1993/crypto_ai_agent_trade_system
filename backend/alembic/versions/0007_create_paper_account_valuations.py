@@ -1,3 +1,5 @@
+# 为模拟账户建立不可变估值序列，支持绩效聚合。
+# 旧账户补初始记录和迁移基线，基线表示部分历史而非完整历史重建。
 """Create immutable paper account valuation records."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 估值序列记录初始、迁移基线及后续状态，迁移基线显式标为部分历史。
     op.create_table(
         "paper_account_valuations",
         sa.Column("account_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -115,6 +119,7 @@ def upgrade() -> None:
     )
 
 
+# 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
     op.execute(
         "DROP TRIGGER trg_paper_account_valuations_immutable "

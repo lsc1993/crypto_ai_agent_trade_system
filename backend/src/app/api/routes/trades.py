@@ -1,3 +1,6 @@
+# 提供交易日志录入、筛选、修改与归档的 HTTP 映射。
+# 将外部请求转换为 TradeDraft，按输入顺序分配交易腿序号后交给日志服务。
+# 日志记录描述交易事实，不执行订单；归档返回 204，金额字段遵循 DecimalValue。
 from __future__ import annotations
 
 from typing import Annotated, cast
@@ -24,6 +27,7 @@ from app.trades.service import TradeService
 router = APIRouter(prefix="/trades", tags=["trades"])
 
 
+# 共享当前模块的 HTTP 字段别名及冻结配置；具体字段限制由各请求/响应子类声明。
 class _ApiModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=lambda value: "".join(
@@ -38,6 +42,8 @@ class _ApiModel(BaseModel):
     )
 
 
+# TradeLegRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、action、executed_at、price、quantity、fee；完整契约以下方声明为准。
 class TradeLegRequest(_ApiModel):
     id: UUID
     action: TradeLegAction
@@ -47,6 +53,8 @@ class TradeLegRequest(_ApiModel):
     fee: StrictStr
 
 
+# TradeCashflowRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、occurred_at、amount、reason；完整契约以下方声明为准。
 class TradeCashflowRequest(_ApiModel):
     id: UUID
     occurred_at: UtcDateTime
@@ -54,6 +62,8 @@ class TradeCashflowRequest(_ApiModel):
     reason: str
 
 
+# TradeRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：symbol、direction、horizon、labels、linked_report_id、leverage；完整契约以下方声明为准。
 class TradeRequest(_ApiModel):
     symbol: ContractSymbol
     direction: TradeDirection
@@ -67,6 +77,8 @@ class TradeRequest(_ApiModel):
     review: str
 
 
+# TradeLegResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、action、executed_at、price、quantity、fee；完整契约以下方声明为准。
 class TradeLegResponse(_ApiModel):
     id: UUID
     action: TradeLegAction
@@ -76,6 +88,8 @@ class TradeLegResponse(_ApiModel):
     fee: DecimalValue
 
 
+# TradeCashflowResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、occurred_at、amount、reason；完整契约以下方声明为准。
 class TradeCashflowResponse(_ApiModel):
     id: UUID
     occurred_at: UtcDateTime
@@ -83,6 +97,8 @@ class TradeCashflowResponse(_ApiModel):
     reason: str
 
 
+# TradeResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、symbol、direction、horizon、labels、linked_report_id；完整契约以下方声明为准。
 class TradeResponse(_ApiModel):
     id: UUID
     symbol: ContractSymbol
@@ -107,6 +123,8 @@ class TradeResponse(_ApiModel):
     updated_at: UtcDateTime
 
 
+# TradePageResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：items、page、page_size、total；完整契约以下方声明为准。
 class TradePageResponse(_ApiModel):
     items: tuple[TradeResponse, ...]
     page: int
@@ -114,14 +132,17 @@ class TradePageResponse(_ApiModel):
     total: int
 
 
+# 从应用 state 取得已装配的 trade_service 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_trade_service(request: Request) -> TradeService:
     return cast(TradeService, request.app.state.trade_service)
 
 
+# 从应用 state 取得已装配的 trade_repository 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_trade_repository(request: Request) -> TradeRepository:
     return cast(TradeRepository, request.app.state.trade_repository)
 
 
+# 接收路由声明的请求参数，委托 service.create_trade，返回 TradeResponse。
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TradeResponse)
 async def create_trade(
     request: TradeRequest,
@@ -130,6 +151,7 @@ async def create_trade(
     return _to_response(await service.create_trade(_to_draft(request)))
 
 
+# 接收路由声明的请求参数，委托 repository.list，返回 TradePageResponse。
 @router.get("", response_model=TradePageResponse)
 async def list_trades(
     repository: Annotated[TradeRepository, Depends(get_trade_repository)],
@@ -157,6 +179,7 @@ async def list_trades(
     return _to_page_response(await repository.list(filters))
 
 
+# 接收路由声明的请求参数，委托 service.update_trade，返回 TradeResponse。
 @router.put("/{trade_id}", response_model=TradeResponse)
 async def update_trade(
     trade_id: UUID,
@@ -166,6 +189,7 @@ async def update_trade(
     return _to_response(await service.update_trade(trade_id, _to_draft(request)))
 
 
+# 接收路由声明的请求参数，委托 service.archive_trade，返回 Response。
 @router.post("/{trade_id}/archive", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_trade(
     trade_id: UUID,
@@ -175,6 +199,7 @@ async def archive_trade(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# 按下面的显式字段映射还原 TradeDraft，保留可选值与已有顺序；不重新执行业务计算。
 def _to_draft(request: TradeRequest) -> TradeDraft:
     try:
         return TradeDraft.model_validate(
@@ -190,6 +215,7 @@ def _to_draft(request: TradeRequest) -> TradeDraft:
                         "id": leg.id,
                         "action": leg.action,
                         "executed_at": leg.executed_at,
+                        # 分腿顺序由请求数组确定，作为同一时刻成交的稳定排序依据。
                         "sequence": index,
                         "price": leg.price,
                         "quantity": leg.quantity,
@@ -221,6 +247,7 @@ def _validate_filters(**values: object) -> TradeFilters:
         raise RequestValidationError(error.errors()) from error
 
 
+# 按下面的显式字段映射还原 TradePageResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_page_response(page: TradePage) -> TradePageResponse:
     return TradePageResponse(
         items=tuple(_to_response(trade) for trade in page.items),
@@ -230,6 +257,7 @@ def _to_page_response(page: TradePage) -> TradePageResponse:
     )
 
 
+# 按下面的显式字段映射还原 TradeResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_response(trade: PersistedTrade) -> TradeResponse:
     return TradeResponse(
         id=trade.id,

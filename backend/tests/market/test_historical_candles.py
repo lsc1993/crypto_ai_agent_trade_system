@@ -1,3 +1,6 @@
+# 验证回测历史 K 线的时间范围和小时周期契约。
+# 构造未收盘、重复或区间外行情，确保只返回指定窗口内闭合记录。
+# 交易所包含式收盘时间需归一化为连续边界，避免误判缺失小时。
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 

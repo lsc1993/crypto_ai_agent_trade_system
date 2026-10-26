@@ -1,3 +1,6 @@
+# 验证市场结构计算只使用决策时刻已经收盘的行情。
+# 样本刻意加入未来的反向 K 线，防止它污染趋势与支撑阻力区域。
+# 固定时间与价格使无未来信息泄漏成为可重复的数值断言。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -19,6 +22,7 @@ from app.reports.contracts import TrendDirection
 CAPTURED_AT = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 
 
+# 同时检查趋势和支撑阻力，避免只在趋势计算中过滤未来 K 线而价格区域仍泄漏。
 def test_market_structure_excludes_future_candles_from_trends_and_price_zones() -> None:
     structure = calculate_market_structure(
         _detail_with_a_future_bearish_candle(),
@@ -30,6 +34,7 @@ def test_market_structure_excludes_future_candles_from_trends_and_price_zones() 
     assert structure.confidence == "low"
     assert any(zone.lower == Decimal("95") for zone in structure.support_zones)
     assert any(zone.lower == Decimal("105") for zone in structure.resistance_zones)
+    # 未来极端低价不得出现在区域结果，补充趋势断言以覆盖另一条计算链。
     assert all(zone.lower != Decimal("1") for zone in structure.resistance_zones)
     assert all(isinstance(zone.lower, Decimal) for zone in structure.support_zones)
     assert all(isinstance(zone.upper, Decimal) for zone in structure.resistance_zones)
@@ -37,6 +42,7 @@ def test_market_structure_excludes_future_candles_from_trends_and_price_zones() 
     assert all(zone.lower > Decimal("100") for zone in structure.resistance_zones)
 
 
+# 小时样本末尾追加未来极端下跌，四小时样本不足以计算完整趋势，两种限制分别可观察。
 def _detail_with_a_future_bearish_candle() -> MarketDetail:
     return MarketDetail(
         summary=MarketSummary(
@@ -88,6 +94,7 @@ def _detail_with_a_future_bearish_candle() -> MarketDetail:
     )
 
 
+# 按周期构造收盘时间与 Decimal 价格，固定抓取时刻保证未来样本只因时间边界被排除。
 def _candle(
     timeframe: MarketTimeframe,
     index: int,
@@ -117,6 +124,7 @@ def _candle(
     )
 
 
+# 隔行设置确定的高低转折点，构造可直接核对的支撑和阻力区域。
 def _pivot_candle(index: int) -> Candle:
     candle = _candle(MarketTimeframe.M15, index, close_price=Decimal("100"))
     if index % 4 == 1:

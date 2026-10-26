@@ -1,3 +1,5 @@
+# 建立不可变 Harness 运行、生命周期事件及策略评估审计。
+# 研究运行写入通过数据库触发器同步追加关联终态，避免报告和审计分别提交。
 """Create forward-only immutable Harness audit records."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 保存运行准入上下文与策略指纹，不保存原始新闻或模型载荷。
     op.create_table(
         "harness_runs",
         sa.Column("run_id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -61,6 +65,7 @@ def upgrade() -> None:
         ["run_kind", "symbol", sa.text("requested_at DESC"), "run_id"],
     )
 
+    # 事件按运行和序号唯一，数据库终态触发器与报告保存处于同一事务。
     op.create_table(
         "harness_run_events",
         sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -111,6 +116,7 @@ def upgrade() -> None:
         ["event_kind", sa.text("occurred_at DESC"), "run_id"],
     )
 
+    # 策略评估单独保存安全结论及指纹，拒绝原因可关联运行。
     op.create_table(
         "harness_evaluations",
         sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -177,6 +183,7 @@ def upgrade() -> None:
     _install_agent_terminal_event_trigger()
 
 
+# 保护运行、事件及评估记录；调用方只能追加，不可更改历史审计。
 def _install_harness_immutable_trigger(
     *,
     table_name: str,
@@ -201,6 +208,7 @@ def _install_harness_immutable_trigger(
     )
 
 
+# 在研究运行插入的同一数据库事务内追加结束事件，并校验已开始的关联运行。
 def _install_agent_terminal_event_trigger() -> None:
     op.execute(
         """
@@ -256,5 +264,6 @@ def _install_agent_terminal_event_trigger() -> None:
     )
 
 
+# 前向迁移明确拒绝回退，避免删除已保存的研究和审计历史。
 def downgrade() -> None:
     raise NotImplementedError("Harness 审计迁移不可逆，禁止删除审计记录")

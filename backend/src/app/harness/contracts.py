@@ -1,3 +1,5 @@
+# 定义研究运行请求、白名单策略及工作流协议，将运行权限表达为有限能力集合。
+# 研究目录准入只授权公开研究，不能扩大交易契约或授予私有账户与订单权限。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -11,11 +13,13 @@ from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
 
 
+# 区分综合与独立技术研究，注册和审计均以运行类别为键。
 class HarnessRunKind(StrEnum):
     MARKET_RESEARCH = "market_research"
     TECHNICAL_RESEARCH = "technical_research"
 
 
+# 允许能力只有公开读取、受限模型和不可变保存；不能由输入扩展能力枚举。
 class HarnessCapability(StrEnum):
     READ_PUBLIC_MARKET = "read_public_market"
     READ_APPROVED_NEWS = "read_approved_news"
@@ -23,6 +27,7 @@ class HarnessCapability(StrEnum):
     PERSIST_IMMUTABLE_REPORT = "persist_immutable_report"
 
 
+# 不可变手动请求携带关联标识、标的和 UTC 时间，不携带任意工具参数。
 class HarnessRunRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -39,6 +44,7 @@ class HarnessRunRequest(BaseModel):
         return value.astimezone(UTC)
 
 
+# 将运行类别、标的准入模式与能力白名单冻结为可审计策略版本。
 class HarnessPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -61,10 +67,12 @@ class HarnessPolicy(BaseModel):
         return value
 
 
+# 工作流执行前的安全拒绝，由运行时记录白名单评估及拒绝事件。
 class HarnessPolicyViolation(RuntimeError):
     """Safe rejection raised before workflow invocation."""
 
 
+# 固定工作流必须声明类别和所需能力；运行时在调用前核对授权。
 class HarnessWorkflow[ResultT](Protocol):
     kind: HarnessRunKind
     required_capabilities: tuple[HarnessCapability, ...]

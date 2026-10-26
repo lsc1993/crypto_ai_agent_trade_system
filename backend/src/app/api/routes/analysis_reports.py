@@ -1,3 +1,6 @@
+# 提供综合研究的手动生成、历史读取、重试与终态 SSE 回放。
+# 生成交给受限服务，读取时将持久化报告映射成前端 camelCase 响应。
+# 证据响应只含安全摘要及来源；事件接口回放单个已保存终态，不提供实时后台监控。
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable
@@ -38,6 +41,7 @@ from app.symbols.repository import SymbolRepository
 router = APIRouter(prefix="/analysis-runs", tags=["analysis-reports"])
 
 
+# 共享当前模块的 HTTP 字段别名及冻结配置；具体字段限制由各请求/响应子类声明。
 class _ApiModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=lambda value: "".join(
@@ -52,15 +56,21 @@ class _ApiModel(BaseModel):
     )
 
 
+# StartAnalysisRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：symbol；完整契约以下方声明为准。
 class StartAnalysisRequest(_ApiModel):
     symbol: ResearchSymbol
 
 
+# AnalysisRunCreatedResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：analysis_id、report_id；完整契约以下方声明为准。
 class AnalysisRunCreatedResponse(_ApiModel):
     analysis_id: UUID
     report_id: UUID
 
 
+# AnalysisReportSummaryResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、analysis_id、symbol、status、title、summary；完整契约以下方声明为准。
 class AnalysisReportSummaryResponse(_ApiModel):
     id: UUID
     analysis_id: UUID
@@ -73,6 +83,7 @@ class AnalysisReportSummaryResponse(_ApiModel):
     generator_kind: ReportGeneratorKind
 
 
+# 证据安全投影，只声明来源和摘要字段；原始证据 payload 不属于 HTTP 契约。
 class AnalysisEvidenceResponse(_ApiModel):
     id: UUID
     symbol: ResearchSymbol
@@ -82,6 +93,8 @@ class AnalysisEvidenceResponse(_ApiModel):
     summary: str
 
 
+# PriceZoneResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：lower、upper、timeframe、rationale；完整契约以下方声明为准。
 class PriceZoneResponse(_ApiModel):
     lower: str
     upper: str
@@ -89,6 +102,8 @@ class PriceZoneResponse(_ApiModel):
     rationale: str
 
 
+# CatalystResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：category、direction、claim、evidence_ids、timing；完整契约以下方声明为准。
 class CatalystResponse(_ApiModel):
     category: str
     direction: MarketOutlook
@@ -97,18 +112,24 @@ class CatalystResponse(_ApiModel):
     timing: str
 
 
+# RiskAndInvalidationResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：condition、impact、evidence_ids；完整契约以下方声明为准。
 class RiskAndInvalidationResponse(_ApiModel):
     condition: str
     impact: str
     evidence_ids: tuple[UUID, ...]
 
 
+# AgentDataQualityResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：freshness、missing_inputs、source_coverage；完整契约以下方声明为准。
 class AgentDataQualityResponse(_ApiModel):
     freshness: str
     missing_inputs: tuple[str, ...]
     source_coverage: str
 
 
+# ModelValidationFailureResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：attempt_count、issue_count、field_paths、error_categories；完整契约以下方声明为准。
 class ModelValidationFailureResponse(_ApiModel):
     attempt_count: int
     issue_count: int
@@ -116,18 +137,24 @@ class ModelValidationFailureResponse(_ApiModel):
     error_categories: tuple[str, ...]
 
 
+# EvidenceBackedClaimResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：label、detail、evidence_ids；完整契约以下方声明为准。
 class EvidenceBackedClaimResponse(_ApiModel):
     label: str
     detail: str
     evidence_ids: tuple[UUID, ...]
 
 
+# MarketOverviewResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：headline、summary、evidence_ids；完整契约以下方声明为准。
 class MarketOverviewResponse(_ApiModel):
     headline: str
     summary: str
     evidence_ids: tuple[UUID, ...]
 
 
+# ResearchPerspectiveResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：horizon、outlook、heading、thesis、drivers、invalidation；完整契约以下方声明为准。
 class ResearchPerspectiveResponse(_ApiModel):
     horizon: str
     outlook: MarketOutlook
@@ -137,12 +164,17 @@ class ResearchPerspectiveResponse(_ApiModel):
     invalidation: tuple[RiskAndInvalidationResponse, ...]
 
 
+# AgentResearchNarrativeResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：market_overview、short_term、long_term；完整契约以下方声明为准。
 class AgentResearchNarrativeResponse(_ApiModel):
     market_overview: MarketOverviewResponse
     short_term: ResearchPerspectiveResponse
     long_term: ResearchPerspectiveResponse
 
 
+# FrozenMarketMetricsResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：price、change_24h、volume_24h、funding_rate、open_interest、fear_greed_value；
+# 完整契约以下方声明为准。
 class FrozenMarketMetricsResponse(_ApiModel):
     price: str
     change_24h: str
@@ -154,6 +186,9 @@ class FrozenMarketMetricsResponse(_ApiModel):
     fear_greed_change_7d: int | None
 
 
+# AgentAnalysisResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：horizon、outlook、confidence、trend_alignment、support_zones、resistance_zones；
+# 完整契约以下方声明为准。
 class AgentAnalysisResponse(_ApiModel):
     horizon: str
     outlook: MarketOutlook
@@ -170,6 +205,8 @@ class AgentAnalysisResponse(_ApiModel):
     factor_analysis: FactorAnalysis | None = None
 
 
+# AnalysisReportDetailResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：facts、inferences、risks、limitations、generated_at、evidence；完整契约以下方声明为准。
 class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
     facts: tuple[str, ...]
     inferences: tuple[str, ...]
@@ -181,6 +218,8 @@ class AnalysisReportDetailResponse(AnalysisReportSummaryResponse):
     validation_failure: ModelValidationFailureResponse | None
 
 
+# AnalysisReportPageResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：items、page、page_size、total；完整契约以下方声明为准。
 class AnalysisReportPageResponse(_ApiModel):
     items: tuple[AnalysisReportSummaryResponse, ...]
     page: int
@@ -188,6 +227,8 @@ class AnalysisReportPageResponse(_ApiModel):
     total: int
 
 
+# AnalysisRunEvent 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：analysis_id、symbol、status、occurred_at、message；完整契约以下方声明为准。
 class AnalysisRunEvent(_ApiModel):
     analysis_id: UUID
     symbol: ResearchSymbol
@@ -196,14 +237,17 @@ class AnalysisRunEvent(_ApiModel):
     message: str
 
 
+# 从应用 state 取得已装配的 analysis_report_service 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_analysis_report_service(request: Request) -> AnalysisReportService:
     return cast(AnalysisReportService, request.app.state.analysis_report_service)
 
 
+# 从应用 state 取得已装配的 analysis_report_repository 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_analysis_report_repository(request: Request) -> AnalysisReportRepository:
     return cast(AnalysisReportRepository, request.app.state.analysis_report_repository)
 
 
+# 手动触发综合研究服务，生成后只返回关联 analysisId/reportId，不在路由直接调用模型。
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -225,6 +269,7 @@ async def create_analysis_run(
     )
 
 
+# 接收路由声明的请求参数，委托 repository.list，返回 AnalysisReportPageResponse。
 @router.get("", response_model=AnalysisReportPageResponse)
 async def list_analysis_runs(
     repository: Annotated[
@@ -248,6 +293,7 @@ async def list_analysis_runs(
     return _to_page_response(reports)
 
 
+# 接收路由声明的请求参数，委托 repository.get_by_id，返回 AnalysisReportDetailResponse。
 @router.get("/{report_id}", response_model=AnalysisReportDetailResponse)
 async def get_analysis_run(
     report_id: UUID,
@@ -260,6 +306,7 @@ async def get_analysis_run(
     return _to_detail_response(report)
 
 
+# 读取原报告币种并调用服务重新生成，返回新报告标识；不覆写原有报告。
 @router.post(
     "/{report_id}/retry",
     status_code=status.HTTP_201_CREATED,
@@ -284,6 +331,7 @@ async def retry_analysis_run(
     )
 
 
+# 从 analysisId 对应历史报告构造终态 SSE；不启动研究，也不订阅实时过程。
 @router.get("/{analysis_id}/events")
 async def replay_analysis_run_event(
     analysis_id: UUID,
@@ -316,6 +364,7 @@ async def _require_report(
     return report
 
 
+# 仅产生一个 JSON SSE 数据帧；双换行标记事件结束，流随后自然关闭。
 async def _terminal_event(event: AnalysisRunEvent) -> AsyncIterator[str]:
     yield f"data: {event.model_dump_json(by_alias=True)}\n\n"
 
@@ -326,6 +375,7 @@ def _terminal_message(status_value: AnalysisReportStatus) -> str:
     return "持久化市场研究报告已降级完成。"
 
 
+# 按下面的显式字段映射还原 AnalysisReportPageResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_page_response(reports: ReportPage) -> AnalysisReportPageResponse:
     return AnalysisReportPageResponse(
         items=tuple(_to_summary_response(report) for report in reports.items),
@@ -335,6 +385,7 @@ def _to_page_response(reports: ReportPage) -> AnalysisReportPageResponse:
     )
 
 
+# 按下面的显式字段映射还原 AnalysisReportSummaryResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_summary_response(
     report: AnalysisReportSummary,
 ) -> AnalysisReportSummaryResponse:
@@ -351,6 +402,7 @@ def _to_summary_response(
     )
 
 
+# 按下面的显式字段映射还原 AnalysisReportDetailResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_detail_response(
     report: PersistedAnalysisReport,
 ) -> AnalysisReportDetailResponse:
@@ -380,6 +432,7 @@ def _to_detail_response(
     )
 
 
+# 只暴露 ID、币种、来源、观测时刻和摘要；原始 payload 与哈希不进入此 API 响应。
 def _to_evidence_response(
     evidence: PersistedAnalysisEvidence,
 ) -> AnalysisEvidenceResponse:
@@ -393,6 +446,7 @@ def _to_evidence_response(
     )
 
 
+# 按下面的显式字段映射还原 AgentAnalysisResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisResponse:
     return AgentAnalysisResponse(
         factor_analysis=analysis.factor_analysis,
@@ -425,6 +479,8 @@ def _to_agent_analysis_response(analysis: AgentAnalysis) -> AgentAnalysisRespons
     )
 
 
+# 按下面的显式字段映射还原 AgentResearchNarrativeResponse，保留可选值与已有顺序；
+# 不重新执行业务计算。
 def _to_narrative_response(
     narrative: AgentResearchNarrative,
 ) -> AgentResearchNarrativeResponse:
@@ -435,6 +491,7 @@ def _to_narrative_response(
     )
 
 
+# 按下面的显式字段映射还原 FrozenMarketMetricsResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_market_metrics_response(
     metrics: FrozenMarketMetrics,
 ) -> FrozenMarketMetricsResponse:
@@ -450,6 +507,7 @@ def _to_market_metrics_response(
     )
 
 
+# 按下面的显式字段映射还原 MarketOverviewResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_market_overview_response(overview: MarketOverview) -> MarketOverviewResponse:
     return MarketOverviewResponse(
         headline=overview.headline,
@@ -458,6 +516,7 @@ def _to_market_overview_response(overview: MarketOverview) -> MarketOverviewResp
     )
 
 
+# 按下面的显式字段映射还原 ResearchPerspectiveResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_perspective_response(
     perspective: ResearchPerspective,
 ) -> ResearchPerspectiveResponse:
@@ -471,6 +530,7 @@ def _to_perspective_response(
     )
 
 
+# 按下面的显式字段映射还原 EvidenceBackedClaimResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_claim_response(claim: EvidenceBackedClaim) -> EvidenceBackedClaimResponse:
     return EvidenceBackedClaimResponse(
         label=claim.label,
@@ -479,8 +539,10 @@ def _to_claim_response(claim: EvidenceBackedClaim) -> EvidenceBackedClaimRespons
     )
 
 
+# 按下面的显式字段映射还原 PriceZoneResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_price_zone_response(zone: PriceZone) -> PriceZoneResponse:
     return PriceZoneResponse(
+        # 价格区间以十进制字符串输出，避免浏览器数值转换引入精度损失。
         lower=str(zone.lower),
         upper=str(zone.upper),
         timeframe=zone.timeframe.value,
@@ -488,6 +550,7 @@ def _to_price_zone_response(zone: PriceZone) -> PriceZoneResponse:
     )
 
 
+# 按下面的显式字段映射还原 CatalystResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_catalyst_response(catalyst: Catalyst) -> CatalystResponse:
     return CatalystResponse(
         category=catalyst.category,
@@ -498,6 +561,7 @@ def _to_catalyst_response(catalyst: Catalyst) -> CatalystResponse:
     )
 
 
+# 按下面的显式字段映射还原 RiskAndInvalidationResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_risk_response(risk: RiskAndInvalidation) -> RiskAndInvalidationResponse:
     return RiskAndInvalidationResponse(
         condition=risk.condition,

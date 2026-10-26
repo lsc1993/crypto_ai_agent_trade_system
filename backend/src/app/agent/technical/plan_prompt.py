@@ -1,3 +1,5 @@
+# 为 v2 分析与编排构造固定 JSON 请求，引用目录来自本次冻结事实和方法描述。
+# 文本数值必须以字段占位符表达，由程序渲染标签和单位；提示不能授权即时执行。
 """Fixed JSON prompts for analysis and composition, without tools."""
 
 import json
@@ -7,6 +9,7 @@ from app.agent.technical.references import build_reference_catalog
 from app.reports.technical_plan import TechnicalContext, TechnicalDecisionSummary
 
 
+# 首次输入冻结上下文与可用引用；编排额外提供已校验摘要并要求保留候选和立场。
 def plan_messages(
     context: TechnicalContext, decision: TechnicalDecisionSummary | None = None
 ) -> list[dict[str, str]]:

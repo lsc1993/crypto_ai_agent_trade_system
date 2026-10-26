@@ -1,3 +1,6 @@
+# 验证报告内容、冻结证据与双周期市场指标的公共契约。
+# 固定载荷覆盖哈希、跨报告引用、中文叙事和有限值约束。
+# 研究可描述市场持仓背景，但直接操作指令必须拒绝；降级不能伪造行情结论。
 from __future__ import annotations
 
 from datetime import UTC, datetime

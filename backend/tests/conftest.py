@@ -1,3 +1,6 @@
+# 提供后端数据库回归共用的已迁移临时 schema 夹具。
+# 每次使用独立随机名称，连接映射与迁移搜索路径指向同一测试 schema。
+# 仅在专用测试 PostgreSQL 上运行；finally 释放引擎并清理本次临时 schema。
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +26,8 @@ class MigratedDatabase:
     session_factory: async_sessionmaker[AsyncSession]
 
 
+# 唯一 schema 既用于 ORM 表映射也用于迁移版本表隔离，防止并行测试互相覆盖。
+# yield 后无论测试成功还是失败都释放连接并清理本次 schema。
 @pytest_asyncio.fixture
 async def migrated_database() -> AsyncIterator[MigratedDatabase]:
     """提供迁移后的临时 schema，避免测试接触开发数据库。"""
@@ -42,6 +47,7 @@ async def migrated_database() -> AsyncIterator[MigratedDatabase]:
         await _drop_schema(database_url, schema)
 
 
+# 名称由本夹具生成而非外部输入；使用独立引擎保证建库连接及时释放。
 async def _create_schema(database_url: SecretStr, schema: str) -> None:
     engine = create_async_engine_from_secret(database_url)
     try:
@@ -51,6 +57,7 @@ async def _create_schema(database_url: SecretStr, schema: str) -> None:
         await engine.dispose()
 
 
+# 级联范围仅为本次随机测试 schema，不清理业务 schema 或数据库。
 async def _drop_schema(database_url: SecretStr, schema: str) -> None:
     engine = create_async_engine_from_secret(database_url)
     try:

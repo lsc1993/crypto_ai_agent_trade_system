@@ -1,3 +1,6 @@
+# 验证多腿交易的 FIFO 匹配、手续费与资金费分摊。
+# 固定多空成交及现金流覆盖部分匹配与未平仓成本。
+# 非法腿状态、浮点值、非 UTC 时间和重复活动标识需拒绝。
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -83,6 +86,7 @@ def test_calculator_matches_long_lots_in_fifo_order_and_applies_fees_and_funding
     )
 
 
+# 仅已匹配的部分进入已实现损益，未平仓部分的费用不能提前全部计入。
 def test_calculator_calculates_partial_short_without_allocating_unmatched_open_fee() -> None:
     result = TradeCalculator().calculate(
         direction=TradeDirection.SHORT,

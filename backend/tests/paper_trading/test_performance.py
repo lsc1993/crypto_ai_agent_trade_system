@@ -1,3 +1,6 @@
+# 验证模拟绩效的损益、回撤与审计计数聚合。
+# 账户、成交、账本和估值固定样本共同构成可复算数据集。
+# 迁移基线只表示部分历史，不能据此声称完整历史绩效。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

@@ -1,3 +1,6 @@
+# 验证均线交叉只使用已可观察的收盘数据。
+# 固定 K 线覆盖预热、无交叉和持仓退出，策略仅输出结构化意图。
+# UTC 决策时间与意图来源元数据有独立契约，手动意图不伪装为策略意图。
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID

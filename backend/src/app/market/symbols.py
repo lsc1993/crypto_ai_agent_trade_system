@@ -1,3 +1,5 @@
+# 研究标识格式：只验证 USDT 标识形态；目录负责实际准入，动态字符串不进入静态交易、回测或模拟盘契约。
+# 公开行情领域：统一研究行情模型、固定公开来源适配器与冻结快照读取；不访问私有账户。
 """Research identifiers are format validated; admission belongs to the directory."""
 
 import re
@@ -8,6 +10,7 @@ from pydantic import PlainValidator, WithJsonSchema
 _RESEARCH_SYMBOL_PATTERN = r"^[A-Z0-9]+USDT$"
 
 
+# 验证研究标识长度和大写 USDT 格式；预置币种保留静态枚举身份，其他标识仍是研究字符串。
 def _research_symbol(value: object) -> str:
     if not isinstance(value, str) or not 5 <= len(value) <= 32:
         raise ValueError("研究币对必须是有效的 USDT 合约标识")

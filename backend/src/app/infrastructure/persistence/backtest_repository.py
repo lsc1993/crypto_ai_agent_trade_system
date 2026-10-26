@@ -1,3 +1,6 @@
+# 保存确定性回测的待处理运行、结果、输入 K 线与审计事件。
+# 完成前核对结果哈希和实际 K 线，锁定待处理运行后原子写入终态及子记录。
+# 冻结的是该运行输入；读取使用已保存指标和事件，不再次调用策略或真实执行。
 from __future__ import annotations
 
 from datetime import datetime
@@ -36,12 +39,15 @@ from app.research.backtests.repository import BacktestRepository
 from app.risk.contracts import RiskConfig
 
 
+# SqlAlchemyBacktestRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyBacktestRepository(BacktestRepository):
     """在 PostgreSQL 中保存回测运行、冻结 K 线和追加式审计事件。"""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 保存运行请求、策略版本和固定风险/执行配置，尚无结果时指标和哈希均为 None。
     async def create_pending(
         self,
         request: BacktestRequest,
@@ -78,6 +84,7 @@ class SqlAlchemyBacktestRepository(BacktestRepository):
             raise BacktestStorageUnavailableError("回测运行创建不可用") from error
         return _to_persisted_run(record, events=())
 
+    # 先匹配冻结 K 线与结果哈希，再锁定 pending 运行，在同一事务保存结果、K 线及事件。
     async def complete(
         self,
         run_id: UUID,
@@ -86,6 +93,7 @@ class SqlAlchemyBacktestRepository(BacktestRepository):
         *,
         occurred_at: datetime,
     ) -> PersistedBacktestRun:
+        # 在写终态之前验证输入身份，防止把一个运行的指标与另一组 K 线一起冻结。
         snapshot_hash = snapshot_payload_sha256(candle_snapshot_payload(candles))
         if snapshot_hash != result.summary.snapshot_hash:
             raise ValueError("回测结果快照哈希与冻结 K 线不一致")
@@ -109,6 +117,7 @@ class SqlAlchemyBacktestRepository(BacktestRepository):
         except SQLAlchemyError as error:
             raise BacktestStorageUnavailableError("回测运行完成不可用") from error
 
+    # 只锁定并终结 pending 运行，保存给定安全失败码和消息；不补造回测结果。
     async def fail(
         self,
         run_id: UUID,
@@ -131,6 +140,7 @@ class SqlAlchemyBacktestRepository(BacktestRepository):
         except SQLAlchemyError as error:
             raise BacktestStorageUnavailableError("回测运行失败状态不可用") from error
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list(self, filters: BacktestFilters) -> BacktestPage:
         statement = (
             select(BacktestRunRecord)
@@ -155,6 +165,7 @@ class SqlAlchemyBacktestRepository(BacktestRepository):
             total=total,
         )
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_by_id(self, run_id: UUID) -> PersistedBacktestRun | None:
         try:
             async with self._session_factory() as session:
@@ -169,6 +180,7 @@ class SqlAlchemyBacktestRepository(BacktestRepository):
             raise BacktestStorageUnavailableError("回测运行读取不可用") from error
 
 
+# 锁定回测运行并确认仍是 pending；终态不允许通过此入口再次改写。
 async def _get_pending_run_for_update(
     session: AsyncSession,
     run_id: UUID,
@@ -186,6 +198,7 @@ async def _get_pending_run_for_update(
     return record
 
 
+# 按下面的显式字段映射还原 PersistedBacktestRun，保留可选值与已有顺序；不重新执行业务计算。
 async def _to_persisted_run_from_database(
     session: AsyncSession,
     record: BacktestRunRecord,
@@ -205,6 +218,7 @@ async def _to_persisted_run_from_database(
     return _to_persisted_run(record, events=events)
 
 
+# 按下面的显式字段映射还原 PersistedBacktestRun，保留可选值与已有顺序；不重新执行业务计算。
 def _to_persisted_run(
     record: BacktestRunRecord,
     *,
@@ -297,6 +311,7 @@ def _event_records(
     )
 
 
+# 按下面的显式字段映射还原 BacktestAuditEvent，保留可选值与已有顺序；不重新执行业务计算。
 def _to_event(record: BacktestEventRecord) -> BacktestAuditEvent:
     return BacktestAuditEvent(
         sequence=record.sequence,
@@ -308,6 +323,7 @@ def _to_event(record: BacktestEventRecord) -> BacktestAuditEvent:
     )
 
 
+# 按下面的显式字段映射还原 BacktestResult，保留可选值与已有顺序；不重新执行业务计算。
 def _to_result(
     metrics: dict[str, object],
     events: tuple[BacktestAuditEvent, ...],

@@ -1,3 +1,5 @@
+# 均线交叉：比较前后短长均线关系，按已有仓位决定开多或平多，输出意图或无信号；不计算下单数量。
+# 确定性策略领域：只从历史行情生成结构化交易意图，数量与成交由风控和模拟执行决定。
 """SMA(20/50) 交叉策略。
 
 数据流：连续已收盘 K 线 → 前后两组短/长均线 → 金叉或死叉判断 → 仅包含方向和
@@ -13,9 +15,11 @@ from app.market.contracts import Candle, ContractSymbol
 from app.strategy.contracts import IntentAction, IntentSource, TradeIntent
 
 
+# 仅从已收盘 K 线生成开多或平多 TradeIntent 的确定性均线策略。
 class SmaCrossoverStrategy:
     """仅从已收盘 K 线生成开多或平多 TradeIntent 的确定性均线策略。"""
 
+    # 配置短期与长期均线窗口，并拒绝无法形成交叉判断的窗口组合。
     def __init__(self, *, fast_window: int = 20, slow_window: int = 50) -> None:
         """配置短期与长期均线窗口，并拒绝无法形成交叉判断的窗口组合。"""
         if fast_window <= 0 or slow_window <= 0:
@@ -25,6 +29,7 @@ class SmaCrossoverStrategy:
         self._fast_window = fast_window
         self._slow_window = slow_window
 
+    # 根据最后一根已收盘 K 线是否发生均线穿越生成意图。
     def decide(
         self,
         *,
@@ -71,11 +76,13 @@ class SmaCrossoverStrategy:
         )
 
 
+# 计算给定已收盘 K 线的简单移动平均价。
 def _sma(candles: tuple[Candle, ...]) -> Decimal:
     """计算给定已收盘 K 线的简单移动平均价。"""
     return sum((candle.close_price for candle in candles), start=Decimal("0")) / len(candles)
 
 
+# 将前后均线相对位置转为仓位允许的单向交易动作。
 def _action_for_cross(
     *,
     previous_fast: Decimal,

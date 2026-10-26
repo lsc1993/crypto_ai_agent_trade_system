@@ -1,3 +1,5 @@
+# 提供技术 v1 同步和 v2 队列执行的受控包装，技术策略不要求新闻读取能力。
+# 队列执行重新核对全部标的的目录准入，尊重提交后归档；审计与报告共用运行标识。
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Protocol
@@ -31,10 +33,12 @@ TECHNICAL_RESEARCH_POLICY = HarnessPolicy(
 )
 
 
+# 技术 v1 固定服务端口，输入受控运行标识并返回冻结技术报告。
 class TechnicalGenerator(Protocol):
     async def generate(self, symbol: ResearchSymbol, *, analysis_id: UUID) -> TechnicalReport: ...
 
 
+# 同步技术工作流只委托技术服务，其能力与独立技术策略一致。
 class TechnicalResearchWorkflow:
     kind = HarnessRunKind.TECHNICAL_RESEARCH
     required_capabilities = TECHNICAL_RESEARCH_POLICY.allowed_capabilities
@@ -46,15 +50,18 @@ class TechnicalResearchWorkflow:
         return await self._service.generate(request.symbol, analysis_id=request.run_id)
 
 
+# 同步调用方的简化报告生成协议，内部标识由受控包装建立。
 class TechnicalReportGenerator(Protocol):
     async def generate(self, symbol: ResearchSymbol) -> TechnicalReport: ...
 
 
+# 未装配存储时明确抛安全错误，不返回伪成功报告。
 class UnavailableTechnicalResearchService:
     async def generate(self, symbol: ResearchSymbol) -> TechnicalReport:
         raise ReportStorageUnavailableError("技术研究报告存储不可用")
 
 
+# 为同步技术服务建立请求并执行策略准入和审计。
 class HarnessedTechnicalResearchService:
     def __init__(
         self, runtime: HarnessRuntime[TechnicalReport], *, clock: Callable[[], datetime]
@@ -72,6 +79,7 @@ class HarnessedTechnicalResearchService:
         )
 
 
+# 把队列进度与保存前租约回调传递给固定 v2 研究服务。
 class TechnicalPlanWorkflow:
     kind = HarnessRunKind.TECHNICAL_RESEARCH
     required_capabilities = TECHNICAL_RESEARCH_POLICY.allowed_capabilities
@@ -93,6 +101,7 @@ class TechnicalPlanWorkflow:
         )
 
 
+# 每次队列执行创建受限运行时，预置标的也必须通过当前目录授权。
 class HarnessedTechnicalPlanExecutor:
     def __init__(
         self,

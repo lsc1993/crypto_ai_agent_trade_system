@@ -1,3 +1,6 @@
+# 保存本地模拟账户当前状态及追加式估值、订单、成交、账本和审计。
+# 状态转换先核对账户和幂等审计，在账户/仓位行锁内更新状态并追加关联事实。
+# 这是模拟持久层，不做最终风控计算；行锁保护此处写入流程，不声明上游计算无竞争。
 from __future__ import annotations
 
 from datetime import datetime
@@ -49,12 +52,15 @@ from app.risk.contracts import DEFAULT_RISK_CONFIG, RiskConfig
 from app.strategy.contracts import IntentAction
 
 
+# SqlAlchemyPaperTradingRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
     """以事务、行锁和追加式审计保存模拟盘状态。"""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 按固定 BTC 合约与默认模拟配置创建账户、空仓位和初始估值，活动账户冲突映射为状态错误。
     async def create_account(
         self,
         request: PaperAccountCreate,
@@ -118,6 +124,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户创建不可用") from error
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list(self, filters: PaperAccountFilters) -> PaperAccountPage:
         statement = (
             select(PaperAccountRecord)
@@ -143,6 +150,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户读取不可用") from error
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_by_id(self, account_id: UUID) -> PaperAccountDetail | None:
         try:
             async with self._session_factory() as session:
@@ -154,6 +162,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户读取不可用") from error
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_performance_data(
         self,
         account_id: UUID,
@@ -168,6 +177,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户绩效读取不可用") from error
 
+    # 按账户和幂等键读取意图/无信号审计内的结果；未找到返回 None。
     async def find_outcome(
         self,
         account_id: UUID,
@@ -180,6 +190,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户幂等结果读取不可用") from error
 
+    # 核对转换及幂等键，在事务和账户行锁内保存状态与关联事实；已处理键返回当前详情。
     async def apply_transition(
         self,
         account_id: UUID,
@@ -192,6 +203,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         try:
             async with self._session_factory.begin() as session:
                 account, position = await _locked_account_and_position(session, account_id)
+                # 账户锁内再次检查幂等审计，防止并发重放请求重复追加成交和现金流。
                 existing = await _idempotent_event(session, account_id, idempotency_key)
                 if existing is not None:
                     return await _detail_from_session(session, account, position)
@@ -212,6 +224,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
                         position=transition.position,
                     )
                 )
+                # 先添加订单并 flush，再写带父订单外键的成交，避免父子记录提交顺序不确定。
                 order_ids = _order_records(
                     account_id,
                     snapshot_id,
@@ -220,6 +233,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
                 session.add_all(order_ids.values())
                 await session.flush()
                 session.add_all(_fill_records(account_id, transition, order_ids))
+                # 序号分配建立在同账户写入持锁的前提上；max+1 自身不是独立并发保护。
                 ledger_start = await _next_ledger_sequence(session, account_id)
                 session.add_all(
                     _ledger_records(account_id, transition.ledger_entries, ledger_start)
@@ -241,6 +255,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟账户状态保存不可用") from error
 
+    # 只追加带错误码的行情失败审计并返回账户详情；不制造模拟订单或成交。
     async def record_market_failure(
         self,
         account_id: UUID,
@@ -270,6 +285,7 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
         except SQLAlchemyError as error:
             raise PaperStorageUnavailableError("模拟盘行情失败审计不可用") from error
 
+    # 账户与仓位加锁后确认数量为零，再修改归档状态并追加事件；不会强制平仓。
     async def archive(
         self,
         account_id: UUID,
@@ -312,6 +328,7 @@ async def _account_by_id(
     return result.scalar_one_or_none()
 
 
+# 依次锁定账户与仓位，拒绝不存在、非活动或缺少仓位状态的账户。
 async def _locked_account_and_position(
     session: AsyncSession,
     account_id: UUID,
@@ -368,6 +385,7 @@ async def _idempotent_event(
     return result.scalar_one_or_none()
 
 
+# 读取当前账户最大序号并加一；写入调用方必须已持有账户行锁，空历史从零开始。
 async def _next_ledger_sequence(
     session: AsyncSession,
     account_id: UUID,
@@ -380,6 +398,7 @@ async def _next_ledger_sequence(
     return int(result.scalar_one()) + 1
 
 
+# 读取当前账户最大序号并加一；写入调用方必须已持有账户行锁，空历史从零开始。
 async def _next_valuation_sequence(
     session: AsyncSession,
     account_id: UUID,
@@ -392,6 +411,7 @@ async def _next_valuation_sequence(
     return int(result.scalar_one()) + 1
 
 
+# 读取当前账户最大序号并加一；写入调用方必须已持有账户行锁，空历史从零开始。
 async def _next_event_sequence(session: AsyncSession, account_id: UUID) -> int:
     result = await session.execute(
         select(func.coalesce(func.max(PaperAuditEventRecord.sequence), -1)).where(
@@ -520,6 +540,7 @@ async def _performance_data_from_session(
 
 
 
+# 验证转换中的账户归属、非空幂等键及对应意图事件，防止写入不可关联状态。
 def _validate_transition(
     account_id: UUID,
     idempotency_key: str,
@@ -599,6 +620,7 @@ def _valuation_record(
     )
 
 
+# 为转换内的模拟订单分配 UUID，按幂等键建立映射；重复键或缺少来源直接拒绝。
 def _order_records(
     account_id: UUID,
     snapshot_id: UUID,
@@ -624,6 +646,7 @@ def _order_records(
     return records
 
 
+# 按订单幂等键找到模拟成交的父订单 UUID；没有匹配订单即拒绝孤立成交。
 def _fill_records(
     account_id: UUID,
     transition: PaperTransition,
@@ -700,6 +723,7 @@ def _event_records(
     return tuple(records)
 
 
+# 按下面的显式字段映射还原 PaperAccount，保留可选值与已有顺序；不重新执行业务计算。
 def _to_account(record: PaperAccountRecord) -> PaperAccount:
     return PaperAccount(
         id=record.id,
@@ -721,6 +745,7 @@ def _to_account(record: PaperAccountRecord) -> PaperAccount:
     )
 
 
+# 按下面的显式字段映射还原 PaperPosition，保留可选值与已有顺序；不重新执行业务计算。
 def _to_position(record: PaperPositionRecord) -> PaperPosition:
     return PaperPosition(
         account_id=record.account_id,
@@ -732,6 +757,7 @@ def _to_position(record: PaperPositionRecord) -> PaperPosition:
     )
 
 
+# 按下面的显式字段映射还原 PaperAccountSummary，保留可选值与已有顺序；不重新执行业务计算。
 def _to_summary(
     account: PaperAccountRecord,
     position: PaperPositionRecord,
@@ -748,6 +774,7 @@ def _to_summary(
     )
 
 
+# 按下面的显式字段映射还原 PaperMarketSnapshot，保留可选值与已有顺序；不重新执行业务计算。
 def _to_snapshot(record: PaperMarketSnapshotRecord) -> PaperMarketSnapshot:
     return PaperMarketSnapshot(
         symbol=ContractSymbol.BTCUSDT,
@@ -759,6 +786,7 @@ def _to_snapshot(record: PaperMarketSnapshotRecord) -> PaperMarketSnapshot:
     )
 
 
+# 按下面的显式字段映射还原 PaperAccountValuation，保留可选值与已有顺序；不重新执行业务计算。
 def _to_valuation(record: PaperAccountValuationRecord) -> PaperAccountValuation:
     return PaperAccountValuation(
         account_id=record.account_id,
@@ -773,6 +801,7 @@ def _to_valuation(record: PaperAccountValuationRecord) -> PaperAccountValuation:
     )
 
 
+# 按下面的显式字段映射还原 SimulatedOrder，保留可选值与已有顺序；不重新执行业务计算。
 def _to_order(record: PaperOrderRecord) -> SimulatedOrder:
     return SimulatedOrder(
         run_id=record.account_id,
@@ -785,6 +814,7 @@ def _to_order(record: PaperOrderRecord) -> SimulatedOrder:
     )
 
 
+# 按下面的显式字段映射还原 SimulatedFill，保留可选值与已有顺序；不重新执行业务计算。
 def _to_fill(record: PaperFillRecord, order: PaperOrderRecord) -> SimulatedFill:
     return SimulatedFill(
         run_id=record.account_id,
@@ -801,6 +831,7 @@ def _to_fill(record: PaperFillRecord, order: PaperOrderRecord) -> SimulatedFill:
     )
 
 
+# 按下面的显式字段映射还原 PaperLedgerEntry，保留可选值与已有顺序；不重新执行业务计算。
 def _to_ledger_entry(record: PaperLedgerEntryRecord) -> PaperLedgerEntry:
     return PaperLedgerEntry(
         occurred_at=record.occurred_at,
@@ -814,6 +845,7 @@ def _to_ledger_entry(record: PaperLedgerEntryRecord) -> PaperLedgerEntry:
     )
 
 
+# 按下面的显式字段映射还原 PaperAuditEvent，保留可选值与已有顺序；不重新执行业务计算。
 def _to_event(record: PaperAuditEventRecord) -> PaperAuditEvent:
     return PaperAuditEvent(
         sequence=record.sequence,

@@ -1,3 +1,6 @@
+# 验证 K 线更新、指标去重与每次采集快照保存。
+# 固定批次写入临时 schema，用行数和载荷检查仓储行为。
+# 一个币种无效时整批回滚；快照中只保留归一化字符串及 UTC 时间。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

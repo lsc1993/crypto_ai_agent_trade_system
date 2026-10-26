@@ -1,3 +1,6 @@
+# 验证确定性报告服务冻结最新快照和闭合 K 线。
+# 读取与保存替身记录证据集合，过期、缺失周期和不可用存储均需降级。
+# 降级报告不能带未经证实的市场结论或伪造证据。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

@@ -1,3 +1,5 @@
+# 综合研究模型适配器只把冻结证据格式化为中文双周期提案，最终保存前仍需业务层校验。
+# 格式失败最多三次；超时及上游错误直接交给降级，诊断仅保留有界字段和错误类别。
 """语言模型提案边界模块。
 
 数据流：冻结的 ModelEvidence 与确定性 MarketStructure → 受限 JSON 请求 → Pydantic
@@ -47,6 +49,7 @@ from app.reports.factors import FactorAnalysis, FactorInterpretation
 
 _DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions"
 _MAX_TOKENS = 4_000
+# 单条证据与整份正文分开限长，防止输入载荷或失败诊断无限膨胀。
 _MAX_EVIDENCE_CONTENT_LENGTH = 4_000
 _MAX_VALIDATION_FIELD_PATHS = 8
 _MAX_VALIDATION_ISSUES = 99
@@ -73,6 +76,7 @@ _FORMAT_RETRY_INSTRUCTION = (
 logger = structlog.get_logger(__name__)
 
 
+# 区分市场、新闻及专题证据，便于为不可信新闻和专题引用应用不同边界。
 class ModelEvidenceKind(StrEnum):
     MARKET = "market"
     NEWS = "news"
@@ -126,6 +130,7 @@ class ResearchModelRequest(_AgentModel):
         return self
 
 
+# 长度和引用存在性在提案构造时校验；引用是否属于当前输入需额外核对。
 class AgentAnalysisProposal(_AgentModel):
     """模型返回的候选研究结论，必须引用本次请求中已知的证据 ID。"""
 
@@ -152,6 +157,7 @@ class AgentAnalysisProposal(_AgentModel):
         referenced_ids = _proposal_evidence_ids(self)
         if not referenced_ids:
             raise ValueError("模型结论必须引用冻结证据")
+        # 主正文只统计概况、两篇论点和驱动详情，专题解读另受独立长度限制。
         display_length = _narrative_display_length(self.narrative)
         if not _MIN_NARRATIVE_DISPLAY_LENGTH <= display_length <= _MAX_NARRATIVE_DISPLAY_LENGTH:
             raise ValueError("模型双层市场报告正文必须为 1100 至 2500 个字符")
@@ -166,6 +172,7 @@ class AgentAnalysisProposal(_AgentModel):
         )
 
 
+# 保存有限的校验元数据供安全诊断，不保存被拒模型正文或完整上游响应。
 class ModelOutputError(RuntimeError):
     """将上游、格式和校验失败折叠为可安全记录的稳定模型错误码。"""
 
@@ -189,6 +196,7 @@ class ModelOutputError(RuntimeError):
         self.format_attempt_count = format_attempt_count
 
 
+# 模型实现只返回候选研究结构；它不能扩展证据、修改确定性指标或执行交易。
 class ResearchLanguageModel(Protocol):
     async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal: ...
 
@@ -300,6 +308,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                 if error.code != "model_invalid_response":
                     raise
                 self._log_response_rejected(error=error, attempt=attempt)
+                # 最后一次仍失败才标注格式尝试次数，供报告保存有限失败摘要。
                 if attempt == _MAX_FORMAT_ATTEMPTS:
                     error.format_attempt_count = attempt
                     raise
@@ -368,6 +377,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             duration_ms=_duration_ms(started_at),
             attempt=attempt,
         )
+        # 字面量解包和完整句压缩只是预处理，之后仍走全文契约及引用校验。
         content = _compact_overlong_narrative_content(
             _normalize_json_object_content(_response_content(response))
         )
@@ -382,9 +392,11 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                 validation_issue_count=1,
                 validation_field_paths=("horizon",),
             )
+        # 格式合格不代表有证据；所有嵌套引用必须属于本次冻结输入集合。
         _require_known_evidence_ids(proposal, request.evidences)
         if request.factor_analysis is not None:
             try:
+                # 专题还要检查引用所属类别，引用了本次另一专题也不能放行。
                 apply_interpretations(request.factor_analysis, proposal.factor_interpretations)
             except ValueError as error:
                 raise ModelOutputError(
@@ -454,6 +466,7 @@ def _narrative_length_retry_instruction(error: ModelOutputError) -> str:
 def _invalid_model_response_error(error: Exception) -> ModelOutputError:
     if not isinstance(error, ValidationError):
         return ModelOutputError("model_invalid_response", "DeepSeek 返回了无效研究 JSON")
+    # 不读取输入值或验证上下文，避免诊断把模型原文间接带回重试提示。
     issues = error.errors(
         include_url=False,
         include_context=False,
@@ -482,6 +495,7 @@ def _validation_field_paths(issues: Iterable[ErrorDetails]) -> tuple[str, ...]:
     for issue in issues:
         location = issue["loc"]
         candidate = ".".join(str(part) for part in location)
+        # 不符合有界路径格式的未知键统一退回类别名称，避免任意文本透出。
         safe_path = candidate if _VALIDATION_FIELD_PATH.fullmatch(candidate) else "schema"
         if safe_path not in paths:
             paths.append(safe_path)
@@ -495,10 +509,12 @@ def _narrative_length_from_validation_error(error: ValidationError) -> int | Non
     for issue in error.errors(include_url=False, include_context=False, include_input=True):
         if _validation_error_category(str(issue["msg"])) != "narrative_length":
             continue
+        # 仅临时读取被拒输入计算数值，返回有界长度而不保留任何正文。
         return _raw_narrative_display_length(issue.get("input"))
     return None
 
 
+# 输入可以是被拒的原始对象；字段缺失或类型异常时返回未知，不能猜测长度。
 def _raw_narrative_display_length(value: object) -> int | None:
     root = _object_mapping(value)
     if root is None:
@@ -540,6 +556,7 @@ def _object_mapping(value: object) -> Mapping[str, object] | None:
     return cast(Mapping[str, object], value)
 
 
+# 只压缩可解析的正文，按章节最低长度分配删减预算；无法保留完整句子则返回原文。
 def _compact_overlong_narrative_content(content: str) -> str:
     """Deterministically shorten only a complete, otherwise parseable model narrative."""
     try:
@@ -555,6 +572,7 @@ def _compact_overlong_narrative_content(content: str) -> str:
     fields = _narrative_text_fields(mutable_payload)
     if fields is None:
         return content
+    # 优先删减可用余量较多的章节，但不能低于各章节要求的最低长度。
     remaining = original_length - _TARGET_NARRATIVE_DISPLAY_LENGTH
     reductions: list[tuple[dict[str, object], str, int, int]] = []
     for container, field_name, minimum_length in sorted(
@@ -569,6 +587,7 @@ def _compact_overlong_narrative_content(content: str) -> str:
         remaining -= reduction
         if remaining == 0:
             break
+    # 总预算无法缩到目标时保持原候选，让统一校验明确拒绝或触发格式纠正。
     if remaining != 0:
         return content
     for container, field_name, minimum_length, reduction in reductions:
@@ -579,10 +598,12 @@ def _compact_overlong_narrative_content(content: str) -> str:
             value,
             maximum_length=len(value) - reduction,
         )
+        # 不能找到完整句边界就放弃压缩，防止截断金额、证据条件或句义。
         if truncated is None:
             return content
         container[field_name] = truncated
     compacted_length = _raw_narrative_display_length(mutable_payload)
+    # 完整句裁剪可能比预算多删，因此重新验证整份正文的上下界。
     if compacted_length is None or not (
         _MIN_NARRATIVE_DISPLAY_LENGTH
         <= compacted_length
@@ -597,6 +618,7 @@ def _compact_overlong_narrative_content(content: str) -> str:
     return json.dumps(mutable_payload, ensure_ascii=False, separators=(",", ":"))
 
 
+# 返回可压缩正文及各自下限；引用、价格区间、风险和专题不进入压缩候选。
 def _narrative_text_fields(
     payload: dict[str, object],
 ) -> list[tuple[dict[str, object], str, int]] | None:
@@ -640,9 +662,11 @@ def _truncate_research_text(
     sentence_end = max(candidate.rfind(mark) for mark in "。！？；")
     if sentence_end < 0:
         return None
+    # 返回至末个完整中文句末，不将任意字符切片直接当成可保存叙事。
     return candidate[: sentence_end + 1].rstrip()
 
 
+# 将内部校验说明折叠成有限类别，不将未知消息原样放入日志或纠正请求。
 def _validation_error_category(message: str) -> str:
     if "交易指令" in message:
         return "trading_instruction"
@@ -657,6 +681,7 @@ def _validation_error_category(message: str) -> str:
     return "schema"
 
 
+# 只提取首个响应中的非空正文，响应形态异常映射为稳定错误，不回显原始报文。
 def _response_content(response: httpx.Response) -> str:
     """从上游响应中安全提取非空文本内容，并将异常形态映射为模型错误。"""
     try:
@@ -684,6 +709,7 @@ def _response_content(response: httpx.Response) -> str:
     return content
 
 
+# 仅对单引号包裹的字符串做安全字面量解包；不执行代码，其他格式留给契约校验。
 def _normalize_json_object_content(content: str) -> str:
     """去除 Markdown 围栏并确认模型回复是一个 JSON 对象，而非任意文本。"""
     """Unwrap a model's quoted JSON-object string without evaluating code."""
@@ -711,6 +737,7 @@ def _require_known_evidence_ids(
         raise ModelOutputError("model_invalid_evidence", "DeepSeek 引用了未知冻结证据")
 
 
+# 统一收集主报告、双周期驱动和专题引用，防止只检查顶层而遗漏嵌套伪造标识。
 def _proposal_evidence_ids(proposal: AgentAnalysisProposal) -> set[UUID]:
     return {
         evidence_id
@@ -728,6 +755,7 @@ def _proposal_evidence_ids(proposal: AgentAnalysisProposal) -> set[UUID]:
     }
 
 
+# 长度口径与报告契约一致，避免模型端认为合格而持久化端使用另一正文范围。
 def _narrative_display_length(narrative: AgentResearchNarrative) -> int:
     return len(
         "".join(

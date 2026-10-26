@@ -1,3 +1,6 @@
+# 验证历史迁移链、表约束、不可变触发器与前向迁移限制。
+# 部分测试动态加载迁移核对行为，数据库测试仅操作各自随机临时 schema。
+# 旧报告不得被回写，拒绝回退须发生在修改 schema 之前；清理仅限本测试资源。
 import asyncio
 from argparse import Namespace
 from datetime import UTC, datetime, timedelta
@@ -1063,6 +1066,7 @@ async def _assert_market_snapshot_inputs_immutable(
             await _execute_in_schema(database_url, schema, text(statement), {})
 
 
+# 名称由本夹具生成而非外部输入；使用独立引擎保证建库连接及时释放。
 async def _create_schema(database_url: SecretStr, schema: str) -> None:
     database = import_module("app.shared.database")
     engine = database.create_async_engine_from_secret(database_url)
@@ -1147,6 +1151,7 @@ async def _table_constraint_columns(
         await engine.dispose()
 
 
+# 级联范围仅为本次随机测试 schema，不清理业务 schema 或数据库。
 async def _drop_schema(database_url: SecretStr, schema: str) -> None:
     database = import_module("app.shared.database")
     engine = database.create_async_engine_from_secret(database_url)

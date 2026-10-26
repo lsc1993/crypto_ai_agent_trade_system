@@ -1,3 +1,6 @@
+# 验证技术 v1 模型只解释冻结事实与已审查方法。
+# 响应替身覆盖合法中文、伪造引用、具体数值和操作措辞，合法内容保持原文。
+# 格式纠正受次数限制且不回放拒绝原文；传输故障直接返回安全降级原因。
 import json
 from typing import Any
 from uuid import uuid4
@@ -16,6 +19,7 @@ from app.agent.technical.model import (
 from tests.agent.test_technical_engine import NOW, make_technical_detail
 
 
+# 最小合法定性叙事复用当前证据身份，测试可只改目标文本以隔离拒绝原因。
 def _payload(evidence_id: str) -> dict[str, object]:
     claim = {"text": "量价结构存在延续可能，仍需等待后续收盘确认。", "evidenceIds": [evidence_id]}
     return {"thesis": claim, "alternative": claim, "risks": [claim]}
@@ -27,6 +31,7 @@ def test_accepts_qualitative_narrative_with_current_evidence() -> None:
     assert result.thesis.evidence_ids == (evidence_id,)
 
 
+# 包含普通中文数字字符的定性表达应保持原文，不能按字符一律删改。
 @pytest.mark.parametrize(
     "text",
     [
@@ -47,6 +52,7 @@ def test_preserves_normal_qualitative_chinese_without_rewriting(text: str) -> No
     assert result.thesis.evidence_ids == (evidence_id,)
 
 
+# 普通定性措辞与具体数量、比例或操作语义分别测试，避免放宽中文后漏过交易指令。
 @pytest.mark.parametrize(
     "text",
     [
@@ -121,6 +127,7 @@ def test_rejects_unexpected_plan_fields_and_unbounded_response() -> None:
         parse_technical_narrative("x" * 30000, evidence_id)
 
 
+# 请求只提供定性投影和当前证据，不发送完整指标数值让模型重写事实。
 @pytest.mark.asyncio
 async def test_model_request_contains_frozen_facts_and_methods_without_tools() -> None:
     analysis = calculate_technical_analysis(make_technical_detail(), captured_at=NOW)
@@ -218,6 +225,7 @@ async def test_generates_json_without_spending_budget_on_default_reasoning() -> 
         assert (await model.generate(analysis)).thesis.evidence_ids == (analysis.evidence_id,)
 
 
+# 前两次返回不合法文本，第三次恢复；每次纠正必须复用原冻结请求且不回传拒绝原文。
 @pytest.mark.asyncio
 async def test_corrects_rejected_text_without_sending_raw_response_or_changing_evidence() -> None:
     analysis = calculate_technical_analysis(make_technical_detail(), captured_at=NOW)
@@ -244,11 +252,13 @@ async def test_corrects_rejected_text_without_sending_raw_response_or_changing_e
     assert len(requests) == 3
     for body in requests[1:]:
         messages = body["messages"]
+        # 逐次核对基础消息完全相同，纠正不重新采集或替换原冻结证据。
         assert messages[:2] == requests[0]["messages"]
         assert "thesis.text" in messages[-1]["content"]
         assert raw_text not in json.dumps(body, ensure_ascii=False)
 
 
+# 持续格式错误最多三次，诊断字段必须落在白名单且没有响应敏感标记。
 @pytest.mark.asyncio
 async def test_invalid_responses_exhaust_bounded_attempts_with_safe_diagnostics() -> None:
     analysis = calculate_technical_analysis(make_technical_detail(), captured_at=NOW)
@@ -278,6 +288,7 @@ async def test_invalid_responses_exhaust_bounded_attempts_with_safe_diagnostics(
     assert "secret-value" not in json.dumps(logs)
 
 
+# 传输超时和上游错误无法靠正文纠正解决，此路径只能一次调用后安全失败。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["timeout", "upstream"])
 async def test_does_not_format_retry_transport_failures(failure: str) -> None:

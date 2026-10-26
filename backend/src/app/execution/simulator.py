@@ -1,3 +1,5 @@
+# 确定性撮合：将历史下一根开盘或冻结报价施加不利滑点、成交比例与手续费，返回模拟成交，不更新账户。
+# 模拟执行领域：风控批准的模拟订单按冻结报价计算滑点、手续费和部分成交；不连接真实交易。
 """确定性模拟撮合模块。
 
 数据流：已获风控批准的 SimulatedOrder 加上冻结的 K 线或报价，应用配置中的滑点、
@@ -18,15 +20,18 @@ from app.execution.contracts import (
 from app.market.contracts import Candle, ContractSymbol
 
 
+# 以下一根 K 线开盘价进行的确定性离线模拟撮合。
 class SimulatedExecutionService:
     """以下一根 K 线开盘价进行的确定性离线模拟撮合。
 
     本服务只把已经通过风控的模拟订单转换为成交，不连接交易所，也不维护账户状态。
     """
 
+    # 初始化本实例依赖和配置；输入 config。
     def __init__(self, config: ExecutionConfig) -> None:
         self._config = config
 
+    # 在下一根 K 线开盘价撮合订单，用于保持回测的时间因果关系。
     def submit_and_fill(self, order: SimulatedOrder, candle: Candle) -> SimulatedFill:
         """在下一根 K 线开盘价撮合订单，用于保持回测的时间因果关系。"""
         if candle.symbol is not order.symbol:
@@ -46,6 +51,7 @@ class SimulatedExecutionService:
             ),
         )
 
+    # 按指定冻结报价计算成交结果。
     def submit_and_fill_at_quote(
         self,
         order: SimulatedOrder,

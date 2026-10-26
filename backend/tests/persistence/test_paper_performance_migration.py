@@ -1,3 +1,6 @@
+# 验证模拟绩效迁移为旧账户补充不可变基线。
+# 先迁移至旧版本并种入历史账户，再升级观察估值记录。
+# 回填标记为部分历史，不能伪造当时不存在的完整估值序列。
 from __future__ import annotations
 
 import asyncio
@@ -59,6 +62,7 @@ def _upgrade(database_url: SecretStr, schema: str, revision: str) -> None:
     command.upgrade(configuration, revision)
 
 
+# 名称由本夹具生成而非外部输入；使用独立引擎保证建库连接及时释放。
 async def _create_schema(database_url: SecretStr, schema: str) -> None:
     engine = _database_engine(database_url)
     try:
@@ -150,6 +154,7 @@ async def _execute_in_schema(
         await engine.dispose()
 
 
+# 级联范围仅为本次随机测试 schema，不清理业务 schema 或数据库。
 async def _drop_schema(database_url: SecretStr, schema: str) -> None:
     engine = _database_engine(database_url)
     try:

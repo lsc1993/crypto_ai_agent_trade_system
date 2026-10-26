@@ -1,3 +1,6 @@
+# 验证技术 v2 服务只冻结一次输入并逐阶段保留降级结果。
+# 模型和进度替身使两阶段调用、总截止时间及保存前所有权检查可观测。
+# 行情无效时跳过模型，租约丢失时不能写入报告。
 from typing import Any
 from uuid import uuid4
 
@@ -10,6 +13,7 @@ from tests.agent.test_technical_references import decision
 from tests.agent.test_technical_service import Market, Repository, technical_clock
 
 
+# 两阶段模型替身按阶段注入失败并记录上下文对象，检验冻结只发生一次且降级粒度准确。
 class Model:
     def __init__(self, failure: str | None = None) -> None:
         self.failure = failure
@@ -34,6 +38,7 @@ async def noop(*args: Any) -> None:
     pass
 
 
+# 成功、分析失败和编排失败分别应有不同质量状态；确定性候选始终保留。
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure,quality",
@@ -56,10 +61,12 @@ async def test_v2_freezes_once_and_preserves_phase_fallback(
     assert report.status == ("completed" if failure is None else "degraded")
     assert report.analysis.plans
     assert len(repository.records) == 1
+    # 比较对象身份而非值相等，证明两阶段确实共享同一份冻结上下文。
     assert all(ctx is model.calls[0] for ctx in model.calls)
     assert (report.decision is None) == (failure == "analysis")
 
 
+# 行情质量不足先结束为等待报告，分析与编排都不应调用模型。
 @pytest.mark.asyncio
 async def test_invalid_market_skips_both_calls() -> None:
     repository, model = Repository(), Model()
@@ -72,6 +79,7 @@ async def test_invalid_market_skips_both_calls() -> None:
     assert not model.calls
 
 
+# 保存前回调模拟租约丢失，即使分析完成也不能继续写入失去所有权的报告。
 @pytest.mark.asyncio
 async def test_lost_ownership_prevents_save() -> None:
     repository = Repository()
@@ -84,9 +92,11 @@ async def test_lost_ownership_prevents_save() -> None:
 
     with pytest.raises(RuntimeError, match="lease_lost"):
         await service.generate("BTCUSDT", analysis_id=uuid4(), progress=noop, before_save=denied)
+    # 保存替身仍为空，证明所有权检查在持久化动作之前生效。
     assert repository.records == []
 
 
+# 慢分析耗尽总预算后降级，确定性计划仍保存一次，不能把超时当作整次研究不存在。
 @pytest.mark.asyncio
 async def test_total_deadline_preserves_rules_report() -> None:
     import asyncio

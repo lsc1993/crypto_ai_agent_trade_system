@@ -1,3 +1,6 @@
+# 验证研究符号扩展与交易符号限制各自独立。
+# 新增研究符号可进入研究请求，但不能扩大静态交易契约。
+# 不支持的 ETF 专题返回明确原因而不伪造证据。
 # pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
 from datetime import UTC, datetime

@@ -1,3 +1,6 @@
+# 验证模型配置默认无密钥且模型名来自允许集合。
+# 直接构造配置隔离运行环境，历史或未知模型名需拒绝。
+# 未配置模型凭证不应隐式开启模型能力。
 import pytest
 from pydantic import ValidationError
 

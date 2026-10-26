@@ -1,3 +1,6 @@
+# 从冻结公开 K 线计算技术事实与假设空仓的条件研究候选，所有财务计算使用十进制。
+# 只使用已收盘数据；质量检查覆盖所有参与校验的行，证据指纹保留拒绝依据。
+# 候选只供报告复核，触发状态属于截止时的历史事实，不形成交易请求或持续监控。
 """Pure technical facts and conditional plans from frozen public candles."""
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ _SLIPPAGE = Decimal("0.0005")
 _MIN_REWARD_RISK = Decimal("1.5")
 
 
+# 先验证日线、中周期和短周期的数量、连续性、时间及精度，质量通过才计算事实和候选。
 def calculate_technical_analysis(
     detail: MarketDetail, *, captured_at: datetime
 ) -> TechnicalAnalysis:
@@ -66,6 +70,7 @@ def calculate_technical_analysis(
         if len(closed) < 60:
             reasons.append(f"{timeframe.value}_insufficient_candles")
             continue
+        # 计算只需最近六十根，完整已收盘序列仍用于质量检查，不能忽略更早的断档和重复。
         used = closed[-60:]
         duration = _DURATION[timeframe]
         if any(candle.symbol != detail.summary.symbol for candle in closed):
@@ -106,6 +111,7 @@ def calculate_technical_analysis(
         candle_counts=counts,
         latest_closed_at=latest,
     )
+    # 有任一质量问题就停止事实与候选生成，仍保留可重放的证据标识和方法版本。
     if reasons:
         return TechnicalAnalysis(
             quality=quality,
@@ -118,6 +124,7 @@ def calculate_technical_analysis(
 
     hourly = frames[MarketTimeframe.H1]
     signal = hourly[-1]
+    # 成交量和区间基准不含信号自身，避免突破判断被当前 K 线抬高或压低。
     prior = hourly[-21:-1]
     average_volume = sum((candle.volume for candle in prior), Decimal(0)) / Decimal(20)
     volume_ratio = signal.volume / average_volume if average_volume > 0 else Decimal(0)
@@ -180,6 +187,7 @@ def calculate_technical_analysis(
     )
 
 
+# 要求多周期同向、结构止损和目标成立、价格仍在允许区域；任一门槛失败返回明确原因。
 def _candidate_plan(
     facts: TechnicalFacts, signal: Candle, current_price: Decimal, captured_at: datetime
 ) -> tuple[TechnicalPlan | None, tuple[str, ...]]:
@@ -237,6 +245,7 @@ def _candidate_plan(
         adverse_entry = entry_lower
         gross_reward = adverse_entry - target
         gross_risk = stop - adverse_entry
+    # 历史收盘已触发仍须检查摘要价格，偏离允许区域就取消旧候选而非追逐信号。
     if triggered and not entry_lower <= current_price <= entry_upper:
         return None, ("current_price_invalidates_plan",)
     if not triggered and (
@@ -255,6 +264,7 @@ def _candidate_plan(
     reward_risk = net_reward / net_risk
     if reward_risk < _MIN_REWARD_RISK:
         return None, ("reward_risk_below_minimum",)
+    # 对外舍入不能合并关键价位或破坏方向几何，否则内部有效计划也不能公开展示。
     if not wire_plan_prices_valid(
         direction,
         stop=stop,
@@ -284,6 +294,7 @@ def _candidate_plan(
     ), ()
 
 
+# 同时检查公开舍入后的价格，避免内部正值在对外序列化时变成零。
 def _wire_positive_price(value: Decimal) -> bool:
     rounded = wire_decimal_value(value)
     return rounded is not None and rounded > 0
@@ -316,6 +327,7 @@ def _pivots(candles: tuple[Candle, ...]) -> tuple[tuple[Decimal, ...], tuple[Dec
     return tuple(lows), tuple(highs)
 
 
+# 指纹包括摘要、截止时点及所有已收盘校验行，同一冻结输入可稳定关联和复核。
 def _evidence_id(detail: MarketDetail, captured_at: datetime) -> UUID:
     payload = {
         "summary": detail.summary.model_dump(mode="json"),

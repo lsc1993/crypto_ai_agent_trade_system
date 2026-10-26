@@ -1,3 +1,6 @@
+# 验证确定性风控的亏损上限、熔断、持仓、冷却和止损。
+# 固定组合与意图隔离策略，只检查许可数量与拒绝原因。
+# 熔断阻止新增风险但允许退出，现金与最大暴露共同限制开仓数量。
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -62,6 +65,7 @@ def test_circuit_breaker_rejects_open_but_allows_close() -> None:
     assert close_decision.quantity == Decimal("1")
 
 
+# 同时满足现金与暴露上限后再按数量步长取整，避免舍入后超额。
 def test_risk_caps_open_quantity_by_available_cash_and_max_exposure() -> None:
     decision = RiskEngine(DEFAULT_RISK_CONFIG).evaluate(
         _intent(IntentAction.OPEN_LONG),

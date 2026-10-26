@@ -1,3 +1,6 @@
+# 手动采集固定范围公开行情并保存研究快照的命令入口。
+# 调用公开 HTTP 适配器和市场仓储，不生成策略或交易意图。
+# 使用安全错误码与退出码区分配置缺失和采集失败，数据库引擎始终释放。
 from __future__ import annotations
 
 import asyncio
@@ -14,11 +17,14 @@ from app.shared.config import AppSettings
 from app.shared.database import create_database_engine, create_session_factory
 
 
+# 接受可注入配置供测试使用，同步入口只创建一次异步运行。
 def run_capture(settings: AppSettings | None = None) -> int:
     """运行固定范围的公开市场快照采集。"""
     return asyncio.run(_run_capture(settings or AppSettings()))
 
 
+# 先确认数据库可用，再在同一客户端生命周期内完成采集和保存。
+# finally 释放数据库连接，输出只包含安全状态与快照数量。
 async def _run_capture(settings: AppSettings) -> int:
     database_url = settings.database_url
     if database_url is None:

@@ -1,3 +1,5 @@
+# 综合研究只允许预定义的固定节点与条件边，模型不参与节点选择或工具路由。
+# 所有大载荷留在请求内运行对象；图状态和节点日志仅记录可关联的安全元数据。
 """受控 Agent 研究图编排模块。
 
 数据流：采集冻结行情与新闻 → 计算确定性市场结构 → 证据门控 → 模型提案验证或
@@ -21,27 +23,36 @@ logger = structlog.get_logger(__name__)
 AgentGraphNode = Callable[[AgentRunState], Awaitable[dict[str, object]]]
 
 
+# 注入一次研究运行的节点端口；节点返回轻量状态更新，实际证据由运行对象持有。
 class AgentGraphRun(Protocol):
     """单次请求的节点实现接口；大载荷始终保留在运行对象中，不写入图状态。"""
 
+    # 冻结行情并关联快照，失败只更新受控错误，供后续统一选择降级路径。
     async def collect_market(self, state: AgentRunState) -> dict[str, object]: ...
 
+    # 收集固定窗口的新闻和独立专题，返回来源计数与本次证据标识。
     async def collect_news(self, state: AgentRunState) -> dict[str, object]: ...
 
+    # 质量门通过才计算趋势与区间；模型配置缺失也在此设置降级原因。
     async def compute_structure(self, state: AgentRunState) -> dict[str, object]: ...
 
+    # 门控由运行对象的确定性错误状态决定，不接受模型选择的节点名称。
     def evidence_gate(self, state: AgentRunState) -> Literal["model", "degraded"]: ...
 
+    # 只发送本次冻结研究上下文，候选失败在最终保存节点转成降级结果。
     async def generate_model_report(self, state: AgentRunState) -> dict[str, object]: ...
 
+    # 证据不足分支直接保存已有事实载荷及限制，不伪造模型结论。
     async def persist_degraded_report(self, state: AgentRunState) -> dict[str, object]: ...
 
+    # 综合候选和降级状态确定终态，关联报告与证据后才允许图结束。
     async def validate_and_persist_report(
         self,
         state: AgentRunState,
     ) -> dict[str, object]: ...
 
 
+# 证据门只在模型生成与降级保存间分支，任一路径都以不可变报告保存结束。
 def build_agent_graph(
     run: AgentGraphRun,
     *,
@@ -69,6 +80,7 @@ def build_agent_graph(
         "validate_and_persist_report",
         _logged_node("validate_and_persist_report", run.validate_and_persist_report),
     )
+    # 行情、新闻和结构顺序固定；新闻内容不能让图跳过质量门或插入新节点。
     builder.add_edge(START, "collect_market")
     builder.add_edge("collect_market", "collect_news")
     builder.add_edge("collect_news", "compute_structure")
@@ -81,6 +93,7 @@ def build_agent_graph(
             "degraded": "persist_degraded_report",
         },
     )
+    # 模型生成失败仍经过最终保存节点，所以生成提案不等于报告完成。
     builder.add_edge("generate_model_report", "validate_and_persist_report")
     builder.add_edge("persist_degraded_report", END)
     builder.add_edge("validate_and_persist_report", END)
@@ -99,8 +112,10 @@ def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNo
         )
         try:
             update = await node(state)
+        # 请求取消由调用方处理，不转换为节点成功或普通错误结果。
         except asyncio.CancelledError:
             raise
+        # 异常只记录类型和耗时，不能把异常正文中的上游载荷写入安全日志。
         except Exception as error:
             logger.info(
                 "agent_research_node_failed",
@@ -138,6 +153,7 @@ def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNo
             news_success_count=_bounded_count(update, "news_success_count"),
             news_failure_count=_bounded_count(update, "news_failure_count"),
         )
+        # 包装器只补充日志，原节点更新原样交回图状态校验，不能吞掉字段。
         return update
 
     return invoke
@@ -149,6 +165,7 @@ def _new_error_code(state: AgentRunState, update: dict[str, object]) -> str | No
     if not isinstance(error_codes, (list, tuple)):
         return None
     values = cast(list[object] | tuple[object, ...], error_codes)
+    # 只取新出现的有限错误；非法值跳过，不能作为任意字符串写入节点诊断。
     for value in values:
         try:
             code = AgentErrorCode(value)
@@ -159,6 +176,7 @@ def _new_error_code(state: AgentRunState, update: dict[str, object]) -> str | No
     return None
 
 
+# 计数上限与状态证据上限一致；异常容器不用于诊断，也不输出证据本体。
 def _evidence_count(update: dict[str, object]) -> int | None:
     evidence_ids = update.get("evidence_ids")
     if not isinstance(evidence_ids, (list, tuple)):
@@ -167,6 +185,7 @@ def _evidence_count(update: dict[str, object]) -> int | None:
     return len(values) if len(values) <= 30 else None
 
 
+# 诊断计数限定范围并排除布尔值，避免利用宽松整数类型把异常字段写入日志。
 def _bounded_count(update: dict[str, object], field: str) -> int | None:
     value = update.get(field)
     if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 30:

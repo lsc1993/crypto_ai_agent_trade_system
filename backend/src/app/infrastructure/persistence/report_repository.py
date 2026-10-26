@@ -1,3 +1,6 @@
+# 保存综合报告、证据及可选 Agent 分析，并提供历史读取。
+# 报告父记录先 flush，再在同一事务追加证据、运行诊断和分析详情。
+# 提供追加保存和只读查询；历史缺失的 Agent 字段按现有兼容映射还原，不重跑模型。
 from __future__ import annotations
 
 from typing import cast
@@ -33,12 +36,15 @@ from app.reports.contracts import (
 from app.reports.repository import AgentAnalysisReportRepository
 
 
+# SqlAlchemyAnalysisReportRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
     """保存并只读查询不可变的研究报告。"""
 
+    # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
+    # 同事务追加报告和证据；提交后重新查询并返回持久化契约，缺失时视为存储不可用。
     async def persist(
         self,
         creation: AnalysisReportCreation,
@@ -56,12 +62,14 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
             raise ReportStorageUnavailableError("研究报告持久化不可用")
         return persisted
 
+    # 在报告/证据事务内同时保存 Agent 运行诊断与详情，提交后重新读取最终领域报告。
     async def persist_agent(
         self,
         creation: AgentReportCreation,
     ) -> PersistedAnalysisReport:
         report = creation.report
         analysis_payload = creation.agent_analysis.model_dump(mode="json")
+        # 叙事与指标分别允许缺失，保留旧报告兼容性；这里不使用新模型输出补写历史。
         narrative_payload = (
             None
             if creation.agent_analysis.narrative is None
@@ -171,6 +179,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
             raise ReportStorageUnavailableError("研究报告持久化不可用")
         return persisted
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_by_id(self, report_id: UUID) -> PersistedAnalysisReport | None:
         try:
             async with self._session_factory() as session:
@@ -179,6 +188,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         except SQLAlchemyError as error:
             raise ReportStorageUnavailableError("研究报告读取不可用") from error
 
+    # 按传入标识/币种读取持久记录并映射领域契约；缺失返回 None，不隐式创建新数据。
     async def get_by_analysis_id(
         self,
         analysis_id: UUID,
@@ -193,6 +203,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         except SQLAlchemyError as error:
             raise ReportStorageUnavailableError("研究报告读取不可用") from error
 
+    # 按明确筛选和排序读取已保存记录；分页项和总数分别查询，不额外声明跨查询快照隔离。
     async def list(
         self,
         *,
@@ -230,6 +241,7 @@ class SqlAlchemyAnalysisReportRepository(AgentAnalysisReportRepository):
         )
 
 
+# 追加报告父记录后 flush，再添加具有报告 ID 与载荷哈希的证据子记录。
 async def _add_report_records(
     session: AsyncSession,
     creation: AnalysisReportCreation,
@@ -303,6 +315,7 @@ async def _get_report_record(
     return result.tuples().one_or_none()
 
 
+# 按下面的显式字段映射还原 PersistedAnalysisReport，保留可选值与已有顺序；不重新执行业务计算。
 async def _to_persisted_report(
     session: AsyncSession,
     loaded: tuple[
@@ -329,6 +342,7 @@ async def _to_persisted_report(
     )
 
 
+# 按下面的显式字段映射还原 AnalysisReportSummary，保留可选值与已有顺序；不重新执行业务计算。
 def _to_summary(
     record: AnalysisReportRecord,
     run: AgentAnalysisRunRecord | None,
@@ -355,6 +369,7 @@ def _to_summary(
     )
 
 
+# 仅在 model_invalid_response 且诊断字段齐全时返回有限诊断；历史缺项返回 None。
 def _validation_failure(run: AgentAnalysisRunRecord | None) -> ModelValidationFailure | None:
     if (
         run is None
@@ -373,6 +388,7 @@ def _validation_failure(run: AgentAnalysisRunRecord | None) -> ModelValidationFa
     )
 
 
+# 只有双周期叙事字段完整时组装 narrative，再通过 AgentAnalysis 验证历史 JSON。
 def _to_agent_analysis(record: AgentReportDetailRecord) -> AgentAnalysis:
     narrative = (
         None
@@ -406,6 +422,7 @@ def _to_agent_analysis(record: AgentReportDetailRecord) -> AgentAnalysis:
     )
 
 
+# 按下面的显式字段映射还原 PersistedAnalysisEvidence，保留可选值与已有顺序；不重新执行业务计算。
 def _to_evidence(record: AnalysisEvidenceRecord) -> PersistedAnalysisEvidence:
     return PersistedAnalysisEvidence(
         id=record.id,

@@ -1,3 +1,6 @@
+# 模拟盘服务：接收账户与手工意图或一次策略评估，读取公开报价和已收盘行情，
+# 经领域引擎后按幂等键保存转换。
+# 模拟盘领域：手动请求或单次策略评估推进本地账户、仓位和审计；仅支持当前静态标的契约。
 """模拟盘应用服务。
 
 数据流：账户请求或策略评估 → 公开市场报价/已收盘 K 线校验 → PaperTradingEngine
@@ -40,9 +43,11 @@ _SMA_STRATEGY_VERSION = "v1"
 _SMA_CANDLE_COUNT = 51
 
 
+# 协调公开行情、确定性模拟盘引擎与持久化仓储。
 class PaperTradingService:
     """协调公开行情、确定性模拟盘引擎与持久化仓储。"""
 
+    # 初始化本实例依赖和配置；输入 market、history、repository、clock、engine、strategy。
     def __init__(
         self,
         *,
@@ -60,18 +65,22 @@ class PaperTradingService:
         self._engine = PaperTradingEngine() if engine is None else engine
         self._strategy = SmaCrossoverStrategy() if strategy is None else strategy
 
+    # 创建模拟账户及其初始仓位、估值和审计状态。
     async def create_account(self, request: PaperAccountCreate) -> PaperAccountDetail:
         """创建模拟账户及其初始仓位、估值和审计状态。"""
         return await self._repository.create_account(request, occurred_at=self._now())
 
+    # 按筛选条件分页读取模拟账户，不计算额外市场数据。
     async def list_accounts(self, filters: PaperAccountFilters) -> PaperAccountPage:
         """按筛选条件分页读取模拟账户，不计算额外市场数据。"""
         return await self._repository.list(filters)
 
+    # 读取一个模拟账户的当前领域状态，不存在时抛出领域未找到错误。
     async def get_account(self, account_id: UUID) -> PaperAccountDetail:
         """读取一个模拟账户的当前领域状态，不存在时抛出领域未找到错误。"""
         return await self._require_account(account_id)
 
+    # 聚合账户估值、账本、成交与事件为只读绩效快照。
     async def get_performance(self, account_id: UUID) -> PaperPerformanceSnapshot:
         """聚合账户估值、账本、成交与事件为只读绩效快照。"""
         data = await self._repository.get_performance_data(account_id)
@@ -79,6 +88,7 @@ class PaperTradingService:
             raise PaperAccountNotFoundError("未找到模拟账户")
         return aggregate_paper_performance(data, generated_at=self._now())
 
+    # 提交一条用户手工开/平仓意图并以客户端请求 ID 实现幂等。
     async def submit_manual_intent(
         self,
         account_id: UUID,
@@ -126,6 +136,7 @@ class PaperTradingService:
             occurred_at=self._now(),
         )
 
+    # 对最新已收盘 1h K 线运行 SMA 策略，并将无信号也作为可审计结果保存。
     async def evaluate_strategy(self, account_id: UUID) -> PaperAccountDetail:
         """对最新已收盘 1h K 线运行 SMA 策略，并将无信号也作为可审计结果保存。"""
         detail = await self._require_account(account_id)
@@ -179,10 +190,12 @@ class PaperTradingService:
             occurred_at=self._now(),
         )
 
+    # 归档模拟账户，阻止其后续接收新的手工或策略意图。
     async def archive_account(self, account_id: UUID) -> PaperAccountDetail:
         """归档模拟账户，阻止其后续接收新的手工或策略意图。"""
         return await self._repository.archive(account_id, occurred_at=self._now())
 
+    # 读取账户详情，并将空结果统一转换为 PaperAccountNotFoundError。
     async def _require_account(self, account_id: UUID) -> PaperAccountDetail:
         """读取账户详情，并将空结果统一转换为 PaperAccountNotFoundError。"""
         detail = await self._repository.get_by_id(account_id)
@@ -190,6 +203,7 @@ class PaperTradingService:
             raise PaperAccountNotFoundError("未找到模拟账户")
         return detail
 
+    # 读取 BTCUSDT 的新鲜公开摘要并转换为模拟撮合使用的冻结报价。
     async def _quote(self) -> ExecutionQuote:
         """读取 BTCUSDT 的新鲜公开摘要并转换为模拟撮合使用的冻结报价。"""
         detail = await self._market.get_market(
@@ -198,6 +212,7 @@ class PaperTradingService:
         )
         return _quote_from_market(detail)
 
+    # 校验输入或服务时钟为带时区 UTC 时间，使窗口过滤、审计排序与自然日聚合使用同一基准。
     def _now(self) -> datetime:
         value = self._clock()
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
@@ -205,6 +220,7 @@ class PaperTradingService:
         return value.astimezone(UTC)
 
 
+# 验证公开市场详情的标的和新鲜度，再提取可用于模拟盘的报价。
 def _quote_from_market(detail: MarketDetail) -> ExecutionQuote:
     """验证公开市场详情的标的和新鲜度，再提取可用于模拟盘的报价。"""
     summary = detail.summary
@@ -221,11 +237,13 @@ def _quote_from_market(detail: MarketDetail) -> ExecutionQuote:
     )
 
 
+# 将行情观测时刻截断到小时边界，作为策略输入和幂等键对应的最近收盘 K 线。
 def _latest_closed_candle_at(quote: ExecutionQuote) -> datetime:
     """将行情观测时刻截断到小时边界，作为策略输入和幂等键对应的最近收盘 K 线。"""
     return quote.observed_at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
 
 
+# 为账户、策略版本和单根已收盘 K 线生成稳定的策略评估幂等键。
 def _strategy_idempotency_key(account_id: UUID, latest_closed_candle_at: datetime) -> str:
     """为账户、策略版本和单根已收盘 K 线生成稳定的策略评估幂等键。"""
     return (
@@ -234,6 +252,7 @@ def _strategy_idempotency_key(account_id: UUID, latest_closed_candle_at: datetim
     )
 
 
+# 要求准确的 51 根连续已收盘小时 K 线，拒绝缺失、错标的、错周期或未来输入。
 def _validate_strategy_candles(
     candles: tuple[Candle, ...],
     latest_closed_candle_at: datetime,

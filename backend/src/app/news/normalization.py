@@ -1,3 +1,6 @@
+# 新闻规范化：检查来源，清理标题摘要与跟踪参数，生成内容哈希、去重键及确定性类别；
+# 文本仍是不可信证据。
+# 研究新闻领域：登记的英文订阅源经规范化、归因和去重后成为证据；外部文本不具备执行权限。
 """不可信 RSS 文本的规范化与分类模块。
 
 数据流：外部标题、摘要和 URL → 来源/语言/HTML/长度校验 → 稳定内容哈希与去重键 →
@@ -85,6 +88,7 @@ _ENGLISH_SIGNAL_WORDS = frozenset(
 )
 
 
+# 将一个外部 RSS 项目规范化为可保存、可引用的英文新闻草稿。
 def normalize_news_item(
     item: ExternalNewsItem,
     *,
@@ -136,6 +140,7 @@ def normalize_news_item(
     )
 
 
+# 去除脚本、样式和 HTML 标签，压缩空白并在语义字段上执行长度上限。
 def _normalize_text(value: str, *, maximum: int) -> str:
     """去除脚本、样式和 HTML 标签，压缩空白并在语义字段上执行长度上限。"""
     without_scripts = _SCRIPT_OR_STYLE.sub(" ", value)
@@ -146,6 +151,7 @@ def _normalize_text(value: str, *, maximum: int) -> str:
     return normalized
 
 
+# 检测非拉丁文字母，为英文来源提供保守的混合语言防护。
 def _contains_non_latin_letter(value: str) -> bool:
     """检测非拉丁文字母，为英文来源提供保守的混合语言防护。"""
     return any(
@@ -155,6 +161,7 @@ def _contains_non_latin_letter(value: str) -> bool:
     )
 
 
+# 用拉丁字符和常见英文信号词做保守筛选，不承担通用语言识别职责。
 def _is_english_text(value: str) -> bool:
     """用拉丁字符和常见英文信号词做保守筛选，不承担通用语言识别职责。"""
     if _contains_non_latin_letter(value):
@@ -165,6 +172,7 @@ def _is_english_text(value: str) -> bool:
     return english_signal_count >= 2
 
 
+# 移除跟踪参数、规范化主机与路径，再按 HTTP URL 契约校验新闻链接。
 def _canonicalize_url(value: str):
     """移除跟踪参数、规范化主机与路径，再按 HTTP URL 契约校验新闻链接。"""
     parts = urlsplit(value)
@@ -181,10 +189,12 @@ def _canonicalize_url(value: str):
     )
 
 
+# 对 UTF-8 文本计算稳定摘要，用作内容身份或去重依据。
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+# 按来源项目 ID、规范链接或内容哈希依次生成稳定去重键。
 def _deduplication_key(
     *,
     source_id: str,
@@ -200,6 +210,7 @@ def _deduplication_key(
     return f"{source_id}:content:{content_hash}"
 
 
+# 根据获准来源和文本关键字标记新闻涉及的受支持合约标的。
 def _related_symbols(
     title: str,
     summary: str,
@@ -238,6 +249,7 @@ def _related_symbols(
     return tuple(symbols)
 
 
+# 用确定性关键词将标题和摘要归入有限新闻事件类别。
 def _event_category(title: str, summary: str) -> NewsEventCategory:
     """用确定性关键词将标题和摘要归入有限新闻事件类别。"""
     content = f"{title} {summary}".casefold()

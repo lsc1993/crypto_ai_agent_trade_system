@@ -1,3 +1,6 @@
+# 验证技术报告与终态审计的原子提交。
+# 临时库保存冻结报告，并与其已准入 Harness 运行关联。
+# 缺失运行时整个保存回滚，不能产生无审计来源的报告。
 from typing import Protocol
 from uuid import uuid4
 

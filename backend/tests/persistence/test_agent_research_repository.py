@@ -1,3 +1,6 @@
+# 验证综合研究的冻结证据、专题、双周期及安全诊断持久化。
+# 临时迁移 schema 中准备已准入运行，观察报告与终态审计是否原子追加。
+# 新字段需兼容旧确定性报告，详情和证据在数据库层保持不可变。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

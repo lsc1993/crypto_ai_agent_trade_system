@@ -1,3 +1,6 @@
+# 把确定性回测请求与结果映射为 HTTP 契约。
+# 字符串资金输入经 BacktestRequest 二次校验，服务运行后映射指标和审计事件。
+# 响应金额按十八位小数量化并输出字符串；API 不调用真实执行接口。
 from __future__ import annotations
 
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
@@ -34,6 +37,7 @@ router = APIRouter(prefix="/backtests", tags=["backtests"])
 _RESPONSE_DECIMAL_QUANTUM = Decimal("0.000000000000000001")
 
 
+# 在局部 Decimal 上下文扩大精度，再按十八位和 HALF_EVEN 量化，零规范化为字符串 0。
 def _serialize_backtest_decimal(value: Decimal) -> str:
     with localcontext() as context:
         context.prec = max(
@@ -56,6 +60,7 @@ BacktestDecimalValue = Annotated[
 ]
 
 
+# 共享当前模块的 HTTP 字段别名及冻结配置；具体字段限制由各请求/响应子类声明。
 class _ApiModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=lambda value: "".join(
@@ -71,6 +76,8 @@ class _ApiModel(BaseModel):
     )
 
 
+# BacktestCreateRequest 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：symbol、timeframe、start_at、end_at、initial_cash；完整契约以下方声明为准。
 class BacktestCreateRequest(_ApiModel):
     symbol: ContractSymbol
     timeframe: MarketTimeframe
@@ -79,6 +86,9 @@ class BacktestCreateRequest(_ApiModel):
     initial_cash: StrictStr
 
 
+# BacktestRiskConfigResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：max_exposure_fraction、stop_loss_fraction、daily_loss_fraction、
+# max_drawdown_fraction、cooldown_candles、quantity_increment；完整契约以下方声明为准。
 class BacktestRiskConfigResponse(_ApiModel):
     max_exposure_fraction: BacktestDecimalValue
     stop_loss_fraction: BacktestDecimalValue
@@ -88,12 +98,17 @@ class BacktestRiskConfigResponse(_ApiModel):
     quantity_increment: BacktestDecimalValue
 
 
+# BacktestExecutionConfigResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：fee_rate、slippage_rate、fill_ratio；完整契约以下方声明为准。
 class BacktestExecutionConfigResponse(_ApiModel):
     fee_rate: BacktestDecimalValue
     slippage_rate: BacktestDecimalValue
     fill_ratio: BacktestDecimalValue
 
 
+# BacktestSummaryResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：initial_cash、final_equity、net_pnl、realized_pnl、unrealized_pnl、return_fraction；
+# 完整契约以下方声明为准。
 class BacktestSummaryResponse(_ApiModel):
     initial_cash: BacktestDecimalValue
     final_equity: BacktestDecimalValue
@@ -112,6 +127,8 @@ class BacktestSummaryResponse(_ApiModel):
     snapshot_hash: str
 
 
+# BacktestClosedTradeResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：opened_at、closed_at、quantity、net_pnl；完整契约以下方声明为准。
 class BacktestClosedTradeResponse(_ApiModel):
     opened_at: UtcDateTime
     closed_at: UtcDateTime
@@ -119,6 +136,9 @@ class BacktestClosedTradeResponse(_ApiModel):
     net_pnl: BacktestDecimalValue
 
 
+# BacktestAuditEventResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：sequence、kind、occurred_at、candle_sequence、idempotency_key、payload；
+# 完整契约以下方声明为准。
 class BacktestAuditEventResponse(_ApiModel):
     sequence: int
     kind: str
@@ -128,6 +148,8 @@ class BacktestAuditEventResponse(_ApiModel):
     payload: dict[str, JsonValue]
 
 
+# BacktestRunSummaryResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：id、status、symbol、timeframe、start_at、end_at；完整契约以下方声明为准。
 class BacktestRunSummaryResponse(_ApiModel):
     id: UUID
     status: BacktestRunStatus
@@ -147,11 +169,15 @@ class BacktestRunSummaryResponse(_ApiModel):
     failure_message: str | None
 
 
+# BacktestRunDetailResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：closed_trades、events；完整契约以下方声明为准。
 class BacktestRunDetailResponse(BacktestRunSummaryResponse):
     closed_trades: tuple[BacktestClosedTradeResponse, ...]
     events: tuple[BacktestAuditEventResponse, ...]
 
 
+# BacktestPageResponse 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：items、page、page_size、total；完整契约以下方声明为准。
 class BacktestPageResponse(_ApiModel):
     items: tuple[BacktestRunSummaryResponse, ...]
     page: int
@@ -159,10 +185,12 @@ class BacktestPageResponse(_ApiModel):
     total: int
 
 
+# 从应用 state 取得已装配的 backtest_service 依赖；cast 仅服务类型检查，不构造额外资源。
 def get_backtest_service(request: Request) -> BacktestService:
     return cast(BacktestService, request.app.state.backtest_service)
 
 
+# 接收路由声明的请求参数，委托 service.start，返回 BacktestRunDetailResponse。
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -175,6 +203,7 @@ async def start_backtest(
     return _to_detail_response(await service.start(_to_backtest_request(request)))
 
 
+# 接收路由声明的请求参数，委托 service.list，返回 BacktestPageResponse。
 @router.get("", response_model=BacktestPageResponse)
 async def list_backtests(
     service: Annotated[BacktestService, Depends(get_backtest_service)],
@@ -184,6 +213,7 @@ async def list_backtests(
     return _to_page_response(await service.list(BacktestFilters(page=page, page_size=page_size)))
 
 
+# 接收路由声明的请求参数，委托 service.get，返回 BacktestRunDetailResponse。
 @router.get("/{run_id}", response_model=BacktestRunDetailResponse)
 async def get_backtest(
     run_id: UUID,
@@ -192,6 +222,7 @@ async def get_backtest(
     return _to_detail_response(await service.get(run_id))
 
 
+# 按下面的显式字段映射还原 BacktestRequest，保留可选值与已有顺序；不重新执行业务计算。
 def _to_backtest_request(request: BacktestCreateRequest) -> BacktestRequest:
     try:
         return BacktestRequest.model_validate(
@@ -207,6 +238,7 @@ def _to_backtest_request(request: BacktestCreateRequest) -> BacktestRequest:
         raise RequestValidationError(error.errors()) from error
 
 
+# 按下面的显式字段映射还原 BacktestPageResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_page_response(page: BacktestPage) -> BacktestPageResponse:
     return BacktestPageResponse(
         items=tuple(_to_summary_response(run) for run in page.items),
@@ -216,6 +248,7 @@ def _to_page_response(page: BacktestPage) -> BacktestPageResponse:
     )
 
 
+# 按下面的显式字段映射还原 BacktestRunDetailResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_detail_response(run: PersistedBacktestRun) -> BacktestRunDetailResponse:
     response = _to_summary_response(run)
     result = run.result
@@ -230,6 +263,7 @@ def _to_detail_response(run: PersistedBacktestRun) -> BacktestRunDetailResponse:
     )
 
 
+# 按下面的显式字段映射还原 BacktestRunSummaryResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_summary_response(run: PersistedBacktestRun) -> BacktestRunSummaryResponse:
     request = run.request
     return BacktestRunSummaryResponse(
@@ -256,16 +290,19 @@ def _to_summary_response(run: PersistedBacktestRun) -> BacktestRunSummaryRespons
     )
 
 
+# 按下面的显式字段映射还原 BacktestSummaryResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_summary(summary: BacktestSummary) -> BacktestSummaryResponse:
     return BacktestSummaryResponse(**summary.model_dump())
 
 
+# 按下面的显式字段映射还原 BacktestClosedTradeResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_closed_trade_response(
     trade: BacktestClosedTrade,
 ) -> BacktestClosedTradeResponse:
     return BacktestClosedTradeResponse(**trade.model_dump())
 
 
+# 按下面的显式字段映射还原 BacktestAuditEventResponse，保留可选值与已有顺序；不重新执行业务计算。
 def _to_event_response(event: BacktestAuditEvent) -> BacktestAuditEventResponse:
     return BacktestAuditEventResponse(
         sequence=event.sequence,

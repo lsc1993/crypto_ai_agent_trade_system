@@ -1,3 +1,6 @@
+# 验证手动意图与单次策略评估如何取得行情并保存结果。
+# 记录仓储和公开行情替身检查报价次数、无信号路径与意图来源。
+# 绩效读取仅使用本地数据，不能为只读请求补采市场或访问私有账户。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

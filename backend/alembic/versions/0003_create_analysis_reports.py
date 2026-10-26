@@ -1,3 +1,5 @@
+# 建立确定性研究报告与冻结证据存储。
+# 外键关联报告和证据；不可变触发器在数据库层拒绝后续改写。
 """Create immutable deterministic market research report tables."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 报告表保留生成状态与确定性结论，证据由关联表单独保存。
     op.create_table(
         "analysis_reports",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -52,6 +56,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_analysis_reports_status", "analysis_reports", ["status"])
 
+    # 载荷、来源及哈希与报告关联，报告冻结后不可重新解释证据。
     op.create_table(
         "analysis_evidences",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -117,6 +122,7 @@ def upgrade() -> None:
     )
 
 
+# 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
     op.execute("DROP TRIGGER trg_analysis_evidences_immutable ON analysis_evidences")
     op.execute("DROP TRIGGER trg_analysis_reports_immutable ON analysis_reports")

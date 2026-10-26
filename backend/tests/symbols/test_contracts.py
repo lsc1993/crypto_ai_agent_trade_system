@@ -1,3 +1,6 @@
+# 验证研究币种输入规范化与关键词长度限制。
+# 用户文本可归一化，但不能扩大静态交易币种集合。
+# 非法符号和非纯文本关键词在准入之前拒绝。
 from importlib import import_module
 from importlib.util import find_spec
 from types import ModuleType

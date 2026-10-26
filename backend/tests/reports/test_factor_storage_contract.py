@@ -1,3 +1,6 @@
+# 验证专题字段从持久化到 HTTP 的兼容映射。
+# 新字段为可空，旧报告不需要补写专题内容。
+# 前端使用 camelCase 及十进制字符串，不能直接暴露内部模型字段。
 from datetime import UTC, datetime
 
 from app.api.routes.analysis_reports import (

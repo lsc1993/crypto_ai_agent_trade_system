@@ -1,3 +1,6 @@
+# 验证 K 线输入的研究币种、UTC 和精确十进制约束。
+# 高低开收关系必须合理，浮点输入和无时区时间在模型构造时拒绝。
+# 输出金额保留字符串形式，避免 HTTP 消费方引入二进制浮点误差。
 from datetime import UTC, datetime
 from decimal import Decimal
 

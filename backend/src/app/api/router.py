@@ -1,3 +1,6 @@
+# 集中挂载 /api/v1 版本入口及各业务子路由。
+# 返回固定版本文档，并让请求进入各子路由定义的响应契约。
+# 路由注册不启动后台任务；服务与仓储实例由应用装配层注入。
 from typing import Literal
 
 from fastapi import APIRouter
@@ -19,6 +22,8 @@ API_NAME = "AI 加密合约研究工作台"
 router = APIRouter(prefix="/api/v1")
 
 
+# VersionDocument 定义当前接口的结构化字段，供 Pydantic 校验与响应序列化使用。
+# 主要字段：name、version；完整契约以下方声明为准。
 class VersionDocument(BaseModel):
     name: str
     version: Literal["v1"]

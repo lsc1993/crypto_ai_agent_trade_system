@@ -1,3 +1,5 @@
+# 建立回测运行与不可变输入 K 线及事件表。
+# 结果与运行关联，数据库触发器阻止修改冻结输入和审计事件。
 """Create immutable deterministic backtest tables."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 运行元数据与结果摘要和冻结输入分开，预期失败可保留安全状态。
     op.create_table(
         "backtest_runs",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -59,6 +63,7 @@ def upgrade() -> None:
         ["created_at", "id"],
     )
 
+    # 冻结本次回测所用价格序列，后续行情更新不会改变输入事实。
     op.create_table(
         "backtest_candles",
         sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -96,6 +101,7 @@ def upgrade() -> None:
         ["run_id", "open_at"],
     )
 
+    # 保存意图、风险与成交事件的有序记录，支持按运行追溯。
     op.create_table(
         "backtest_events",
         sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -162,6 +168,7 @@ def upgrade() -> None:
     )
 
 
+# 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
     op.execute("DROP TRIGGER trg_backtest_events_immutable ON backtest_events")
     op.execute("DROP FUNCTION prevent_backtest_event_mutation()")

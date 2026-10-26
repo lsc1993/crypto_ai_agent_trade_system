@@ -1,3 +1,5 @@
+# 建立公开行情 K 线、衍生指标和采集快照表。
+# 精确 Numeric、时间范围与唯一键支持可重复研究读取，索引用于币种时间查询。
 """Create bounded market research persistence tables."""
 
 from collections.abc import Sequence
@@ -13,7 +15,9 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
+    # 以币种、周期与开盘时间唯一标识 K 线；价格与成交量使用精确数值列。
     op.create_table(
         "market_candles",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -65,6 +69,7 @@ def upgrade() -> None:
         ["symbol", "timeframe", sa.text("open_at DESC")],
     )
 
+    # 保存带观察时间的逐类衍生指标，唯一键避免同一次观测重复入库。
     op.create_table(
         "derivative_observations",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -101,6 +106,7 @@ def upgrade() -> None:
         ["symbol", sa.text("observed_at DESC")],
     )
 
+    # 每次采集保存独立快照及内容哈希，和可更新的行情行分开。
     op.create_table(
         "market_snapshots",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -140,6 +146,7 @@ def upgrade() -> None:
     )
 
 
+# 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
     op.drop_index("ix_market_snapshots_symbol_captured_at", table_name="market_snapshots")
     op.drop_table("market_snapshots")

@@ -1,3 +1,6 @@
+# 验证本地 Compose、容器入口与代理配置的安全部署约束。
+# 仅用 Docker CLI 归一化配置，不启动服务；子进程环境采用显式白名单。
+# 本地端口、非 root 用户、脚本 LF 和受限代理均有断言，部署文档不能包含删卷步骤。
 from __future__ import annotations
 
 import json
@@ -39,6 +42,7 @@ CHILD_ENVIRONMENT_NAMES = (
 )
 
 
+# 只继承 CLI 所需的系统变量，隔离宿主应用和 Compose 项目配置。
 def compose_child_environment() -> dict[str, str]:
     environment = {
         name: os.environ[name]
@@ -49,6 +53,7 @@ def compose_child_environment() -> dict[str, str]:
     return environment
 
 
+# 生成临时测试配置并读取归一化 JSON；这里只解析 Compose，不启动容器。
 def load_compose_configuration(tmp_path: Path) -> dict[str, object]:
     docker = shutil.which("docker")
     if docker is None:
@@ -285,6 +290,7 @@ def test_dockerignore_excludes_local_configuration_and_generated_state() -> None
         assert {".env", ".venv", "node_modules", ".git", "dist", "test-results"} <= patterns
 
 
+# 安全检查覆盖用户可复制的部署说明，避免文档引导删除持久化卷。
 def test_local_deployment_documentation_preserves_safe_operations() -> None:
     documents = "\n".join(
         (ROOT / path).read_text(encoding="utf-8")

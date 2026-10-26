@@ -1,3 +1,6 @@
+# 历史回放：先校验连续行情，逐根成交上一轮订单、估值、风险检查和策略决策；最终返回统计、
+# 事件与输入哈希。
+# 历史回测领域：先冻结连续行情，再按收盘决策与下一根开盘成交回放；保留输入哈希和审计。
 """离线确定性回测引擎。
 
 数据流：连续已收盘 1h K 线与配置 → 每根收盘时的策略/风控决策 → 下一根开盘模拟
@@ -37,7 +40,9 @@ from app.strategy.sma_crossover import SmaCrossoverStrategy
 _HOUR = timedelta(hours=1)
 
 
+# BacktestStrategy 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
 class BacktestStrategy(Protocol):
+    # 从截至当前时点的历史 K 线和仓位状态生成结构化意图或无信号结果。
     def decide(
         self,
         *,
@@ -47,12 +52,14 @@ class BacktestStrategy(Protocol):
     ) -> TradeIntent | None: ...
 
 
+# 下一根开盘撮合的模拟订单，风险退出标记用于成交后设置冷却。
 @dataclass
 class _ScheduledOrder:
     order: SimulatedOrder
     risk_exit: bool
 
 
+# 回放内部可变账户，跟踪剩余成本、盈亏、日损失、冷却及历史熔断状态。
 @dataclass
 class _BacktestState:
     cash: Decimal
@@ -72,6 +79,7 @@ class _BacktestState:
     circuit_breaker_triggered: bool
 
 
+# 只按顺序消费已收盘 K 线的离线、确定性回放引擎。
 class DeterministicBacktestEngine:
     """只按顺序消费已收盘 K 线的离线、确定性回放引擎。
 
@@ -79,9 +87,11 @@ class DeterministicBacktestEngine:
     泄漏的核心约束。
     """
 
+    # 初始化本实例依赖和配置；输入 strategy。
     def __init__(self, *, strategy: BacktestStrategy | None = None) -> None:
         self._strategy = strategy or SmaCrossoverStrategy()
 
+    # 按时间顺序回放一组完整 K 线，并返回可审计的回测结果。
     def run(
         self,
         run_id: UUID,
@@ -141,6 +151,7 @@ class DeterministicBacktestEngine:
             self._evaluate_close(
                 run_id=run_id,
                 request=request,
+                # 策略只能看到截至当前 K 线的切片；下一根仅用于调度成交，不作为信号输入。
                 candles=candles[: index + 1],
                 candle=candle,
                 candle_sequence=index,
@@ -195,6 +206,7 @@ class DeterministicBacktestEngine:
             closed_trades=tuple(closed_trades),
         )
 
+    # 验证输入 K 线覆盖完整预热与性能区间、标的/周期一致且按小时连续。
     def _validate_candles(
         self,
         candles: tuple[Candle, ...],
@@ -224,6 +236,7 @@ class DeterministicBacktestEngine:
         if performance_count < 1 or performance_count > 1_000:
             raise ExpectedBacktestFailure("performance_range_invalid", "回测 K 线数量超出限制")
 
+    # 在一根 K 线收盘时优先处理风险退出，再生成并审核策略意图。
     def _evaluate_close(
         self,
         *,
@@ -330,6 +343,7 @@ class DeterministicBacktestEngine:
             risk_exit=False,
         )
 
+    # 构造带稳定幂等键的风险平仓意图，并安排其在下一根开盘成交。
     def _schedule_risk_exit(
         self,
         *,
@@ -377,6 +391,7 @@ class DeterministicBacktestEngine:
             risk_exit=True,
         )
 
+    # 经 RiskEngine 审核意图；获准后创建订单和审计事件并延迟到下一根撮合。
     def _evaluate_and_schedule(
         self,
         *,
@@ -424,6 +439,7 @@ class DeterministicBacktestEngine:
             _ScheduledOrder(order=order, risk_exit=risk_exit)
         )
 
+    # 在当前开盘价撮合已排队订单，更新状态、成交事件与风险退出后的冷却期。
     def _fill_scheduled_orders(
         self,
         scheduled_orders: list[_ScheduledOrder] | tuple[()],
@@ -459,6 +475,7 @@ class DeterministicBacktestEngine:
             if scheduled.risk_exit and state.position_quantity == Decimal("0"):
                 state.cooldown_remaining = cooldown_candles
 
+    # 将一笔开仓或平仓成交应用到回测现金、持仓、成本和已实现盈亏。
     def _apply_fill(
         self,
         state: _BacktestState,
@@ -493,6 +510,7 @@ class DeterministicBacktestEngine:
         if fill.quantity > state.position_quantity:
             raise ExpectedBacktestFailure("fill_quantity_invalid", "模拟平仓数量超过当前仓位")
         previous_quantity = state.position_quantity
+        # 部分平仓按当前剩余数量分摊入场总成本，手续费已在入场成本内，防止重复计费。
         allocated_entry_cost = state.remaining_entry_cost * fill.quantity / previous_quantity
         proceeds = fill.quantity * fill.price - fill.fee
         trade_pnl = proceeds - allocated_entry_cost
@@ -519,6 +537,7 @@ class DeterministicBacktestEngine:
             state.opened_quantity = Decimal("0")
             state.current_trade_pnl = Decimal("0")
 
+    # 把内部回测状态投影为 RiskEngine 所需的账户快照。
     def _portfolio(self, state: _BacktestState, mark_price: Decimal) -> PortfolioSnapshot:
         """把内部回测状态投影为 RiskEngine 所需的账户快照。"""
         return PortfolioSnapshot(
@@ -532,10 +551,12 @@ class DeterministicBacktestEngine:
             cooldown_remaining=state.cooldown_remaining,
         )
 
+    # 按当前标记价格计算现金加持仓市值，不把未实现收益当作已实现现金。
     @staticmethod
     def _equity(state: _BacktestState, mark_price: Decimal) -> Decimal:
         return state.cash + state.position_quantity * mark_price
 
+    # 按当前收盘价更新权益、高水位和历史最大回撤。
     def _mark_equity(self, state: _BacktestState, close_price: Decimal) -> None:
         """按当前收盘价更新权益、高水位和历史最大回撤。"""
         equity = self._equity(state, close_price)
@@ -544,10 +565,12 @@ class DeterministicBacktestEngine:
             drawdown = (state.peak_equity - equity) / state.peak_equity
             state.max_drawdown_fraction = max(state.max_drawdown_fraction, drawdown)
 
+    # 将已观察到的最大回撤与请求安全上限比较，决定是否触发回测熔断。
     @staticmethod
     def _drawdown_exceeds_limit(state: _BacktestState, request: BacktestRequest) -> bool:
         return state.max_drawdown_fraction >= request.risk_config.max_drawdown_fraction
 
+    # 跨 UTC 自然日时重置日内已实现损失，并以当时权益作为新的日初权益。
     def _reset_daily_loss_if_needed(self, state: _BacktestState, candle: Candle) -> None:
         """跨 UTC 自然日时重置日内已实现损失，并以当时权益作为新的日初权益。"""
         candle_day = candle.open_at.astimezone(UTC).date()
@@ -557,6 +580,7 @@ class DeterministicBacktestEngine:
         state.daily_start_equity = self._equity(state, candle.open_price)
         state.daily_realized_loss = Decimal("0")
 
+    # 记录风控放行或拒绝事件，使每个策略/风险意图都有独立审核结果。
     def _append_risk_event(
         self,
         events: list[BacktestAuditEvent],
@@ -586,6 +610,7 @@ class DeterministicBacktestEngine:
             payload={"reason": decision.reason},
         )
 
+    # 追加结构化回测事件，sequence 与 K 线序号共同保留因果和时间位置。
     @staticmethod
     def _append_event(
         events: list[BacktestAuditEvent],
@@ -609,6 +634,7 @@ class DeterministicBacktestEngine:
         )
 
 
+# 递归转换 Decimal、UTC 时间、枚举和标识为安全 JSON 值；未知对象拒绝序列化。
 def _jsonify(value: object) -> JsonValue:
     if isinstance(value, Decimal):
         return format(value, "f")
@@ -629,6 +655,7 @@ def _jsonify(value: object) -> JsonValue:
     raise TypeError("回测审计载荷包含不可序列化的值")
 
 
+# 按完整平仓记录计算盈利交易占比，无已平仓交易时返回零。
 def _win_rate(closed_trades: list[BacktestClosedTrade]) -> Decimal:
     if not closed_trades:
         return Decimal("0")
@@ -636,6 +663,7 @@ def _win_rate(closed_trades: list[BacktestClosedTrade]) -> Decimal:
     return Decimal(winners) / Decimal(len(closed_trades))
 
 
+# 用已平仓盈利总额除亏损绝对值总额；没有亏损时返回空值以避免无穷指标。
 def _profit_factor(closed_trades: list[BacktestClosedTrade]) -> Decimal | None:
     gross_loss = sum(
         (-trade.net_pnl for trade in closed_trades if trade.net_pnl < Decimal("0")),

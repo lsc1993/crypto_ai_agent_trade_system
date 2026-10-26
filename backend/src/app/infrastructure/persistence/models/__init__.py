@@ -1,3 +1,5 @@
+# 表模型集中导出入口；导入列出的模型向 Base.metadata 注册声明，__all__ 指定公开名称。
+# 此处只说明包边界；具体公开名称以子模块导入或既有 __all__ 为准。
 """SQLAlchemy 持久化模型。"""
 
 from app.infrastructure.persistence.models.agent_research import (

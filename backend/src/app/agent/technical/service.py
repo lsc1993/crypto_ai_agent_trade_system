@@ -1,3 +1,5 @@
+# 保留的技术 v1 同步流程：公开行情、确定性分析、受限定性解释和不可变保存。
+# 质量不足或模型失败时保存明确降级报告，不调用综合新闻图或正文压缩逻辑。
 """Fixed public-data -> facts -> bounded narrative -> immutable report workflow."""
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from app.reports.technical_repository import TechnicalReportRepository
 TIMEFRAMES = (MarketTimeframe.H1, MarketTimeframe.H4, MarketTimeframe.D1)
 
 
+# 注入公开读取、定性模型、保存端口和时钟；每次生成只处理一个手动研究请求。
 class TechnicalResearchService:
     def __init__(
         self,
@@ -37,6 +40,7 @@ class TechnicalResearchService:
     ) -> None:
         self._market, self._repository, self._model, self._clock = market, repository, model, clock
 
+    # 冻结所有参与质量校验的已收盘行并再次校验模型叙事，报告版本不匹配则拒绝返回。
     async def generate(self, symbol: ResearchSymbol, *, analysis_id: UUID) -> TechnicalReport:
         evidence: dict[str, JsonValue] = {
             "market": None,
@@ -88,11 +92,13 @@ class TechnicalResearchService:
                 methods=(),
                 evidence_id=uuid4(),
             )
+        # 数据不足时不发送模型请求，保留程序质量原因即可形成可审计降级。
         if analysis.quality.status != "valid":
             error_code = error_code or "data_quality_insufficient"
         else:
             try:
                 proposed = await self._model.generate(analysis)
+                # 即使注入的模型替身返回已构造对象，保存前仍走同一正文和引用验证链。
                 narrative = parse_technical_narrative(
                     proposed.model_dump_json(), analysis.evidence_id
                 )

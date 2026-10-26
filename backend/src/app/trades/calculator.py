@@ -1,3 +1,6 @@
+# 先进先出核算：稳定排序成交腿，消耗开仓批次并按比例分摊费用，汇总资金费现金流与剩余仓位；
+# 只计算手工录入事实。
+# 手工交易日志领域：记录用户录入的历史成交与复盘，按先进先出核算盈亏；不生成交易请求。
 """手工交易的 FIFO 盈亏计算器。
 
 数据流：按成交时间排序的开仓/减仓/平仓腿及资金费现金流 → FIFO lot 匹配与费用分摊
@@ -19,6 +22,7 @@ from app.trades.contracts import (
 )
 
 
+# 一条平仓腿与其消耗的一条开仓 lot 的数量、盈亏和费用分摊记录。
 @dataclass(frozen=True)
 class TradeMatch:
     """一条平仓腿与其消耗的一条开仓 lot 的数量、盈亏和费用分摊记录。"""
@@ -29,6 +33,7 @@ class TradeMatch:
     allocated_open_fee: Decimal
 
 
+# 交易草稿计算出的派生盈亏和剩余仓位状态，供仓储一次性保存。
 @dataclass(frozen=True)
 class TradePnl:
     """交易草稿计算出的派生盈亏和剩余仓位状态，供仓储一次性保存。"""
@@ -41,6 +46,7 @@ class TradePnl:
     matches: tuple[TradeMatch, ...]
 
 
+# 先进先出匹配中可变的开仓批次，追踪未消耗数量与尚未分摊手续费。
 @dataclass
 class _OpenLot:
     leg: TradeLegDraft
@@ -48,12 +54,14 @@ class _OpenLot:
     remaining_fee: Decimal
 
 
+# 以 FIFO 规则计算用户手工录入的已实现盈亏。
 class TradeCalculator:
     """以 FIFO 规则计算用户手工录入的已实现盈亏。
 
     开仓手续费随被匹配的数量按比例分摊，因此部分减仓后仍可正确核算剩余成本。
     """
 
+    # 按 FIFO 匹配交易腿并计算可审计的已实现净盈亏。
     def calculate(
         self,
         *,
@@ -85,6 +93,7 @@ class TradeCalculator:
         for leg in ordered_legs:
             if is_closed:
                 raise TradeValidationError("平仓后不能继续添加交易腿")
+            # 开仓手续费先留在批次内，只有对应数量被退出匹配后才计入已实现费用。
             if leg.action is TradeLegAction.OPEN:
                 lots.append(
                     _OpenLot(
@@ -158,11 +167,13 @@ class TradeCalculator:
         )
 
 
+# 汇总所有尚未被减仓或平仓消耗的开仓数量。
 def _remaining_quantity(lots: list[_OpenLot]) -> Decimal:
     """汇总所有尚未被减仓或平仓消耗的开仓数量。"""
     return sum((lot.remaining_quantity for lot in lots), start=Decimal(0))
 
 
+# 按多/空方向将入场与出场价格差转换为一段匹配数量的毛盈亏。
 def _gross_pnl(
     *,
     direction: TradeDirection,

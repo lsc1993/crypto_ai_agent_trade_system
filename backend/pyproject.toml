@@ -1,4 +1,5 @@
 [project]
+# 后端包与 Python 版本约束；生产依赖版本由 uv.lock 锁定。
 name = "ai-crypto-research-workbench-backend"
 version = "0.1.0"
 description = "AI 加密合约研究工作台后端基础服务"
@@ -19,6 +20,7 @@ dependencies = [
 ]
 
 [dependency-groups]
+# 静态检查、类型检查与测试工具仅供开发和验证使用。
 dev = [
     "pyright",
     "pytest",
@@ -31,14 +33,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
+# 轮子仅包含 app 包，命令脚本与测试不作为运行库安装。
 packages = ["src/app"]
 
 [tool.pytest.ini_options]
+# importlib 模式隔离测试模块导入，src 目录提供应用包搜索路径。
 addopts = ["--import-mode=importlib"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.ruff]
+# 格式与语法检查面向 Python 3.12，统一行宽便于审查注释和代码。
 target-version = "py312"
 line-length = 100
 
@@ -46,6 +51,7 @@ line-length = 100
 select = ["E", "F", "I", "UP"]
 
 [tool.pyright]
+# 源码及测试一起严格检查，使用本目录的 uv 虚拟环境解析依赖。
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 include = ["src", "tests"]

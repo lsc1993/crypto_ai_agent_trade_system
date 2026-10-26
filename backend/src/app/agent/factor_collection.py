@@ -1,3 +1,5 @@
+# 为综合研究独立采集资金费率历史与现货 ETF 专题，返回专题事实及可选冻结证据。
+# 每条公开采集有独立超时；故障明确标为缺失或失败，不使用旧值补齐本次研究。
 """Independent, bounded public factor reads; failures do not invalidate market research."""
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from app.market.symbols import ResearchSymbol
 from app.reports.factors import FactorTopic, unavailable_topic
 
 
+# 公开已结算资金费率的读取端口；窗口由研究运行固定，而非由模型选择。
 class FundingHistoryReader(Protocol):
     async def get_funding_history(
         self,
@@ -29,6 +32,7 @@ class FundingHistoryReader(Protocol):
     ) -> FundingHistory: ...
 
 
+# 公开 ETF 快照端口；按本次研究截止时间采集，支持范围由上层约束。
 class EtfFlowReader(Protocol):
     async def collect(
         self,
@@ -38,6 +42,7 @@ class EtfFlowReader(Protocol):
     ) -> EtfFlowSnapshot: ...
 
 
+# 校验标的和完整请求窗口后生成证据；无样本时只返回限制说明，取消保持向上传播。
 async def collect_funding(
     reader: FundingHistoryReader | None,
     *,
@@ -82,6 +87,7 @@ async def collect_funding(
         ), None
 
 
+# 仅支持预置的两类 ETF 标的；交易日期不能晚于研究日，缺失披露不得解释成零。
 async def collect_etf(
     reader: EtfFlowReader | None,
     *,
@@ -121,6 +127,7 @@ async def collect_etf(
         ), None
 
 
+# 模型只接收确定性统计投影，剔除事件正文与解释，避免事实和模型观点互相污染。
 def _topic_content(topic: FactorTopic) -> str:
     return json.dumps(
         topic.model_dump(mode="json", exclude={"events", "interpretation"}),

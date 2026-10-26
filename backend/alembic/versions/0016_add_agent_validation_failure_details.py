@@ -1,3 +1,5 @@
+# 保存有界模型校验诊断：次数、问题数、字段路径与错误类别。
+# 列可空以兼容旧运行；仅保存安全摘要，不添加模型原文存储。
 """Persist bounded model-format validation metadata for agent research runs."""
 
 from collections.abc import Sequence
@@ -13,6 +15,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# 按修订链顺序应用本版本的数据库变化；以下约束与触发器属于历史定义。
 def upgrade() -> None:
     op.add_column(
         "agent_analysis_runs",
@@ -32,5 +35,6 @@ def upgrade() -> None:
     )
 
 
+# 前向迁移明确拒绝回退，避免删除已保存的研究和审计历史。
 def downgrade() -> None:
     raise NotImplementedError("模型校验审计记录不可逆，禁止删除历史数据")

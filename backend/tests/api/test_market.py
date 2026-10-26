@@ -1,3 +1,6 @@
+# 验证实时行情接口的十进制值、UTC 新鲜度与 K 线字段。
+# 固定行情替身隔离网络，限流映射稳定不可用错误。
+# 研究币种需要目录准入，不能因字符串形式合法就允许查询。
 from datetime import UTC, datetime
 from decimal import Decimal
 

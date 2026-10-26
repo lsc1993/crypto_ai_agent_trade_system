@@ -1,3 +1,6 @@
+# 验证复盘统计仅纳入已完成且未归档的手动日志。
+# 固定仓储样本按平仓时间排序，避免录入顺序影响统计。
+# 没有亏损时利润因子为空，不用无穷值代替不可定义结果。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
