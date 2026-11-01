@@ -218,8 +218,7 @@ def _candles_for_performance(
 ) -> tuple[Candle, ...]:
     warmup_start = START - timedelta(hours=49)
     warmup = tuple(
-        _candle(warmup_start + timedelta(hours=index), "100", "100")
-        for index in range(49)
+        _candle(warmup_start + timedelta(hours=index), "100", "100") for index in range(49)
     )
     performance = tuple(
         _candle(START + timedelta(hours=index), open_price, close_price)

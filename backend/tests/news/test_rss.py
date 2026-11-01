@@ -60,8 +60,7 @@ class _TrackedAsyncByteStream(httpx.AsyncByteStream):
 def test_allowed_news_sources_are_exactly_the_governed_eight() -> None:
     assert set(ALLOWED_NEWS_SOURCES) == EXPECTED_SOURCE_IDS
     assert all(
-        str(source.feed_url).startswith("https://")
-        for source in ALLOWED_NEWS_SOURCES.values()
+        str(source.feed_url).startswith("https://") for source in ALLOWED_NEWS_SOURCES.values()
     )
 
 

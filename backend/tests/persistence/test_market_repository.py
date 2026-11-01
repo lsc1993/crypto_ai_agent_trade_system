@@ -101,9 +101,7 @@ async def test_snapshot_payload_contains_only_normalized_strings_and_utc_times(
 
 async def _row_count(
     migrated_database: MigratedDatabase,
-    record_type: type[
-        MarketCandleRecord | DerivativeObservationRecord | MarketSnapshotRecord
-    ],
+    record_type: type[MarketCandleRecord | DerivativeObservationRecord | MarketSnapshotRecord],
 ) -> int:
     async with migrated_database.session_factory() as session:
         result = await session.execute(select(func.count()).select_from(record_type))

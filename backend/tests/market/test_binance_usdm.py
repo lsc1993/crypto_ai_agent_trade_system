@@ -221,9 +221,7 @@ async def test_gateway_reads_only_allowlisted_public_derivatives_context() -> No
     assert metrics.long_short_account_ratio == Decimal("1.2345")
     assert metrics.taker_buy_sell_ratio == Decimal("0.8765")
     context_requests = [
-        request
-        for request in requests
-        if request.url.path.startswith("/futures/data/")
+        request for request in requests if request.url.path.startswith("/futures/data/")
     ]
     assert {request.url.path for request in context_requests} == {
         "/futures/data/basis",

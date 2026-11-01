@@ -115,9 +115,7 @@ async def test_database_rejects_update_and_delete_of_every_harness_record(
         update(HarnessAuditRunRecord)
         .where(HarnessAuditRunRecord.run_id == recording.run.run_id)
         .values(symbol=ContractSymbol.ETHUSDT.value),
-        delete(HarnessAuditRunRecord).where(
-            HarnessAuditRunRecord.run_id == recording.run.run_id
-        ),
+        delete(HarnessAuditRunRecord).where(HarnessAuditRunRecord.run_id == recording.run.run_id),
         update(HarnessAuditEventRecord)
         .where(HarnessAuditEventRecord.run_id == recording.run.run_id)
         .values(duration_ms=1),

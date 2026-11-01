@@ -88,9 +88,7 @@ def test_backtest_migration_creates_immutable_numeric_snapshot_tables() -> None:
         database = import_module("app.shared.database")
         database.upgrade_database(test_database_url, schema=schema)
         runs = asyncio.run(_table_column_types(test_database_url, schema, "backtest_runs"))
-        candles = asyncio.run(
-            _table_column_types(test_database_url, schema, "backtest_candles")
-        )
+        candles = asyncio.run(_table_column_types(test_database_url, schema, "backtest_candles"))
         events = asyncio.run(_table_column_types(test_database_url, schema, "backtest_events"))
         candle_constraints = asyncio.run(
             _table_constraint_columns(test_database_url, schema, "backtest_candles")
@@ -123,9 +121,7 @@ def test_paper_trading_migration_enforces_active_account_and_immutable_records()
         snapshots = asyncio.run(
             _table_column_types(test_database_url, schema, "paper_market_snapshots")
         )
-        events = asyncio.run(
-            _table_column_types(test_database_url, schema, "paper_audit_events")
-        )
+        events = asyncio.run(_table_column_types(test_database_url, schema, "paper_audit_events"))
         event_constraints = asyncio.run(
             _table_constraint_columns(test_database_url, schema, "paper_audit_events")
         )
@@ -580,12 +576,7 @@ def _load_harness_event_lifecycle_migration() -> ModuleType:
 
 
 def _load_migration(filename: str, module_name: str) -> ModuleType:
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "alembic"
-        / "versions"
-        / filename
-    )
+    path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / filename
     spec = spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise AssertionError("unable to load agent research migration")
@@ -945,8 +936,7 @@ async def _table_names(database_url: SecretStr, schema: str) -> set[str]:
         async with engine.connect() as connection:
             result = await connection.execute(
                 text(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = :schema"
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = :schema"
                 ),
                 {"schema": schema},
             )

@@ -44,13 +44,15 @@ class RecordingRepository:
         now: datetime,
     ) -> bool:
         assert run == self.run
-        self.finished.append({
-            "status": status,
-            "sources": sources,
-            "snapshot_id": snapshot_id,
-            "error": error,
-            "now": now,
-        })
+        self.finished.append(
+            {
+                "status": status,
+                "sources": sources,
+                "snapshot_id": snapshot_id,
+                "error": error,
+                "now": now,
+            }
+        )
         return True
 
 

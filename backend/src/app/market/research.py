@@ -35,6 +35,7 @@ _UNAVAILABLE_MESSAGE = "持久化市场研究数据不可用"
 @dataclass(frozen=True)
 class PersistedMarketSnapshot:
     """已持久化市场摘要及其冻结时刻的轻量读取模型。"""
+
     summary: MarketSummary
     captured_at: datetime
 
@@ -138,8 +139,7 @@ class MarketResearchQueryService:
                 _CANDLE_LIMIT,
             )
             if not candles or any(
-                candle.symbol != symbol or candle.timeframe is not timeframe
-                for candle in candles
+                candle.symbol != symbol or candle.timeframe is not timeframe for candle in candles
             ):
                 _raise_unavailable()
             series.append(

@@ -56,9 +56,7 @@ _MAX_VALIDATION_ISSUES = 99
 _MIN_NARRATIVE_DISPLAY_LENGTH = 1_100
 _MAX_NARRATIVE_DISPLAY_LENGTH = 2_500
 _TARGET_NARRATIVE_DISPLAY_LENGTH = 2_200
-_VALIDATION_FIELD_PATH = re.compile(
-    r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$"
-)
+_VALIDATION_FIELD_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$")
 _MAX_FORMAT_ATTEMPTS = 3
 _FORMAT_RETRY_INSTRUCTION = (
     "上一份候选未通过机器格式校验。请从头重新生成一个完整 JSON 对象："
@@ -605,9 +603,7 @@ def _compact_overlong_narrative_content(content: str) -> str:
     compacted_length = _raw_narrative_display_length(mutable_payload)
     # 完整句裁剪可能比预算多删，因此重新验证整份正文的上下界。
     if compacted_length is None or not (
-        _MIN_NARRATIVE_DISPLAY_LENGTH
-        <= compacted_length
-        <= _MAX_NARRATIVE_DISPLAY_LENGTH
+        _MIN_NARRATIVE_DISPLAY_LENGTH <= compacted_length <= _MAX_NARRATIVE_DISPLAY_LENGTH
     ):
         return content
     logger.info(

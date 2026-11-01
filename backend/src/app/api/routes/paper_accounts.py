@@ -392,9 +392,7 @@ def _to_detail_response(detail: PaperAccountDetail) -> PaperAccountDetailRespons
         ledger_entries=tuple(_to_ledger_response(entry) for entry in detail.ledger_entries),
         events=tuple(_to_event_response(event) for event in detail.events),
         action_outcome=(
-            None
-            if detail.action_outcome is None
-            else _to_outcome_response(detail.action_outcome)
+            None if detail.action_outcome is None else _to_outcome_response(detail.action_outcome)
         ),
     )
 
@@ -415,9 +413,7 @@ def _to_account_response(account: PaperAccount) -> PaperAccountResponse:
         cooldown_remaining=account.cooldown_remaining,
         last_closed_candle_at=account.last_closed_candle_at,
         risk_config=PaperRiskConfigResponse(**account.risk_config.model_dump()),
-        execution_config=PaperExecutionConfigResponse(
-            **account.execution_config.model_dump()
-        ),
+        execution_config=PaperExecutionConfigResponse(**account.execution_config.model_dump()),
         created_at=account.created_at,
         archived_at=account.archived_at,
     )

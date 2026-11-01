@@ -114,9 +114,7 @@ def _to_response(snapshot: AnalyticsSnapshot) -> AnalyticsSnapshotResponse:
         profit_factor=snapshot.profit_factor,
         expectancy=snapshot.expectancy,
         max_drawdown=snapshot.max_drawdown,
-        equity_curve=tuple(
-            _to_equity_point_response(point) for point in snapshot.equity_curve
-        ),
+        equity_curve=tuple(_to_equity_point_response(point) for point in snapshot.equity_curve),
         trade_calendar=tuple(
             _to_calendar_point_response(point) for point in snapshot.trade_calendar
         ),

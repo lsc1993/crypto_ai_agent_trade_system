@@ -113,9 +113,7 @@ def _position(
     return PaperPosition(
         account_id=ACCOUNT_ID,
         quantity=Decimal(quantity),
-        average_entry_price=(
-            None if average_entry_price is None else Decimal(average_entry_price)
-        ),
+        average_entry_price=(None if average_entry_price is None else Decimal(average_entry_price)),
         remaining_entry_cost=Decimal(remaining_entry_cost),
         opened_at=opened_at,
         updated_at=NOW,

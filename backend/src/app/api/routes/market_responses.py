@@ -106,9 +106,7 @@ class MarketCandleSeriesResponse(BaseModel):
     def from_series(cls, series: CandleSeries) -> MarketCandleSeriesResponse:
         return cls(
             timeframe=series.timeframe,
-            candles=tuple(
-                MarketCandleResponse.from_candle(candle) for candle in series.candles
-            ),
+            candles=tuple(MarketCandleResponse.from_candle(candle) for candle in series.candles),
         )
 
 

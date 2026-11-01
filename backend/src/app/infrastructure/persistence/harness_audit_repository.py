@@ -82,9 +82,7 @@ class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
             async with self._session_factory() as session:
                 run_record = (
                     await session.execute(
-                        select(HarnessAuditRunRecord).where(
-                            HarnessAuditRunRecord.run_id == run_id
-                        )
+                        select(HarnessAuditRunRecord).where(HarnessAuditRunRecord.run_id == run_id)
                     )
                 ).scalar_one_or_none()
                 if run_record is None:

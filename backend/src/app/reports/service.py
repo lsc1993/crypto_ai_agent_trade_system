@@ -46,6 +46,7 @@ class AnalysisReportService(Protocol):
 
 class DeterministicResearchReportService:
     """基于持久化公开行情生成不调用模型的只读研究报告。"""
+
     """仅以持久化公开市场证据生成非交易性研究报告。"""
 
     def __init__(
@@ -126,11 +127,7 @@ class DeterministicResearchReportService:
         """在已有部分证据时持久化降级报告，使失败原因和可用证据仍可追溯。"""
         data_cutoff_at = None if snapshot is None else _data_cutoff(snapshot, candles)
         report = _degraded_draft(symbol, generated_at, reason, data_cutoff_at)
-        evidence = (
-            ()
-            if snapshot is None
-            else _evidence_from(report.id, symbol, snapshot, candles)
-        )
+        evidence = () if snapshot is None else _evidence_from(report.id, symbol, snapshot, candles)
         return await self._repository.persist(
             AnalysisReportCreation(
                 report=report,

@@ -34,6 +34,7 @@ StableErrorCode = Annotated[str, Field(pattern=r"^[a-z0-9_]{1,100}$")]
 
 class HarnessAuditEventKind(StrEnum):
     """受控运行生命周期允许的事件类型，事件类型决定其唯一合法 sequence。"""
+
     REQUESTED = "requested"
     POLICY_AUTHORIZED = "policy_authorized"
     POLICY_REJECTED = "policy_rejected"
@@ -57,6 +58,7 @@ _EVENT_SEQUENCE_BY_KIND = {
 
 class HarnessEvaluationDecision(StrEnum):
     """策略白名单评估的两种终态：通过或拒绝。"""
+
     PASSED = "passed"
     REJECTED = "rejected"
 
@@ -72,6 +74,7 @@ class _AuditModel(BaseModel):
 
 class HarnessEventDetails(_AuditModel):
     """仅允许写入计数、类型等非敏感诊断字段的审计详情。"""
+
     declared_capability_count: Annotated[int, Field(ge=0)] | None = None
     allowed_capability_count: Annotated[int, Field(ge=0)] | None = None
     workflow_kind: HarnessRunKind | None = None
@@ -103,6 +106,7 @@ class HarnessEvaluationDetails(_AuditModel):
 
 class HarnessAuditRun(_AuditModel):
     """一次受控运行的不可变标识、请求指纹和策略版本快照。"""
+
     run_id: UUID
     run_kind: HarnessRunKind
     policy_version: str
@@ -120,6 +124,7 @@ class HarnessAuditRun(_AuditModel):
 
 class HarnessAuditEvent(_AuditModel):
     """审计生命周期中的单条事件，受事件类型、序号、错误码和详情联合约束。"""
+
     run_id: UUID
     sequence: Annotated[int, Field(ge=0, le=3)]
     kind: HarnessAuditEventKind
@@ -163,6 +168,7 @@ class HarnessAuditEvent(_AuditModel):
 
 class HarnessEvaluation(_AuditModel):
     """策略白名单对一次运行进行的独立、可排序评估记录。"""
+
     run_id: UUID
     sequence: Annotated[int, Field(ge=0)]
     evaluator_name: Literal["policy_allowlist"]
@@ -188,6 +194,7 @@ class HarnessEvaluation(_AuditModel):
 
 class HarnessAuditTrace(_AuditModel):
     """一个运行的请求、事件和评估集合，读取时验证归属与顺序。"""
+
     run: HarnessAuditRun
     events: tuple[HarnessAuditEvent, ...]
     evaluations: tuple[HarnessEvaluation, ...]

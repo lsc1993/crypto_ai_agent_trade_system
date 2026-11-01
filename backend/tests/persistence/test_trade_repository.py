@@ -137,9 +137,7 @@ async def test_repository_rejects_unknown_linked_report(
     migrated_database: MigratedDatabase,
 ) -> None:
     repository = SqlAlchemyTradeRepository(migrated_database.session_factory)
-    draft = _closed_trade_draft("unknown-report").model_copy(
-        update={"linked_report_id": uuid4()}
-    )
+    draft = _closed_trade_draft("unknown-report").model_copy(update={"linked_report_id": uuid4()})
 
     with pytest.raises(TradeStorageUnavailableError):
         await repository.create(

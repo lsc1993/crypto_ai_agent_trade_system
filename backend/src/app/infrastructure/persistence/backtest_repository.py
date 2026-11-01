@@ -186,9 +186,7 @@ async def _get_pending_run_for_update(
     run_id: UUID,
 ) -> BacktestRunRecord:
     result = await session.execute(
-        select(BacktestRunRecord)
-        .where(BacktestRunRecord.id == run_id)
-        .with_for_update()
+        select(BacktestRunRecord).where(BacktestRunRecord.id == run_id).with_for_update()
     )
     record = result.scalar_one_or_none()
     if record is None:
@@ -262,9 +260,7 @@ def _metrics(result: BacktestResult) -> dict[str, object]:
         dict[str, object],
         {
             "summary": result.summary.model_dump(mode="json"),
-            "closed_trades": [
-                trade.model_dump(mode="json") for trade in result.closed_trades
-            ],
+            "closed_trades": [trade.model_dump(mode="json") for trade in result.closed_trades],
         },
     )
 

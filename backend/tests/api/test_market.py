@@ -69,8 +69,7 @@ class FakeMarketGateway:
         return MarketDetail(
             summary=market_summary(symbol),
             series=tuple(
-                CandleSeries(timeframe=timeframe, candles=(candle,))
-                for timeframe in timeframes
+                CandleSeries(timeframe=timeframe, candles=(candle,)) for timeframe in timeframes
             ),
         )
 

@@ -36,9 +36,7 @@ _MAX_PAYLOAD_BYTES = 64 * 1024
 _MAX_VALIDATION_FAILURE_ATTEMPTS = 3
 _MAX_VALIDATION_FAILURE_ISSUES = 99
 _MAX_VALIDATION_FAILURE_FIELDS = 8
-_VALIDATION_FAILURE_FIELD_PATH = re.compile(
-    r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$"
-)
+_VALIDATION_FAILURE_FIELD_PATH = re.compile(r"^[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|[0-9]+))*$")
 _VALIDATION_FAILURE_CATEGORIES = frozenset(
     {
         "chinese_text_required",
@@ -605,9 +603,7 @@ class ModelValidationFailure(_ReportModel):
     attempt_count: Annotated[int, Field(ge=1, le=_MAX_VALIDATION_FAILURE_ATTEMPTS)]
     issue_count: Annotated[int, Field(ge=0, le=_MAX_VALIDATION_FAILURE_ISSUES)]
     field_paths: tuple[str, ...] = Field(default=(), max_length=_MAX_VALIDATION_FAILURE_FIELDS)
-    error_categories: tuple[str, ...] = Field(
-        default=(), max_length=_MAX_VALIDATION_FAILURE_FIELDS
-    )
+    error_categories: tuple[str, ...] = Field(default=(), max_length=_MAX_VALIDATION_FAILURE_FIELDS)
 
     @field_validator("field_paths")
     @classmethod
@@ -671,10 +667,7 @@ class AgentReportCreation(AnalysisReportCreation):
             raise ValueError("Agent 报告生成器类型无效")
         if self.completed_at < self.started_at:
             raise ValueError("Agent 完成时间不能早于开始时间")
-        if (
-            self.validation_failure is not None
-            and self.error_code != "model_invalid_response"
-        ):
+        if self.validation_failure is not None and self.error_code != "model_invalid_response":
             raise ValueError("模型格式失败摘要只能关联格式校验错误")
         evidence_ids = {evidence.id for evidence in self.evidences}
         # 主叙事、催化、风险和专题统一收集引用，最终保存门防止遗漏嵌套引用检查。

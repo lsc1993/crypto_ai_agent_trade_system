@@ -191,9 +191,7 @@ def _snapshot_payload(
     )
     raw_payload = {
         "summary": detail.summary.model_dump(mode="json"),
-        "latestClosedCandles": [
-            candle.model_dump(mode="json") for candle in latest_closed_candles
-        ],
+        "latestClosedCandles": [candle.model_dump(mode="json") for candle in latest_closed_candles],
     }
     serialized = json.dumps(
         raw_payload,

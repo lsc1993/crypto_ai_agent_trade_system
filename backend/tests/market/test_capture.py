@@ -155,10 +155,7 @@ async def test_capture_symbol_persists_only_one_requested_symbol_and_closed_cand
     assert gateway.requests == [(ContractSymbol.BTCUSDT, CAPTURE_TIMEFRAMES)]
     assert len(repository.persisted_batches) == 1
     assert repository.persisted_batches[0].symbol is ContractSymbol.BTCUSDT
-    assert all(
-        candle.close_at <= CAPTURED_AT
-        for candle in repository.persisted_batches[0].candles
-    )
+    assert all(candle.close_at <= CAPTURED_AT for candle in repository.persisted_batches[0].candles)
 
 
 @pytest.mark.asyncio
@@ -184,9 +181,7 @@ async def test_capture_normalizes_snapshot_numbers_and_times() -> None:
     latest_closed_candles = payload["latestClosedCandles"]
     assert isinstance(summary, dict)
     assert isinstance(latest_closed_candles, list)
-    normalized_candles = [
-        candle for candle in latest_closed_candles if isinstance(candle, dict)
-    ]
+    normalized_candles = [candle for candle in latest_closed_candles if isinstance(candle, dict)]
     assert len(normalized_candles) == 4
     assert summary["price"] == "100000.00"
     assert summary["fundingRate"] == "-0.0001"

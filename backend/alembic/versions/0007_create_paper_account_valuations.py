@@ -121,10 +121,7 @@ def upgrade() -> None:
 
 # 历史脚本保留回退实现，仅解释其行为；日常维护不得对业务库执行删表回退。
 def downgrade() -> None:
-    op.execute(
-        "DROP TRIGGER trg_paper_account_valuations_immutable "
-        "ON paper_account_valuations"
-    )
+    op.execute("DROP TRIGGER trg_paper_account_valuations_immutable ON paper_account_valuations")
     op.execute("DROP FUNCTION prevent_paper_valuation_mutation()")
     op.drop_index(
         "ix_paper_valuations_account_valued_at",

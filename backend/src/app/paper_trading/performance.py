@@ -38,13 +38,9 @@ def aggregate_paper_performance(
 
     net_pnl = data.account.equity - data.account.initial_cash
     realized_pnl = sum((entry.realized_pnl for entry in data.ledger_entries), Decimal("0"))
-    unrealized_pnl = (
-        data.account.equity - data.account.cash - data.position.remaining_entry_cost
-    )
+    unrealized_pnl = data.account.equity - data.account.cash - data.position.remaining_entry_cost
     max_drawdown_amount, max_drawdown_fraction = _maximum_drawdown(valuations)
-    profitable_close_count, unprofitable_close_count, break_even_close_count = _close_counts(
-        data
-    )
+    profitable_close_count, unprofitable_close_count, break_even_close_count = _close_counts(data)
     # 胜率按账本平仓记录的盈利和亏损次数计算，持平与部分平仓统计应按记录口径理解。
     close_denominator = profitable_close_count + unprofitable_close_count
 
@@ -59,12 +55,8 @@ def aggregate_paper_performance(
         total_fee=sum((fill.fee for fill in data.fills), Decimal("0")),
         max_drawdown_amount=max_drawdown_amount,
         max_drawdown_fraction=max_drawdown_fraction,
-        open_fill_count=sum(
-            fill.action is IntentAction.OPEN_LONG for fill in data.fills
-        ),
-        close_fill_count=sum(
-            fill.action is IntentAction.CLOSE_LONG for fill in data.fills
-        ),
+        open_fill_count=sum(fill.action is IntentAction.OPEN_LONG for fill in data.fills),
+        close_fill_count=sum(fill.action is IntentAction.CLOSE_LONG for fill in data.fills),
         profitable_close_count=profitable_close_count,
         unprofitable_close_count=unprofitable_close_count,
         break_even_close_count=break_even_close_count,
@@ -77,10 +69,7 @@ def aggregate_paper_performance(
         # 迁移生成的基线没有逐笔历史，前端须显示“部分历史”而不能当作完整业绩。
         history_status=(
             PaperHistoryStatus.PARTIAL
-            if any(
-                value.kind is PaperValuationKind.MIGRATION_BASELINE
-                for value in valuations
-            )
+            if any(value.kind is PaperValuationKind.MIGRATION_BASELINE for value in valuations)
             else PaperHistoryStatus.COMPLETE
         ),
         history_started_at=valuations[0].valued_at,
@@ -124,9 +113,7 @@ def _maximum_drawdown(
         equity = value.equity
         peak_equity = max(peak_equity, equity)
         drawdown_amount = peak_equity - equity
-        drawdown_fraction = (
-            drawdown_amount / peak_equity if peak_equity else Decimal("0")
-        )
+        drawdown_fraction = drawdown_amount / peak_equity if peak_equity else Decimal("0")
         maximum_amount = max(maximum_amount, drawdown_amount)
         maximum_fraction = max(maximum_fraction, drawdown_fraction)
     return maximum_amount, maximum_fraction

@@ -32,8 +32,10 @@ def test_trading_contract_symbol_stays_restricted(model: type) -> None:
 
 def test_dynamic_harness_request_serializes_plain_symbol() -> None:
     request = HarnessRunRequest(
-        run_id=uuid4(), kind=HarnessRunKind.MARKET_RESEARCH,
-        symbol="SOLUSDT", requested_at=datetime.now(UTC),
+        run_id=uuid4(),
+        kind=HarnessRunKind.MARKET_RESEARCH,
+        symbol="SOLUSDT",
+        requested_at=datetime.now(UTC),
     )
     assert request.model_dump(mode="json")["symbol"] == "SOLUSDT"
 

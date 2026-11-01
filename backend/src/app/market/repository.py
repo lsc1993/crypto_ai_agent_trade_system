@@ -124,11 +124,15 @@ class DerivativeObservation(_PersistenceModel):
     def validate_observation(self) -> DerivativeObservation:
         if self.fetched_at < self.observed_at:
             raise ValueError("抓取时间不能早于观测时间")
-        if self.metric_type in {
-            MetricType.PRICE,
-            MetricType.OPEN_INTEREST,
-            MetricType.VOLUME_24H,
-        } and self.value < 0:
+        if (
+            self.metric_type
+            in {
+                MetricType.PRICE,
+                MetricType.OPEN_INTEREST,
+                MetricType.VOLUME_24H,
+            }
+            and self.value < 0
+        ):
             raise ValueError("该指标不能为负数")
         return self
 

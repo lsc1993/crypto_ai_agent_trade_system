@@ -56,7 +56,5 @@ async def get_market(
     )
     return MarketDetailResponse(
         summary=detail.summary,
-        series=tuple(
-            MarketCandleSeriesResponse.from_series(series) for series in detail.series
-        ),
+        series=tuple(MarketCandleSeriesResponse.from_series(series) for series in detail.series),
     )

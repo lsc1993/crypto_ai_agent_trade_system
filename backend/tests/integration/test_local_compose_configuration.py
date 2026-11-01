@@ -44,11 +44,7 @@ CHILD_ENVIRONMENT_NAMES = (
 
 # 只继承 CLI 所需的系统变量，隔离宿主应用和 Compose 项目配置。
 def compose_child_environment() -> dict[str, str]:
-    environment = {
-        name: os.environ[name]
-        for name in CHILD_ENVIRONMENT_NAMES
-        if name in os.environ
-    }
+    environment = {name: os.environ[name] for name in CHILD_ENVIRONMENT_NAMES if name in os.environ}
     environment["COMPOSE_PROJECT_NAME"] = "crypto_compose_test"
     return environment
 
@@ -122,13 +118,8 @@ def test_compose_declares_only_safe_local_services(tmp_path: Path) -> None:
         for name in api_environment
         for forbidden in ("OPENAI", "BINANCE", "SECRET", "PASSPHRASE", "PRIVATE_KEY")
     )
-    api_runtime = "\n".join(
-        str(api.get(field, "")) for field in ("entrypoint", "command")
-    ).lower()
-    assert all(
-        token not in api_runtime
-        for token in BACKGROUND_PROCESS_TOKENS
-    )
+    api_runtime = "\n".join(str(api.get(field, "")) for field in ("entrypoint", "command")).lower()
+    assert all(token not in api_runtime for token in BACKGROUND_PROCESS_TOKENS)
     frontend_build = cast(dict[str, dict[str, str]], frontend["build"])
     assert frontend_build["args"] == {
         "VITE_DATA_MODE": "api",
@@ -158,8 +149,7 @@ def test_entrypoint_and_nginx_forbid_destructive_or_external_routes() -> None:
     assert "location /api/ {" in nginx
     assert "location = /healthz {" in nginx
     assert all(
-        host not in nginx.lower()
-        for host in ("binance", "openai", "api.binance", "api.openai")
+        host not in nginx.lower() for host in ("binance", "openai", "api.binance", "api.openai")
     )
 
 
@@ -247,8 +237,7 @@ def test_compose_configuration_ignores_host_project_and_application_environment(
     assert postgres_environment["POSTGRES_USER"] == "crypto_research"
     assert postgres_environment["POSTGRES_PASSWORD"] == "compose-test-password"
     assert api_environment["DATABASE_URL"] == (
-        "postgresql+asyncpg://crypto_research:compose-test-password"
-        "@postgres:5432/crypto_research"
+        "postgresql+asyncpg://crypto_research:compose-test-password@postgres:5432/crypto_research"
     )
     assert api_environment["APP_ENV"] == "production"
     assert api_environment["LOG_LEVEL"] == "INFO"

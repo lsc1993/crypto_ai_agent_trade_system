@@ -29,6 +29,7 @@ _CONTEXT_ERROR_CODE = "market_context_unavailable"
 # 可作为 Agent 冻结证据的公开市场上下文，所有数值和时间均已校验。
 class PublicResearchContext(BaseModel):
     """可作为 Agent 冻结证据的公开市场上下文，所有数值和时间均已校验。"""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     symbol: ResearchSymbol
@@ -104,6 +105,7 @@ class PublicDerivativesGateway(Protocol):
 @dataclass(frozen=True)
 class FearGreedReading:
     """恐惧贪婪指数的单日原始读数及其观测、抓取时间。"""
+
     value: int
     classification: str
     observed_at: datetime
@@ -156,6 +158,7 @@ class AlternativeMeFearGreedGateway:
 # 合并两个固定公开来源，并防止晚于快照的未来数据进入研究。
 class PublicResearchContextCollector:
     """合并两个固定公开来源，并防止晚于快照的未来数据进入研究。"""
+
     # 初始化本实例依赖和配置；输入 derivatives、fear_greed。
     def __init__(
         self,

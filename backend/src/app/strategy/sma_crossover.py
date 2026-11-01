@@ -70,9 +70,7 @@ class SmaCrossoverStrategy:
             source=IntentSource.STRATEGY,
             strategy_id="sma_crossover",
             strategy_version="v1",
-            idempotency_key=(
-                f"{run_id}:sma_crossover:v1:{decision_at.isoformat()}:{action.value}"
-            ),
+            idempotency_key=(f"{run_id}:sma_crossover:v1:{decision_at.isoformat()}:{action.value}"),
         )
 
 

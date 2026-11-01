@@ -156,8 +156,7 @@ class SymbolService:
             if set(by_timeframe) != set(_TIMEFRAMES):
                 raise ValueError("missing timeframes")
             if any(
-                not series.candles
-                or any(candle.symbol != symbol for candle in series.candles)
+                not series.candles or any(candle.symbol != symbol for candle in series.candles)
                 for series in by_timeframe.values()
             ):
                 raise ValueError("invalid candles")

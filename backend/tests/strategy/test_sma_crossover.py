@@ -35,8 +35,7 @@ def test_sma_crossover_emits_open_after_an_observable_upward_cross() -> None:
     assert intent.strategy_version == "v1"
     assert intent.source is strategy_contracts.IntentSource.STRATEGY
     assert intent.idempotency_key == (
-        "00000000-0000-0000-0000-000000000401:sma_crossover:v1:"
-        "2026-07-01T04:00:00+00:00:open_long"
+        "00000000-0000-0000-0000-000000000401:sma_crossover:v1:2026-07-01T04:00:00+00:00:open_long"
     )
     assert "quantity" not in type(intent).model_fields
 

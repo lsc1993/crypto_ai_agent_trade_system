@@ -135,9 +135,7 @@ async def test_get_funding_history_reads_the_public_boundary_with_exact_decimals
         [
             {
                 "symbol": "BTCUSDT",
-                "fundingTime": int(
-                    (SINCE - timedelta(milliseconds=1)).timestamp() * 1000
-                ),
+                "fundingTime": int((SINCE - timedelta(milliseconds=1)).timestamp() * 1000),
                 "fundingRate": "0.1",
             }
         ],

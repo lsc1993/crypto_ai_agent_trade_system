@@ -183,9 +183,7 @@ class DeterministicBacktestEngine:
             profit_factor=_profit_factor(closed_trades),
             closed_trade_count=len(closed_trades),
             fill_count=sum(event.kind is BacktestEventKind.FILL for event in events),
-            rejection_count=sum(
-                event.kind is BacktestEventKind.RISK_REJECTED for event in events
-            ),
+            rejection_count=sum(event.kind is BacktestEventKind.RISK_REJECTED for event in events),
             open_position_quantity=state.position_quantity,
             candle_count=sum(candle.open_at >= request.start_at for candle in candles),
             snapshot_hash=snapshot_hash,
@@ -498,8 +496,7 @@ class DeterministicBacktestEngine:
                         "回测仓位状态无效",
                     )
                 total_notional = (
-                    state.position_quantity * state.entry_price
-                    + fill.quantity * fill.price
+                    state.position_quantity * state.entry_price + fill.quantity * fill.price
                 )
                 state.entry_price = total_notional / (state.position_quantity + fill.quantity)
             state.position_quantity += fill.quantity

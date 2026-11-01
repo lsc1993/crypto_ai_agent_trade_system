@@ -242,9 +242,7 @@ class PersistedAgentMarketCapture:
             for candle in snapshot_input.candles
             if candle.symbol == symbol and candle.timeframe is timeframe
         )
-        if any(
-            candle.symbol != symbol or candle.timeframe is not timeframe for candle in candles
-        ):
+        if any(candle.symbol != symbol or candle.timeframe is not timeframe for candle in candles):
             raise MarketDataUnavailableError(
                 AgentErrorCode.MARKET_DATA_INVALID.value,
                 "冻结市场 K 线标的或周期无效",
@@ -699,9 +697,7 @@ class _AgentResearchRun:
         if (
             market.snapshot.summary.symbol != symbol
             or market.detail.summary.symbol != symbol
-            or (
-                market.research_context is not None and market.research_context.symbol != symbol
-            )
+            or (market.research_context is not None and market.research_context.symbol != symbol)
         ):
             raise ValueError("market symbol mismatch")
         if market.research_context is not None and market.research_context_error is not None:

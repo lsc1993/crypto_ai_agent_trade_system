@@ -105,8 +105,7 @@ async def test_harnessed_service_passes_its_run_id_to_the_agent_report() -> None
 
 def test_market_research_workflow_declares_the_policy_capabilities() -> None:
     assert (
-        MarketResearchWorkflow.required_capabilities
-        == MARKET_RESEARCH_POLICY.allowed_capabilities
+        MarketResearchWorkflow.required_capabilities == MARKET_RESEARCH_POLICY.allowed_capabilities
     )
 
 

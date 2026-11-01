@@ -87,8 +87,9 @@ async def test_service_generates_no_market_conclusion_for_stale_data() -> None:
 
 
 @pytest.mark.asyncio
-async def test_service_generates_degraded_report_without_evidence_when_reader_is_unavailable(
-) -> None:
+async def test_service_generates_degraded_report_without_evidence_when_reader_is_unavailable() -> (
+    None
+):
     repository = RecordingReportRepository()
     service = DeterministicResearchReportService(
         UnavailablePersistedMarketReader(),

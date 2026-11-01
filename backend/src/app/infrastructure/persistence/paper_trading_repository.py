@@ -82,11 +82,15 @@ class SqlAlchemyPaperTradingRepository(PaperTradingRepository):
             cooldown_remaining=0,
             last_closed_candle_at=None,
             risk_config=_json_object(DEFAULT_RISK_CONFIG.model_dump(mode="json")),
-            execution_config=_json_object(ExecutionConfig.model_validate({
-                "fee_rate": "0.001",
-                "slippage_rate": "0.0005",
-                "fill_ratio": "1",
-            }).model_dump(mode="json")),
+            execution_config=_json_object(
+                ExecutionConfig.model_validate(
+                    {
+                        "fee_rate": "0.001",
+                        "slippage_rate": "0.0005",
+                        "fill_ratio": "1",
+                    }
+                ).model_dump(mode="json")
+            ),
             created_at=occurred_at,
             archived_at=None,
         )
@@ -334,9 +338,7 @@ async def _locked_account_and_position(
     account_id: UUID,
 ) -> tuple[PaperAccountRecord, PaperPositionRecord]:
     result = await session.execute(
-        select(PaperAccountRecord)
-        .where(PaperAccountRecord.id == account_id)
-        .with_for_update()
+        select(PaperAccountRecord).where(PaperAccountRecord.id == account_id).with_for_update()
     )
     account = result.scalar_one_or_none()
     if account is None:
@@ -476,9 +478,7 @@ async def _detail_from_session(
     return PaperAccountDetail(
         account=_to_account(account),
         position=_to_position(position),
-        latest_snapshot=(
-            None if latest_snapshot is None else _to_snapshot(latest_snapshot)
-        ),
+        latest_snapshot=(None if latest_snapshot is None else _to_snapshot(latest_snapshot)),
         orders=tuple(_to_order(order) for order in order_records),
         fills=tuple(_to_fill(fill, order) for fill, order in fill_rows),
         ledger_entries=tuple(_to_ledger_entry(entry) for entry in ledger_records),
@@ -537,7 +537,6 @@ async def _performance_data_from_session(
         ledger_entries=tuple(_to_ledger_entry(entry) for entry in ledger_records),
         events=tuple(_to_event(event) for event in event_records),
     )
-
 
 
 # 验证转换中的账户归属、非空幂等键及对应意图事件，防止写入不可关联状态。

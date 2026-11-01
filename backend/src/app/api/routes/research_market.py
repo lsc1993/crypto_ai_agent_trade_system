@@ -53,7 +53,5 @@ async def get_research_market(
     detail = await service.get_market(symbol, require_unique(timeframes, "timeframes"))
     return MarketDetailResponse(
         summary=detail.summary,
-        series=tuple(
-            MarketCandleSeriesResponse.from_series(series) for series in detail.series
-        ),
+        series=tuple(MarketCandleSeriesResponse.from_series(series) for series in detail.series),
     )

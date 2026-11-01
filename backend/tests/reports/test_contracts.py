@@ -261,9 +261,7 @@ def test_agent_analysis_rejects_direct_trading_imperatives(
             {
                 "category": instruction if field == "catalyst_category" else "market",
                 "direction": MarketOutlook.NEUTRAL,
-                "claim": instruction
-                if field == "catalyst_claim"
-                else "Frozen evidence is mixed.",
+                "claim": instruction if field == "catalyst_claim" else "Frozen evidence is mixed.",
                 "evidence_ids": (evidence_id,),
                 "timing": "Within one to three days.",
             },
@@ -282,9 +280,7 @@ def test_agent_analysis_rejects_direct_trading_imperatives(
             missing_inputs=(),
             source_coverage="partial",
         ),
-        "limitations": (
-            instruction if field == "limitation" else "Research-only evidence.",
-        ),
+        "limitations": (instruction if field == "limitation" else "Research-only evidence.",),
     }
 
     with pytest.raises(ValidationError, match="交易指令"):

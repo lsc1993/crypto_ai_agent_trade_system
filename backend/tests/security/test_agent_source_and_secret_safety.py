@@ -17,9 +17,7 @@ def _application_source(directory: str) -> str:
 
 
 def test_agent_sources_are_allowlisted_and_cannot_enable_social_or_full_page_fetch() -> None:
-    source = (BACKEND_ROOT / "src" / "app" / "news" / "rss.py").read_text(
-        encoding="utf-8"
-    )
+    source = (BACKEND_ROOT / "src" / "app" / "news" / "rss.py").read_text(encoding="utf-8")
     news_source = _application_source("news")
 
     assert "ALLOWED_NEWS_SOURCES" in source
@@ -101,12 +99,8 @@ def test_harness_source_contains_no_tool_or_external_io_surface() -> None:
 
 
 def test_operation_docs_keep_the_manual_research_and_secret_boundary() -> None:
-    boundaries = (PROJECT_ROOT / "docs" / "operational-boundaries.md").read_text(
-        encoding="utf-8"
-    )
-    deployment = (PROJECT_ROOT / "docs" / "local-deployment.md").read_text(
-        encoding="utf-8"
-    )
+    boundaries = (PROJECT_ROOT / "docs" / "operational-boundaries.md").read_text(encoding="utf-8")
+    deployment = (PROJECT_ROOT / "docs" / "local-deployment.md").read_text(encoding="utf-8")
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "手动" in boundaries

@@ -129,9 +129,7 @@ class FailingWorkflow(RecordingWorkflow):
 
 
 def _workflow(
-    required_capabilities: tuple[HarnessCapability, ...] = (
-        HarnessCapability.READ_PUBLIC_MARKET,
-    ),
+    required_capabilities: tuple[HarnessCapability, ...] = (HarnessCapability.READ_PUBLIC_MARKET,),
     audit_repository: RecordingAuditRepository | None = None,
 ) -> RecordingWorkflow:
     return RecordingWorkflow(
@@ -308,9 +306,7 @@ def test_runtime_rejects_duplicate_policy_and_workflow_registration() -> None:
 
 @pytest.mark.asyncio
 async def test_runtime_records_safe_workflow_failure_before_reraising() -> None:
-    workflow = FailingWorkflow(
-        required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,)
-    )
+    workflow = FailingWorkflow(required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,))
     audit = RecordingAuditRepository()
     runtime = HarnessRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
@@ -354,9 +350,7 @@ async def test_runtime_fails_closed_when_an_audit_write_fails(
 # 工作流已失败后再模拟终态审计失败，存储错误优先上抛且日志不泄露两个异常正文。
 @pytest.mark.asyncio
 async def test_runtime_audit_failure_while_recording_workflow_failure_takes_precedence() -> None:
-    workflow = FailingWorkflow(
-        required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,)
-    )
+    workflow = FailingWorkflow(required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,))
     audit = RecordingAuditRepository(fail_on="failed")
     runtime = HarnessRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
@@ -391,9 +385,7 @@ async def test_runtime_audit_failure_while_recording_workflow_failure_takes_prec
 
 @pytest.mark.asyncio
 async def test_runtime_logs_only_safe_lifecycle_fields() -> None:
-    workflow = FailingWorkflow(
-        required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,)
-    )
+    workflow = FailingWorkflow(required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,))
     audit = RecordingAuditRepository()
     runtime = HarnessRuntime(
         policies=(MARKET_RESEARCH_POLICY,),

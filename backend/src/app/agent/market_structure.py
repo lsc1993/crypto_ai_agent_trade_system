@@ -27,6 +27,7 @@ _MAX_ZONES_PER_TIMEFRAME = 3
 # 提供冻结的多周期趋势、有限价格区间及覆盖等级，作为模型提案的确定性约束。
 class MarketStructure(BaseModel):
     """供报告和模型提案使用的确定性技术结构快照。"""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     trend_alignment: dict[MarketTimeframe, TrendDirection]
@@ -43,8 +44,8 @@ def calculate_market_structure(
 ) -> MarketStructure:
     """从多周期市场详情计算趋势、支撑/阻力区间和数据覆盖置信度。
 
-        每个周期独立过滤采集时刻后的 K 线；数据不足时输出 UNKNOWN/空区间，而不是
-        用猜测值补全。
+    每个周期独立过滤采集时刻后的 K 线；数据不足时输出 UNKNOWN/空区间，而不是
+    用猜测值补全。
     """
     _require_utc(captured_at)
     # 先为所有契约周期保留未知值，缺少某周期时不从其他周期推断补齐。

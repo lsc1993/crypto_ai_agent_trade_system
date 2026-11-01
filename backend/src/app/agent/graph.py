@@ -60,8 +60,8 @@ def build_agent_graph(
 ) -> Any:
     """编译唯一允许的市场研究控制流。
 
-        收集节点按固定顺序运行；只有 evidence_gate 放行才调用模型，否则直接持久化
-        降级报告。checkpointer 仅保存轻量状态，以便审计或恢复而不复制不可信正文。
+    收集节点按固定顺序运行；只有 evidence_gate 放行才调用模型，否则直接持久化
+    降级报告。checkpointer 仅保存轻量状态，以便审计或恢复而不复制不可信正文。
     """
 
     builder: Any = StateGraph(AgentRunState)
@@ -102,6 +102,7 @@ def build_agent_graph(
 
 def _logged_node(node_name: AgentNodeName, node: AgentGraphNode) -> AgentGraphNode:
     """为节点包裹受控生命周期日志，并保留取消和原始异常的传播语义。"""
+
     async def invoke(state: AgentRunState) -> dict[str, object]:
         started_at = perf_counter()
         logger.info(

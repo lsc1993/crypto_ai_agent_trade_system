@@ -52,11 +52,7 @@ class PerformanceAnalyticsService:
         # 再次在应用层筛选，避免仓储实现变化时把归档或未完成交易混入已实现绩效。
         completed = tuple(
             sorted(
-                (
-                    trade
-                    for trade in trades
-                    if _is_eligible(trade, filters)
-                ),
+                (trade for trade in trades if _is_eligible(trade, filters)),
                 key=lambda trade: (trade.closed_at, str(trade.id)),
             )
         )
@@ -134,9 +130,7 @@ def _aggregate(
         # 权益曲线从零累计，回撤仅与此前的累计高点比较，结果为零或负数。
         peak_equity = max(peak_equity, net_pnl)
         max_drawdown = min(max_drawdown, net_pnl - peak_equity)
-        equity_curve.append(
-            EquityPoint(at=closed_at, equity=net_pnl, net_pnl=net_pnl)
-        )
+        equity_curve.append(EquityPoint(at=closed_at, equity=net_pnl, net_pnl=net_pnl))
 
         # 日历按 UTC 自然日归组，而不是按运行机器或用户浏览器的本地时区归组。
         date_start = closed_at.astimezone(UTC).replace(

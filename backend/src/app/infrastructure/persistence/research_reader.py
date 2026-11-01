@@ -101,10 +101,7 @@ class SqlAlchemyPersistedMarketReader(PersistedMarketReader):
             async with self._session_factory() as session:
                 records = list((await session.execute(statement)).scalars())
             # 查询倒序取最近 N 根后反转为时间升序，供确定性指标按历史顺序处理。
-            return tuple(
-                _to_candle(record)
-                for record in reversed(records)
-            )
+            return tuple(_to_candle(record) for record in reversed(records))
         except (SQLAlchemyError, TypeError, ValueError) as error:
             raise _unavailable() from error
 

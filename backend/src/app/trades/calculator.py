@@ -26,6 +26,7 @@ from app.trades.contracts import (
 @dataclass(frozen=True)
 class TradeMatch:
     """一条平仓腿与其消耗的一条开仓 lot 的数量、盈亏和费用分摊记录。"""
+
     open_leg_id: UUID
     exit_leg_id: UUID
     quantity: Decimal
@@ -37,6 +38,7 @@ class TradeMatch:
 @dataclass(frozen=True)
 class TradePnl:
     """交易草稿计算出的派生盈亏和剩余仓位状态，供仓储一次性保存。"""
+
     gross_realized_pnl: Decimal
     total_fees: Decimal
     total_funding_cashflow: Decimal
@@ -122,9 +124,7 @@ class TradeCalculator:
                     break
                 matched_quantity = min(quantity_to_match, lot.remaining_quantity)
                 # 部分匹配时同步转移相同比例的开仓手续费，避免费用在剩余仓位中重复计算。
-                allocated_open_fee = (
-                    lot.remaining_fee * matched_quantity / lot.remaining_quantity
-                )
+                allocated_open_fee = lot.remaining_fee * matched_quantity / lot.remaining_quantity
                 gross_pnl = _gross_pnl(
                     direction=direction,
                     entry_price=lot.leg.price,
@@ -183,8 +183,4 @@ def _gross_pnl(
 ) -> Decimal:
     """按多/空方向将入场与出场价格差转换为一段匹配数量的毛盈亏。"""
     price_delta = exit_price - entry_price
-    return (
-        price_delta * quantity
-        if direction is TradeDirection.LONG
-        else -price_delta * quantity
-    )
+    return price_delta * quantity if direction is TradeDirection.LONG else -price_delta * quantity

@@ -34,11 +34,16 @@ def _repository(database: MigratedDatabase) -> SqlAlchemySymbolRepository:
 
 def _check() -> CheckResult:
     return CheckResult(
-        symbol="SOLUSDT", supported=True,
+        symbol="SOLUSDT",
+        supported=True,
         checks=(Capability(name="market", status="supported", message="ok"),),
         metadata=MarketMetadata(
-            symbol="SOLUSDT", base_asset="SOL", quote_asset="USDT", margin_asset="USDT",
-            contract_type="PERPETUAL", status="TRADING",
+            symbol="SOLUSDT",
+            base_asset="SOL",
+            quote_asset="USDT",
+            margin_asset="USDT",
+            contract_type="PERPETUAL",
+            status="TRADING",
         ),
     )
 
@@ -74,7 +79,9 @@ async def test_directory_add_is_atomic_idempotent_and_audited(migrated_database:
 
 # 固定时钟推进到租约之后，旧领取记录不再拥有完成或续租权限。
 @pytest.mark.asyncio
-async def test_expired_lease_fails_and_cannot_finish_replacement(migrated_database: MigratedDatabase):
+async def test_expired_lease_fails_and_cannot_finish_replacement(
+    migrated_database: MigratedDatabase,
+):
     repository = await _prepare(migrated_database)
     await repository.add(_check(), keywords=(), now=NOW)
     claimed = await repository.claim(now=NOW)
@@ -89,7 +96,11 @@ async def test_expired_lease_fails_and_cannot_finish_replacement(migrated_databa
     replacement = await repository.enqueue("SOLUSDT", now=NOW + timedelta(seconds=32))
     assert replacement.id != claimed.id
     assert not await repository.finish(
-        claimed, status="ready", sources=(), snapshot_id=None, error=None,
+        claimed,
+        status="ready",
+        sources=(),
+        snapshot_id=None,
+        error=None,
         now=NOW + timedelta(seconds=32),
     )
     entry = await repository.get("SOLUSDT")
@@ -97,7 +108,9 @@ async def test_expired_lease_fails_and_cannot_finish_replacement(migrated_databa
 
 
 @pytest.mark.asyncio
-async def test_archive_cancels_claim_and_reactivation_requires_new_sync(migrated_database: MigratedDatabase):
+async def test_archive_cancels_claim_and_reactivation_requires_new_sync(
+    migrated_database: MigratedDatabase,
+):
     repository = await _prepare(migrated_database)
     entry = await repository.add(_check(), keywords=(), now=NOW)
     claimed = await repository.claim(now=NOW)
@@ -107,7 +120,9 @@ async def test_archive_cancels_claim_and_reactivation_requires_new_sync(migrated
     cancelled = await repository.get_run(claimed.id)
     assert cancelled is not None and cancelled.status == "cancelled"
     assert not await repository.renew(claimed, now=NOW)
-    assert not await repository.finish(claimed, status="ready", sources=(), snapshot_id=None, error=None, now=NOW)
+    assert not await repository.finish(
+        claimed, status="ready", sources=(), snapshot_id=None, error=None, now=NOW
+    )
     revived = await repository.add(_check(), keywords=("Solana",), now=NOW)
     assert revived.enabled and not revived.can_research
     assert revived.version > archived.version
@@ -116,20 +131,43 @@ async def test_archive_cancels_claim_and_reactivation_requires_new_sync(migrated
 
 
 @pytest.mark.asyncio
-async def test_completed_sync_is_immutable_and_refresh_failure_preserves_admission(migrated_database: MigratedDatabase):
+async def test_completed_sync_is_immutable_and_refresh_failure_preserves_admission(
+    migrated_database: MigratedDatabase,
+):
     repository = await _prepare(migrated_database)
     await repository.add(_check(), keywords=(), now=NOW)
     claimed = await repository.claim(now=NOW)
     assert claimed is not None
     assert await repository.renew(claimed, now=NOW + timedelta(seconds=10))
-    assert await repository.finish(claimed, status="partial", sources=(), snapshot_id=None, error=None, now=NOW + timedelta(seconds=35))
+    assert await repository.finish(
+        claimed,
+        status="partial",
+        sources=(),
+        snapshot_id=None,
+        error=None,
+        now=NOW + timedelta(seconds=35),
+    )
     admitted = await repository.get("SOLUSDT")
     assert admitted is not None and admitted.can_research
-    assert not await repository.finish(claimed, status="failed", sources=(), snapshot_id=None, error="late", now=NOW + timedelta(seconds=36))
+    assert not await repository.finish(
+        claimed,
+        status="failed",
+        sources=(),
+        snapshot_id=None,
+        error="late",
+        now=NOW + timedelta(seconds=36),
+    )
     await repository.enqueue("SOLUSDT", now=NOW + timedelta(seconds=36))
     refresh = await repository.claim(now=NOW + timedelta(seconds=36))
     assert refresh is not None
-    assert await repository.finish(refresh, status="failed", sources=(), snapshot_id=None, error="core_failed", now=NOW + timedelta(seconds=37))
+    assert await repository.finish(
+        refresh,
+        status="failed",
+        sources=(),
+        snapshot_id=None,
+        error="core_failed",
+        now=NOW + timedelta(seconds=37),
+    )
     preserved = await repository.get("SOLUSDT")
     assert preserved is not None and preserved.can_research
     async with migrated_database.session_factory() as session:

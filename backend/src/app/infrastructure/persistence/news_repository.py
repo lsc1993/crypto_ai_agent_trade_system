@@ -36,18 +36,14 @@ class SqlAlchemyNewsRepository:
         statement = insert(NewsItemRecord).values(
             [_to_values(item) for item in unique_items.values()]
         )
-        statement = statement.on_conflict_do_nothing(
-            constraint="uq_news_items_deduplication_key"
-        )
+        statement = statement.on_conflict_do_nothing(constraint="uq_news_items_deduplication_key")
         async with self._session_factory() as session:
             async with session.begin():
                 await session.execute(statement)
                 records = tuple(
                     (
                         await session.execute(
-                            select(NewsItemRecord).where(
-                                NewsItemRecord.deduplication_key.in_(keys)
-                            )
+                            select(NewsItemRecord).where(NewsItemRecord.deduplication_key.in_(keys))
                         )
                     ).scalars()
                 )
@@ -65,9 +61,7 @@ class SqlAlchemyNewsRepository:
                 ]
                 if links:
                     await session.execute(
-                        insert(ResearchNewsLinkRecord)
-                        .values(links)
-                        .on_conflict_do_nothing()
+                        insert(ResearchNewsLinkRecord).values(links).on_conflict_do_nothing()
                     )
                 links_by_news_id = _links_by_news_id(
                     tuple(
@@ -141,10 +135,15 @@ def _to_draft(record: NewsItemRecord, linked_symbols: tuple[str, ...] = ()) -> N
 
 
 def _link_scope(item: NewsItemDraft) -> str:
-    return "market_context" if item.event_category in {
-        NewsEventCategory.MACRO,
-        NewsEventCategory.REGULATION,
-    } else "asset"
+    return (
+        "market_context"
+        if item.event_category
+        in {
+            NewsEventCategory.MACRO,
+            NewsEventCategory.REGULATION,
+        }
+        else "asset"
+    )
 
 
 def _links_by_news_id(

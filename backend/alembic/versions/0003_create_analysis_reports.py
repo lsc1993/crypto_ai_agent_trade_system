@@ -38,9 +38,7 @@ def upgrade() -> None:
             server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
-        sa.CheckConstraint(
-            "symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_analysis_reports_symbol"
-        ),
+        sa.CheckConstraint("symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_analysis_reports_symbol"),
         sa.CheckConstraint(
             "status IN ('completed', 'degraded')", name="ck_analysis_reports_status"
         ),
@@ -78,12 +76,8 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["analysis_report_id"], ["analysis_reports.id"], name="fk_analysis_evidences_report"
         ),
-        sa.CheckConstraint(
-            "symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_analysis_evidences_symbol"
-        ),
-        sa.CheckConstraint(
-            "fetched_at >= observed_at", name="ck_analysis_evidences_time_order"
-        ),
+        sa.CheckConstraint("symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_analysis_evidences_symbol"),
+        sa.CheckConstraint("fetched_at >= observed_at", name="ck_analysis_evidences_time_order"),
         sa.CheckConstraint(
             "char_length(payload_sha256) = 64", name="ck_analysis_evidences_hash_length"
         ),

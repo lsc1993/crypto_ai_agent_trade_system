@@ -109,9 +109,7 @@ def test_risk_triggers_stop_loss_only_at_the_configured_close_threshold() -> Non
 
 def test_risk_config_rejects_leverage_or_an_invalid_quantity_increment() -> None:
     with pytest.raises(ValueError, match="最大敞口"):
-        RiskConfig.model_validate(
-            _risk_config_values(max_exposure_fraction=Decimal("1.01"))
-        )
+        RiskConfig.model_validate(_risk_config_values(max_exposure_fraction=Decimal("1.01")))
     with pytest.raises(ValueError, match="数量步长"):
         RiskConfig.model_validate(_risk_config_values(quantity_increment=Decimal("0")))
     with pytest.raises(ValueError, match="止损"):

@@ -180,6 +180,7 @@ async def test_agent_repository_persists_sanitized_model_validation_failure(
     ]
     assert run.model_validation_error_categories == ["schema", "trading_instruction"]
 
+
 @pytest.mark.asyncio
 async def test_agent_repository_round_trips_dual_horizon_narrative(
     migrated_database: MigratedDatabase,

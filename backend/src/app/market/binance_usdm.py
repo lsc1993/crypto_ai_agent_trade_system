@@ -64,6 +64,7 @@ Sleep = Callable[[float], Awaitable[None]]
 @dataclass(frozen=True)
 class PublicDerivativesMetrics:
     """来自三个公开衍生品端点、且以同一读取时刻封装的研究指标。"""
+
     basis_rate: Decimal
     long_short_account_ratio: Decimal
     taker_buy_sell_ratio: Decimal
@@ -416,11 +417,7 @@ class BinanceUsdmPublicMarketGateway:
                     _validate_public_response_boundary(response, path)
                     status_code = response.status_code
                     retry_after = _retry_after(response)
-                    response_body = (
-                        await _read_bounded_body(response)
-                        if status_code < 300
-                        else b""
-                    )
+                    response_body = await _read_bounded_body(response) if status_code < 300 else b""
             except httpx.TimeoutException as error:
                 if attempt + 1 == MAX_ATTEMPTS:
                     raise MarketDataUnavailableError(

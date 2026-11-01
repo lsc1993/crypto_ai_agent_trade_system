@@ -154,12 +154,8 @@ class FakeBacktestRepository:
                 update={
                     "summary": result.summary.model_copy(
                         update={
-                            "max_drawdown_fraction": Decimal(
-                                "0.09039311972615772470574350276"
-                            ),
-                            "profit_factor": Decimal(
-                                "0.4296927291438667043301680249"
-                            ),
+                            "max_drawdown_fraction": Decimal("0.09039311972615772470574350276"),
+                            "profit_factor": Decimal("0.4296927291438667043301680249"),
                         }
                     )
                 }

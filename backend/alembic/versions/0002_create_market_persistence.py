@@ -45,9 +45,7 @@ def upgrade() -> None:
             server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
-        sa.CheckConstraint(
-            "symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_market_candles_symbol"
-        ),
+        sa.CheckConstraint("symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_market_candles_symbol"),
         sa.CheckConstraint(
             "timeframe IN ('15m', '1h', '4h', '1d')", name="ck_market_candles_timeframe"
         ),
@@ -58,9 +56,7 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "low_price <= LEAST(open_price, close_price)", name="ck_market_candles_low_range"
         ),
-        sa.CheckConstraint(
-            "low_price >= 0 AND volume >= 0", name="ck_market_candles_non_negative"
-        ),
+        sa.CheckConstraint("low_price >= 0 AND volume >= 0", name="ck_market_candles_non_negative"),
         sa.UniqueConstraint("symbol", "timeframe", "open_at", name="uq_market_candles_scope"),
     )
     op.create_index(
@@ -123,15 +119,9 @@ def upgrade() -> None:
             server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
-        sa.CheckConstraint(
-            "symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_market_snapshots_symbol"
-        ),
-        sa.CheckConstraint(
-            "data_version = 'market-v1'", name="ck_market_snapshots_data_version"
-        ),
-        sa.CheckConstraint(
-            "data_as_of <= captured_at", name="ck_market_snapshots_time_order"
-        ),
+        sa.CheckConstraint("symbol IN ('BTCUSDT', 'ETHUSDT')", name="ck_market_snapshots_symbol"),
+        sa.CheckConstraint("data_version = 'market-v1'", name="ck_market_snapshots_data_version"),
+        sa.CheckConstraint("data_as_of <= captured_at", name="ck_market_snapshots_time_order"),
         sa.CheckConstraint(
             "char_length(payload_sha256) = 64", name="ck_market_snapshots_hash_length"
         ),

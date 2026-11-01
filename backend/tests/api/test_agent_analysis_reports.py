@@ -99,9 +99,7 @@ class FakeAgentService:
     ) -> PersistedAnalysisReport:
         self.calls.append((symbol, analysis_id))
         persisted = self.report.model_copy(
-            update={
-                "analysis_id": self.report.analysis_id if analysis_id is None else analysis_id
-            }
+            update={"analysis_id": self.report.analysis_id if analysis_id is None else analysis_id}
         )
         self.persisted_reports.append(persisted)
         return persisted

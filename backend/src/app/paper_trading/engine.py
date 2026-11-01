@@ -301,9 +301,7 @@ class PaperTradingEngine:
                 occurred_at=quote.observed_at,
                 idempotency_key=intent.idempotency_key,
                 payload={
-                    "reason": (
-                        decision.reason.value if decision.reason is not None else "unknown"
-                    )
+                    "reason": (decision.reason.value if decision.reason is not None else "unknown")
                 },
             )
             return PaperTransition(

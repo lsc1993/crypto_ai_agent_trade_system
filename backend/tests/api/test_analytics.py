@@ -85,11 +85,7 @@ def _snapshot() -> AnalyticsSnapshot:
         profit_factor=None,
         expectancy=Decimal("0.625"),
         max_drawdown=Decimal("-2"),
-        equity_curve=(
-            EquityPoint(at=NOW, equity=Decimal("1.25"), net_pnl=Decimal("1.25")),
-        ),
-        trade_calendar=(
-            TradeCalendarPoint(at=NOW, net_pnl=Decimal("1.25"), trade_count=1),
-        ),
+        equity_curve=(EquityPoint(at=NOW, equity=Decimal("1.25"), net_pnl=Decimal("1.25")),),
+        trade_calendar=(TradeCalendarPoint(at=NOW, net_pnl=Decimal("1.25"), trade_count=1),),
         generated_at=NOW,
     )
