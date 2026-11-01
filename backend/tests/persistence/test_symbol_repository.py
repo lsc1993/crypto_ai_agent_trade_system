@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select, update
@@ -198,3 +199,135 @@ async def test_unknown_and_archived_symbols_have_safe_errors(migrated_database: 
     with pytest.raises(SymbolError) as archived:
         await repository.enqueue("BTCUSDT", now=NOW)
     assert archived.value.code == "research_symbol_archived"
+
+
+# 不调用旧 worker 的 renew/finish，模拟进程退出后由新消费者主动回收过期任务。
+@pytest.mark.asyncio
+async def test_claim_recovers_crashed_sync_without_replaying(migrated_database: MigratedDatabase):
+    repository = await _prepare(migrated_database)
+    await repository.add(_check(), keywords=(), now=NOW)
+    claimed = await repository.claim(now=NOW)
+    assert claimed is not None
+    restarted = _repository(migrated_database)
+    assert await restarted.claim(now=NOW + timedelta(seconds=30)) is None
+    expired = await restarted.get_run(claimed.id)
+    assert expired is not None and expired.status == "failed"
+    assert expired.error == "sync_lease_expired"
+    assert not await repository.finish(
+        claimed,
+        status="ready",
+        sources=(),
+        snapshot_id=None,
+        error=None,
+        now=NOW + timedelta(seconds=30),
+    )
+    async with migrated_database.session_factory() as session:
+        events = tuple((await session.scalars(select(ResearchSymbolEventRecord))).all())
+    assert (
+        sum(event.kind == "lease_expired" and event.run_id == claimed.id for event in events) == 1
+    )
+
+
+# 截止时刻不能被旧所有者续租或改写，避免与新消费者的过期回收边界不一致。
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["renew", "finish"])
+async def test_sync_lease_deadline_is_exclusive(
+    migrated_database: MigratedDatabase,
+    operation: str,
+):
+    repository = await _prepare(migrated_database)
+    await repository.add(_check(), keywords=(), now=NOW)
+    run = await repository.claim(now=NOW)
+    assert run is not None
+    deadline = NOW + timedelta(seconds=30)
+    if operation == "renew":
+        assert not await repository.renew(run, now=deadline)
+    else:
+        assert not await repository.finish(
+            run,
+            status="ready",
+            sources=(),
+            snapshot_id=None,
+            error=None,
+            now=deadline,
+        )
+    expired = await repository.get_run(run.id)
+    assert expired is not None and expired.error == "sync_lease_expired"
+
+
+# 显式失败 ID 绑定重试；并发请求合并，重试完成后迟到请求不得再排一轮。
+@pytest.mark.asyncio
+async def test_failed_sync_retry_is_concurrent_safe_and_rejects_late_requests(
+    migrated_database: MigratedDatabase,
+):
+    repository = await _prepare(migrated_database)
+    await repository.add(_check(), keywords=(), now=NOW)
+    original = await repository.claim(now=NOW)
+    assert original is not None
+    assert await repository.finish(
+        original,
+        status="failed",
+        sources=(),
+        snapshot_id=None,
+        error="market_sync_failed",
+        now=NOW,
+    )
+    retries = await asyncio.gather(
+        *(
+            repository.retry("SOLUSDT", original.id, now=NOW + timedelta(seconds=1))
+            for _ in range(4)
+        )
+    )
+    assert len({run.id for run in retries}) == 1
+    assert retries[0].id != original.id and retries[0].status == "queued"
+    replacement = await repository.claim(now=NOW + timedelta(seconds=2))
+    assert replacement is not None and replacement.id == retries[0].id
+    assert await repository.finish(
+        replacement,
+        status="partial",
+        sources=(),
+        snapshot_id=None,
+        error=None,
+        now=NOW + timedelta(seconds=3),
+    )
+    with pytest.raises(SymbolError) as late:
+        await repository.retry("SOLUSDT", original.id, now=NOW + timedelta(seconds=4))
+    assert late.value.code == "research_symbol_sync_retry_conflict"
+    old = await repository.get_run(original.id)
+    assert old is not None and old.error == "market_sync_failed"
+    assert await repository.claim(now=NOW + timedelta(seconds=4)) is None
+    async with migrated_database.session_factory() as session:
+        events = tuple((await session.scalars(select(ResearchSymbolEventRecord))).all())
+    assert sum(event.kind == "retry_requested" for event in events) == 1
+
+
+# 错标的、未知任务、非失败状态及归档不能借重试接口绕过目录约束。
+@pytest.mark.asyncio
+async def test_retry_validates_symbol_run_state_and_archive(migrated_database: MigratedDatabase):
+    repository = await _prepare(migrated_database)
+    entry = await repository.add(_check(), keywords=(), now=NOW)
+    assert entry.last_sync is not None
+    for symbol, run_id, code in (
+        ("SOLUSDT", uuid4(), "research_symbol_sync_not_found"),
+        ("XRPUSDT", entry.last_sync.id, "research_symbol_not_found"),
+        ("BTCUSDT", entry.last_sync.id, "research_symbol_archived"),
+        ("SOLUSDT", entry.last_sync.id, "research_symbol_sync_retry_conflict"),
+    ):
+        with pytest.raises(SymbolError) as error:
+            await repository.retry(symbol, run_id, now=NOW)
+        assert error.value.code == code
+    failed = await repository.claim(now=NOW)
+    assert failed is not None
+    await repository.finish(
+        failed,
+        status="failed",
+        sources=(),
+        snapshot_id=None,
+        error="market_sync_failed",
+        now=NOW,
+    )
+    await repository.archive("SOLUSDT", now=NOW)
+    await repository.add(_check(), keywords=(), now=NOW)
+    with pytest.raises(SymbolError) as outdated:
+        await repository.retry("SOLUSDT", failed.id, now=NOW)
+    assert outdated.value.code == "research_symbol_sync_retry_conflict"

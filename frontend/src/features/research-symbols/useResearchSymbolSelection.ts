@@ -20,6 +20,11 @@ export function useResearchSymbolSelection(options?: { pathSymbol?: string | und
   const catalogQuery = useQuery({
     queryKey: ["research-symbols"],
     queryFn: () => api.listResearchSymbols(),
+    refetchInterval: (query) => query.state.data?.some(
+      (entry) => entry.enabled && (
+        entry.lastSync?.status === "queued" || entry.lastSync?.status === "running"
+      ),
+    ) ? 2000 : false,
   });
   const requested =
     options?.pathSymbol ??

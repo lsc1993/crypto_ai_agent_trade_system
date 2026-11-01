@@ -15,7 +15,7 @@ import type {
   BacktestRunSummary,
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
-import type { ResearchSymbolEntry } from "../../domain/research-symbol";
+import type { ResearchSymbolEntry, ResearchSymbolSyncRun } from "../../domain/research-symbol";
 import type { TechnicalReport, TechnicalReportFilters, TechnicalRun } from "../../domain/technical-report";
 import type {
   ManualPaperIntent,
@@ -46,6 +46,7 @@ export interface RemoteWorkbenchApi {
     keywords?: string[];
   }): Promise<ResearchSymbolEntry>;
   archiveResearchSymbol?(symbol: Symbol): Promise<ResearchSymbolEntry>;
+  retryResearchSymbolSync?(symbol: Symbol, runId: string): Promise<ResearchSymbolSyncRun>;
   listMarketSummaries(): Promise<MarketSummary[]>;
   getMarket(input: {
     symbol: Symbol;
@@ -108,6 +109,14 @@ export class HybridWorkbenchApi implements WorkbenchApi {
 
   archiveResearchSymbol(symbol: Symbol): Promise<ResearchSymbolEntry> {
     return this.remoteApi.archiveResearchSymbol?.(symbol) ?? this.mockApi.archiveResearchSymbol(symbol);
+  }
+
+  retryResearchSymbolSync(symbol: Symbol, runId: string): Promise<ResearchSymbolSyncRun> {
+    // 写操作不能因远端缺失或失败伪装为本地成功。
+    if (!this.remoteApi.retryResearchSymbolSync) {
+      return Promise.reject(new Error("当前远端不支持重试同步。"));
+    }
+    return this.remoteApi.retryResearchSymbolSync(symbol, runId);
   }
 
   async getDashboard(input?: { symbol: Symbol }): Promise<DashboardSnapshot> {

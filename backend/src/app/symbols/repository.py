@@ -26,6 +26,9 @@ class SymbolRepository(Protocol):
     # 为研究币种排队一个初始公开数据同步任务。
     async def enqueue(self, symbol: str, *, now: datetime) -> SyncRun: ...
 
+    # 重试最新失败任务；同一失败任务的并发请求复用活跃重试，迟到请求不得再排队。
+    async def retry(self, symbol: str, run_id: UUID, *, now: datetime) -> SyncRun: ...
+
     # 按运行标识读取同步任务，不存在时返回空值。
     async def get_run(self, run_id: UUID) -> SyncRun | None: ...
 

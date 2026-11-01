@@ -1,6 +1,6 @@
 # 项目状态与文档索引
 
-核对日期：2026-10-31。本次质量基础设施变更基线：`417cae7`；此前功能核对及验证记录保留如下。下列“已实现”表示存在对应代码和测试入口；运行部署、公开源连通和真实模型质量需要独立证据，不能从历史计划或单元测试推断。
+核对日期：2026-11-01。本次质量基础设施变更基线：`417cae7`；此前功能核对及验证记录保留如下。下列“已实现”表示存在对应代码和测试入口；运行部署、公开源连通和真实模型质量需要独立证据，不能从历史计划或单元测试推断。
 
 ## 当前能力
 
@@ -9,7 +9,7 @@
 | 能力 | 当前实现与范围 | 代码/测试入口 |
 | --- | --- | --- |
 | 公开行情与存储 | Binance USDⓈ-M 公开行情、K 线及衍生品指标；实时查询与已存储研究数据分别有接口 | [market](../backend/src/app/market/)、[市场测试](../backend/tests/market/) |
-| 研究币种管理 | 合约准入检查、目录登记、初始同步、状态展示与归档；动态研究范围不扩大交易范围 | [symbols](../backend/src/app/symbols/)、[管理页](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.tsx)、[测试](../backend/tests/symbols/) |
+| 研究币种管理 | 合约准入检查、目录登记、初始同步、失败重试、超时/租约恢复及归档；动态研究范围不扩大交易范围 | [symbols](../backend/src/app/symbols/)、[管理页](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.tsx)、[测试](../backend/tests/symbols/) |
 | 按需 AI 研究 | 固定 LangGraph、冻结证据、中文双周期叙事、模型校验与降级；无模型工具调用 | [agent](../backend/src/app/agent/)、[测试](../backend/tests/agent/) |
 | 报告专题 | 美国政策、近七天资金费率、BTC/ETH 美国现货 ETF 资金流；各专题独立处理缺失和失败 | [专题说明](report-factors.md)、[因子测试](../backend/tests/agent/test_factors.py) |
 | 独立技术研究 | v2 两阶段模型、程序验证的条件候选、引用校验、规则降级与持久化后台任务；保留 v1 同步接口和历史读取 | [交易计划书](technical-trading-plan.md)、[technical](../backend/src/app/agent/technical/)、[模型测试](../backend/tests/agent/test_technical_plan_model.py)、[worker 测试](../backend/tests/agent/test_technical_worker.py) |
@@ -30,6 +30,8 @@
 
 ## 本次整理的行为
 
+2026-11-01 研究币种同步恢复：新增携带失败任务 ID 的手动重试 API 与管理页操作，目录行锁合并并发请求，迟到的旧失败请求不再排队。单 worker 默认整任务 120 秒、心跳 10 秒、租约 30 秒；领取前回收过期运行，失租取消采集，不自动重放失败任务。页面区分研究资格与最新同步状态，只在有活跃任务时轮询。复用现有表和依赖；设计及验证范围见[同步恢复设计](superpowers/specs/2026-11-01-symbol-sync-recovery-design.md)。
+
 研究运行验收批次：扩展独立 HTTP 工厂，以合成行情和固定模型传输运行真实技术 v2 队列，BTC 完成、ETH 缺配置降级；新增报告刷新、历史列表和新会话读取。回收测试 schema 前先停止 worker/模型客户端。新增真实数据库故障恢复测试，不修改生产 worker、仓储规则或 schema；取消指协程/worker 生命周期，当前不增加用户取消 API，也不自动重放失败任务。
 
 2026-10-31：统一入口新增 `http-e2e`、AST 架构门禁及研究服务流程评估；pytest 安全插件保留失败代码标识，移除参数化值，零执行、缺失或损坏产物不可通过。CI 增加分支 push 触发、真实 HTTP 流程及两套评估/测试摘要归档。该工作不修改生产 schema、依赖锁文件或模型权限，远端 CI 与合并门禁仍需独立验收。
@@ -43,6 +45,14 @@
 后端全部 248 个 Python 文件（源码、脚本、测试和历史迁移）补充中文注释，说明职责、关键流程、契约、失败路径与设计原因；可添加注释的构建配置同步补充说明。根目录与后端 `AGENTS.md`、[AI 维护指南](ai-maintenance.md)明确 AI Agent 生成代码必须维护详细注释，具体要求见[后端规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)。锁文件、严格 JSON/XML 样本、版本标记与冻结技术方法保留原内容；Windows Alembic 配置采用 ASCII 注释以兼容本地编码读取。
 
 ## 最近验证
+
+本地版本收尾：2026-11-01 在开发分支按纯格式整理、质量与研究验收、同步恢复形成三组本地提交。提交前重新执行统一 `full`，22 项检查全部通过，后端 813 项测试通过且零跳过，前端 lint/typecheck/Vitest/build 通过。收尾审查修正了运行边界文档中仍否认失败重试端点的旧说明。没有推送、合并、运行远端 CI、设置合并门禁或部署；此前各批次的“未提交”等记录保留其当时的验证状态。
+
+2026-11-01 同步恢复批次：根目录 `uv run --project backend --locked --no-sync python scripts/verify.py full --report .tmp/quality/symbol-sync-full.json` 的 22 项检查通过，包含前端 lint/typecheck/Vitest/build。独立审查发现并修复终态提交等待期间未持续监控心跳的竞态，新增用例先失败后通过；随后执行 `full --component backend --report .tmp/quality/symbol-sync-backend-final.json`，最终 15 项后端检查通过，813 collected/passed，failed/skipped/collection_errors 均为 0，包含 Ruff/格式/Pyright/AST/迁移链头及两套离线评估。
+
+同批统一 `http-e2e`（3 条）与 Mock `e2e`（16 条）通过。新增重试交互由 Vitest 验证、真实 HTTP 路由及 SQL 由 pytest 验证；已有浏览器流程只作为回归，不宣称新增同步重试已做浏览器全链验收。真实 SQL 另覆盖心跳延寿、归档取消、超时/取消可重读、快照提交后取消；队列短暂故障后的消费恢复也有回归。审查复核无剩余 P1/P2 阻断项。临时 schema 残留 0，独立 PostgreSQL 17 测试容器已回收。
+
+本批无新增依赖或迁移，不连接真实公开源或模型，不修改业务数据库、生产配置或交易能力；未提交、推送、运行远端 CI 或部署。完整 Compose 启停/生产进程重启仍待独立验收。
 
 研究运行验收批次：根目录统一 `full` 最终通过，安全摘要记录 790 collected/passed，failed/skipped/collection_errors 均为 0。后端 Ruff/格式/Pyright/AST/迁移链头/两套评估及前端 lint/typecheck/Vitest/build 均通过；统一 `http-e2e` 的日志、研究完成、研究降级共 3 条用例通过，统一 Mock `e2e` 的 16 条通过。
 
@@ -76,7 +86,7 @@
 
 ## 已知差异与待验收项
 
-- 研究币种管理已有主要实现，但不能将 [2026-09-07 计划](superpowers/plans/2026-09-07-research-symbol-management.md)全部勾为完成：当前同步实现是单 worker；计划中的双 worker、120 秒整任务上限和 10 秒租约心跳未在该实现中落实。当前币种路由没有独立的手动同步/重试端点。
+- 研究币种管理保持单 worker；2026-11-01 补齐 120 秒整任务上限、10 秒心跳和手动失败重试。历史 [2026-09-07 计划](superpowers/plans/2026-09-07-research-symbol-management.md)中的双 worker 未实施，不能将该计划全部勾为完成。原始行情保存与同步任务终态仍是独立事务，失租前已提交的行情不会回滚；旧任务不能再改写同步状态、来源或快照关联。
 - 初始同步采集行情/K 线/衍生品和资金费率。资讯、情绪留待报告运行时按需采集；管理侧 ETF 能力当前标为不支持。报告侧另有 BTC/ETH ETF 适配器，两个状态不能混为一谈。
 - 技术研究的数值与价格由确定性程序计算或按冻结字段渲染，模型不能改写数值、扩大交易范围或自动执行条件计划。历史触发状态冻结，到期不自动重算。
 - 当前迁移链头为 `0018_technical_report_runs`，v2 部署需前后端与该迁移配套。测试库迁移通过不代表业务库已升级；业务环境须按[部署说明](local-deployment.md)另行验收。

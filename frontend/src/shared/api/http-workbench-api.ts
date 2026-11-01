@@ -27,7 +27,9 @@ import {
 import {
   researchSymbolEntrySchema,
   researchSymbolListSchema,
+  researchSymbolSyncRunSchema,
   type ResearchSymbolEntry,
+  type ResearchSymbolSyncRun,
 } from "../../domain/research-symbol";
 import {
   manualPaperIntentSchema,
@@ -244,6 +246,20 @@ export class HttpWorkbenchApi implements WorkbenchApi {
       `/api/v1/research-symbols/${encodeURIComponent(parsedSymbol)}`,
       researchSymbolEntrySchema,
       { method: "DELETE" },
+    );
+  }
+
+  retryResearchSymbolSync(symbol: Symbol, runId: string): Promise<ResearchSymbolSyncRun> {
+    const parsedSymbol = identifierSchema.regex(/^[A-Z0-9]{1,28}USDT$/).parse(symbol);
+    const parsedRunId = uuidSchema.parse(runId);
+    return this.transport.request(
+      `/api/v1/research-symbols/${encodeURIComponent(parsedSymbol)}/sync/retry`,
+      researchSymbolSyncRunSchema,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: parsedRunId }),
+      },
     );
   }
 

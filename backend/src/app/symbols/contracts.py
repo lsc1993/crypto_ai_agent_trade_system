@@ -115,6 +115,11 @@ class SyncRun(SymbolModel):
     error: str | None = None
 
 
+# 用失败任务身份绑定重试；禁止没有任务 ID 的盲目重排与迟到请求再次创建任务。
+class SyncRetryInput(SymbolModel):
+    run_id: UUID
+
+
 # 研究目录记录，保存准入、归档、关键词、能力与最近同步，不授予交易权限。
 class ResearchSymbolEntry(SymbolModel):
     symbol: ResearchSymbol

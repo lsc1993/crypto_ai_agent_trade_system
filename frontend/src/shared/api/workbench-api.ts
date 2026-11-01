@@ -13,7 +13,7 @@ import type {
   BacktestRunSummary,
 } from "../../domain/backtest";
 import type { Page, Symbol, Timeframe } from "../../domain/primitives";
-import type { ResearchSymbolEntry } from "../../domain/research-symbol";
+import type { ResearchSymbolEntry, ResearchSymbolSyncRun } from "../../domain/research-symbol";
 import type { TechnicalReport, TechnicalReportFilters, TechnicalRun } from "../../domain/technical-report";
 import type {
   ManualPaperIntent,
@@ -47,6 +47,7 @@ export interface WorkbenchApi {
     keywords?: string[];
   }): Promise<ResearchSymbolEntry>;
   archiveResearchSymbol(symbol: Symbol): Promise<ResearchSymbolEntry>;
+  retryResearchSymbolSync(symbol: Symbol, runId: string): Promise<ResearchSymbolSyncRun>;
   getDashboard(input?: { symbol: Symbol }): Promise<DashboardSnapshot>;
   getMarket(input: {
     symbol: Symbol;

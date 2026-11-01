@@ -24,6 +24,7 @@ import {
   pageSchema,
   symbolSchema,
   timeframeSchema,
+  uuidSchema,
   type Page,
   type Symbol,
   type Timeframe,
@@ -31,6 +32,7 @@ import {
 import {
   researchSymbolEntrySchema,
   type ResearchSymbolEntry,
+  type ResearchSymbolSyncRun,
 } from "../../domain/research-symbol";
 import type {
   ManualPaperIntent,
@@ -334,6 +336,12 @@ export class MockWorkbenchApi implements WorkbenchApi {
     return Promise.resolve(
       [...this.researchSymbols.values()].filter((entry) => entry.enabled),
     );
+  }
+
+  retryResearchSymbolSync(symbol: Symbol, runId: string): Promise<ResearchSymbolSyncRun> {
+    symbolSchema.parse(symbol);
+    uuidSchema.parse(runId);
+    return Promise.reject(new Error("离线示例不执行公开源同步，请切换 HTTP 模式后重试。"));
   }
 
   addResearchSymbol(input: {

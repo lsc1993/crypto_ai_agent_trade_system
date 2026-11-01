@@ -201,11 +201,75 @@ class SqlAlchemySymbolRepository:
         except SQLAlchemyError as error:
             raise _storage_error(error) from error
 
-    # 用 skip_locked 领取启用币种的最早 queued 任务，分配随机租约令牌和三十秒有效期。
+    # 锁目录行串行化重试与归档/登记；保留旧失败记录并只为最新失败排队一次。
+    async def retry(self, symbol: str, run_id: UUID, *, now: datetime) -> SyncRun:
+        try:
+            async with self._session_factory() as session:
+                async with session.begin():
+                    entry = await _locked_symbol(session, symbol)
+                    if entry is None:
+                        raise SymbolError("research_symbol_not_found", "研究币对不存在。", 404)
+                    if not entry.enabled:
+                        raise SymbolError("research_symbol_archived", "研究币对已删除。", 409)
+                    original = await session.get(ResearchSymbolSyncRunRecord, run_id)
+                    if original is None or original.symbol != symbol:
+                        raise SymbolError("research_symbol_sync_not_found", "同步任务不存在。", 404)
+                    if original.status != "failed" or original.version != entry.version:
+                        raise _retry_conflict()
+                    active = await _active_run(session, symbol, lock=True)
+                    if active is not None:
+                        return _to_run(active)
+                    latest = (
+                        await session.scalars(
+                            select(ResearchSymbolSyncRunRecord)
+                            .where(ResearchSymbolSyncRunRecord.symbol == symbol)
+                            .order_by(
+                                ResearchSymbolSyncRunRecord.version.desc(),
+                                ResearchSymbolSyncRunRecord.created_at.desc(),
+                                ResearchSymbolSyncRunRecord.id.desc(),
+                            )
+                            .limit(1)
+                        )
+                    ).one()
+                    if latest.id != original.id:
+                        raise _retry_conflict()
+                    replacement = _new_queued_run(entry, now)
+                    session.add(replacement)
+                    await session.flush()
+                    _add_event(
+                        session,
+                        symbol,
+                        "retry_requested",
+                        now,
+                        run_id=replacement.id,
+                        payload={"previousRunId": str(original.id)},
+                    )
+                    _add_event(session, symbol, "queued", now, run_id=replacement.id)
+                    return _to_run(replacement)
+        except SQLAlchemyError as error:
+            raise _storage_error(error) from error
+
+    # 先锁定并终结崩溃遗留的过期运行（不重放），再领取 queued 并分配三十秒租约。
     async def claim(self, *, now: datetime) -> SyncRun | None:
         try:
             async with self._session_factory() as session:
                 async with session.begin():
+                    expired = tuple(
+                        (
+                            await session.scalars(
+                                select(ResearchSymbolSyncRunRecord)
+                                .where(
+                                    ResearchSymbolSyncRunRecord.status == "running",
+                                    ResearchSymbolSyncRunRecord.lease_until <= now,
+                                )
+                                .with_for_update(skip_locked=True)
+                            )
+                        ).all()
+                    )
+                    for stale in expired:
+                        _expire_run(session, stale, now)
+                    # 显式 flush 让恢复结果在本事务下一次队列查询前落地。
+                    await session.flush()
                     statement = (
                         select(ResearchSymbolSyncRunRecord)
                         .join(
@@ -247,7 +311,7 @@ class SqlAlchemySymbolRepository:
                     if not _owns_lease(record, run):
                         return False
                     assert record is not None
-                    if record.lease_until is None or record.lease_until < now:
+                    if record.lease_until is None or record.lease_until <= now:
                         _expire_run(session, record, now)
                         return False
                     record.lease_until = now + _LEASE_DURATION
@@ -280,7 +344,7 @@ class SqlAlchemySymbolRepository:
                     if not _owns_lease(record, run):
                         return False
                     assert record is not None
-                    if record.lease_until is None or record.lease_until < now:
+                    if record.lease_until is None or record.lease_until <= now:
                         _expire_run(session, record, now)
                         return False
                     record.status = status
@@ -467,3 +531,10 @@ def _to_run(record: ResearchSymbolSyncRunRecord) -> SyncRun:
 def _storage_error(error: SQLAlchemyError) -> SymbolError:
     del error
     return SymbolError("research_symbol_storage_unavailable", "研究币对存储暂时不可用。", 503)
+
+
+# 请求引用已处理、过时或非失败运行时，提示刷新目录而不是猜测用户要再执行一轮。
+def _retry_conflict() -> SymbolError:
+    return SymbolError(
+        "research_symbol_sync_retry_conflict", "同步状态已变化，请刷新目录后重试。", 409
+    )

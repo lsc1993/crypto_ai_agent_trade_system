@@ -27,7 +27,7 @@ describe("research directory journeys", () => {
     await user.click(screen.getByRole("button", { name: "检查并添加" }));
     const card = await screen.findByRole("article", { name: "SOLUSDT" });
     expect(within(card).getByText(/当前数据源不支持/)).toBeVisible();
-    expect(screen.getByText(/离线示例/)).toBeVisible();
+    expect(within(card).getByText(/离线示例/)).toBeVisible();
     view.unmount();
     const dashboard = show("/?symbol=SOLUSDT", api);
     expect(await screen.findByRole("combobox", { name: "研究币对" })).toHaveValue("SOLUSDT");

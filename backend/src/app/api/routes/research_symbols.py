@@ -11,7 +11,14 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, Request, status
 
 from app.market.symbols import ResearchSymbol
-from app.symbols.contracts import CheckResult, ResearchSymbolEntry, SymbolInput, SymbolList
+from app.symbols.contracts import (
+    CheckResult,
+    ResearchSymbolEntry,
+    SymbolInput,
+    SymbolList,
+    SyncRetryInput,
+    SyncRun,
+)
 from app.symbols.repository import SymbolRepository
 from app.symbols.service import SymbolService
 
@@ -52,6 +59,16 @@ async def add_research_symbol(
     service: Annotated[SymbolService, Depends(get_symbol_service)],
 ) -> ResearchSymbolEntry:
     return await service.add(request)
+
+
+# 仅排队指定失败任务的重试；仓储在同一事务检查目录、版本及活跃任务，HTTP 不直接采集。
+@router.post("/{symbol}/sync/retry", status_code=status.HTTP_202_ACCEPTED, response_model=SyncRun)
+async def retry_research_symbol_sync(
+    symbol: ResearchSymbol,
+    request: SyncRetryInput,
+    repository: Annotated[SymbolRepository, Depends(get_symbol_repository)],
+) -> SyncRun:
+    return await repository.retry(symbol, request.run_id, now=datetime.now(UTC))
 
 
 # 接收路由声明的请求参数，委托 repository.archive，返回 ResearchSymbolEntry。

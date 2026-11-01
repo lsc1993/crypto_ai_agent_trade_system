@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { symbolSchema, utcIsoStringSchema } from "./primitives";
+import { symbolSchema, utcIsoStringSchema, uuidSchema } from "./primitives";
 
 const capabilityNameSchema = z.enum([
   "market",
@@ -20,6 +20,35 @@ export const researchCapabilitySchema = z
   })
   .strict();
 
+const syncStatusSchema = z.enum([
+  "queued", "running", "ready", "partial", "failed", "cancelled",
+]);
+
+// 重试响应使用后端完整任务契约；目录中的离线样例保留精简 lastSync。
+export const researchSymbolSyncRunSchema = z.object({
+  id: uuidSchema,
+  symbol: symbolSchema,
+  version: z.number().int().positive(),
+  status: syncStatusSchema,
+  stage: z.string(),
+  createdAt: utcIsoStringSchema,
+  startedAt: utcIsoStringSchema.nullable(),
+  completedAt: utcIsoStringSchema.nullable(),
+  leaseToken: uuidSchema.nullable(),
+  leaseUntil: utcIsoStringSchema.nullable(),
+  snapshotId: uuidSchema.nullable(),
+  sources: z.array(z.object({
+    name: capabilityNameSchema,
+    status: z.enum(["available", "partial", "missing", "failed", "unsupported"]),
+    message: z.string(),
+    payload: z.record(z.string(), z.unknown()),
+    payloadSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()),
+  error: z.string().nullable(),
+}).strict();
+
+export type ResearchSymbolSyncRun = z.infer<typeof researchSymbolSyncRunSchema>;
+
 export const researchSymbolEntrySchema = z
   .object({
     symbol: symbolSchema,
@@ -37,14 +66,7 @@ export const researchSymbolEntrySchema = z
     lastSync: z
       .object({
         id: z.string(),
-        status: z.enum([
-          "queued",
-          "running",
-          "ready",
-          "partial",
-          "failed",
-          "cancelled",
-        ]),
+        status: syncStatusSchema,
       })
       .passthrough()
       .nullable(),

@@ -82,6 +82,11 @@ class StaticSymbolRepository:
         del symbol, now
         raise _unavailable()
 
+    # 内存目录没有可恢复的持久化失败历史，重试同样返回固定存储不可用错误。
+    async def retry(self, symbol: str, run_id: UUID, *, now: datetime) -> SyncRun:
+        del symbol, run_id, now
+        raise _unavailable()
+
     # 无数据库模式没有持久化同步任务，此方法返回空值或失败标记。
     async def get_run(self, run_id: UUID) -> SyncRun | None:
         del run_id

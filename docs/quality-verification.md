@@ -89,6 +89,12 @@ uv run pytest tests/persistence/test_technical_worker_recovery.py tests/tooling/
 
 实际子进程测试使用阻塞执行器证明 worker/SQL 崩溃恢复；完整模型适配器/Harness 链由其他用例证明。新浏览器上下文只能证明没有客户端缓存依赖，不证明后端操作系统重启。取消时运行状态为 interrupted，已有不可变 Harness 终态可能先记录 workflow_exception/CancelledError，worker 不覆盖它。
 
+## 研究币种同步恢复回归
+
+在 `backend/` 运行 `uv run pytest tests/symbols/test_sync.py tests/persistence/test_symbol_repository.py tests/persistence/test_symbol_sync_recovery.py tests/api/test_symbol_sync_retry.py`。SQL 用例要求显式专用测试库授权，覆盖并发重试、迟到失败 ID、归档/版本、租约截止与新消费者回收；worker 联验使用固定合成行情与真实快照仓储，验证续租后超过原租约仍可保存、归档取消、超时和协程中断的持久化结果。另验证终态提交等待中的心跳异常会取消提交、队列存储暂时故障后继续消费，以及快照独立提交后取消时保留行情但不关联任务或授予准入。该组不连接公开源，不证明生产进程重启或公网质量。
+
+前端回归为 `src/features/research-symbols/ResearchSymbolManagementPage.test.tsx`、`src/shared/api/research-symbol-sync.test.ts` 和已有目录旅程，覆盖状态、请求契约、重试禁用、安全错误与活跃任务轮询。Mock 不执行同步，HTTP/Hybrid 写入失败不回退离线结果。
+
 ## 评估产物与 CI 证明范围
 
 统一摘要现为 schema_version 2，后端测试通过显式 pytest 插件生成安全计数和失败代码标识，去掉所有参数化后缀，不保存异常、捕获输出或跳过原因。只收集、零执行、摘要缺失/格式损坏或写入失败不能通过。失败时可直接查看报告的 `diagnostics.failures`，再按代码标识运行聚焦回归，无需再次全量测试才能定位。每次运行使用独立产物名防止旧报告冒充新结果。

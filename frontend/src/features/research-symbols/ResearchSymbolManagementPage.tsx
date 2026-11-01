@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { useWorkbenchApi } from "../../app/providers";
 import { PageState } from "../../components/common/PageState";
+import type { ResearchSymbolEntry } from "../../domain/research-symbol";
 import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { rememberResearchSymbol, useResearchSymbolSelection } from "./useResearchSymbolSelection";
 
@@ -35,6 +36,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+const syncLabels = {
+  queued: "排队中", running: "运行中", failed: "失败",
+  partial: "部分覆盖", ready: "就绪", cancelled: "已取消",
+};
+
 export function ResearchSymbolManagementPage() {
   const api = useWorkbenchApi();
   const queryClient = useQueryClient();
@@ -51,6 +57,21 @@ export function ResearchSymbolManagementPage() {
   const archiveMutation = useMutation({
     mutationFn: (target: string) => api.archiveResearchSymbol(target),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["research-symbols"] });
+    },
+  });
+  const retryMutation = useMutation({
+    mutationFn: ({ symbol, runId }: { symbol: string; runId: string }) =>
+      api.retryResearchSymbolSync(symbol, runId),
+    onSuccess: (run) => {
+      // 先使用服务端接受的任务状态禁用按钮，再刷新权威目录和准入状态。
+      queryClient.setQueryData<ResearchSymbolEntry[]>(["research-symbols"], (current) =>
+        current?.map((entry) => entry.symbol === run.symbol ? { ...entry, lastSync: run } : entry),
+      );
+      void queryClient.invalidateQueries({ queryKey: ["research-symbols"] });
+    },
+    onError: () => {
+      // 409 等冲突可能代表已有新任务；刷新目录，避免继续提交迟到的失败 ID。
       void queryClient.invalidateQueries({ queryKey: ["research-symbols"] });
     },
   });
@@ -104,6 +125,13 @@ export function ResearchSymbolManagementPage() {
           ) : null}
         </div>
       ) : null}
+      {retryMutation.isError ? (
+        <p className="inline-error" role="alert">
+          {retryMutation.error instanceof WorkbenchHttpError
+            ? retryMutation.error.message
+            : "重试同步失败，请稍后重试。"}
+        </p>
+      ) : null}
 
       {catalogQuery.isPending ? <PageState state="loading" /> : null}
       {catalogQuery.isError ? (
@@ -117,12 +145,27 @@ export function ResearchSymbolManagementPage() {
               <article aria-label={entry.symbol} className="research-symbol-card" key={entry.symbol}>
                 <header>
                   <h2>{entry.symbol}</h2>
-                  <span>{entry.canResearch ? "可研究" : "同步中"}</span>
+                  <span>{entry.canResearch ? "可研究" : "暂不可研究"}</span>
                 </header>
-                {entry.symbol === "BTCUSDT" || entry.symbol === "ETHUSDT" ? null : (
-                  <p>离线示例会在本地展示可验证的样例数据。</p>
-                )}
+                <p>最近同步：{entry.lastSync ? syncLabels[entry.lastSync.status] : "尚未同步"}</p>
+                {entry.lastSync?.id.startsWith("offline-") ? (
+                  <p>离线示例仅展示本地样例数据，不执行公开源同步。</p>
+                ) : null}
                 {etf === undefined ? null : <p>ETF 专题：{etf.message}</p>}
+                {entry.lastSync && ["failed", "queued", "running"].includes(entry.lastSync.status) ? (
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    disabled={!entry.enabled || entry.lastSync.status !== "failed" || retryMutation.isPending}
+                    onClick={() => {
+                      if (entry.lastSync?.status === "failed") {
+                        retryMutation.mutate({ symbol: entry.symbol, runId: entry.lastSync.id });
+                      }
+                    }}
+                  >
+                    重试同步
+                  </button>
+                ) : null}
                 <button
                   className="secondary-action"
                   type="button"
