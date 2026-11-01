@@ -39,8 +39,12 @@ packages = ["src/app"]
 [tool.pytest.ini_options]
 # importlib 模式隔离测试模块导入，src 目录提供应用包搜索路径。
 addopts = ["--import-mode=importlib"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
+markers = [
+    "database: requires an explicitly configured and preflighted test PostgreSQL",
+    "compose: requires Docker Compose configuration normalization",
+]
 
 [tool.ruff]
 # 格式与语法检查面向 Python 3.12，统一行宽便于审查注释和代码。
@@ -54,6 +58,12 @@ select = ["E", "F", "I", "UP"]
 # 源码及测试一起严格检查，使用本目录的 uv 虚拟环境解析依赖。
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
-include = ["src", "tests"]
+include = [
+    "src", "tests", "scripts/check_test_database.py", "scripts/evaluate_research.py", "../scripts",
+    "scripts/check_architecture.py", "scripts/evaluate_research_flows.py", "scripts/pytest_summary.py",
+    "scripts/http_e2e_server.py",
+    "scripts/http_e2e_research.py",
+    "scripts/research_flow_fixtures.py",
+]
 venvPath = "."
 venv = ".venv"

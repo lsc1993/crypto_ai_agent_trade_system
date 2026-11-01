@@ -14,6 +14,8 @@ from urllib.parse import quote, urlsplit
 
 import pytest
 
+pytestmark = pytest.mark.compose
+
 ROOT = Path(__file__).resolve().parents[3]
 BACKGROUND_PROCESS_TOKENS = (
     "market-worker",

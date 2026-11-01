@@ -17,7 +17,6 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.sql.elements import TextClause
 
 from alembic import command
-from app.shared.config import AppSettings
 
 NOW = datetime(2026, 8, 6, 12, tzinfo=UTC)
 ACCOUNT_ID = UUID("00000000-0000-0000-0000-000000000909")
@@ -25,9 +24,10 @@ SNAPSHOT_ID = UUID("00000000-0000-0000-0000-000000000910")
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
 
 
-def test_paper_performance_migration_backfills_an_immutable_partial_history() -> None:
-    database_url = AppSettings().test_database_url
-    assert database_url is not None
+def test_paper_performance_migration_backfills_an_immutable_partial_history(
+    checked_test_database_url: SecretStr,
+) -> None:
+    database_url = checked_test_database_url
     schema = f"paper_performance_test_{uuid4().hex[:16]}"
 
     asyncio.run(_create_schema(database_url, schema))

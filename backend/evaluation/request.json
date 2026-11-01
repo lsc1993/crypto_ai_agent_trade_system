@@ -1,0 +1,27 @@
+{
+  "symbol": "BTCUSDT",
+  "structure": {
+    "trend_alignment": {
+      "1h": "neutral"
+    },
+    "support_zones": [],
+    "resistance_zones": [],
+    "confidence": "low"
+  },
+  "evidences": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "kind": "market",
+      "source": "offline_public_fixture",
+      "observed_at": "2026-10-01T00:00:00Z",
+      "content": "Frozen synthetic public market summary; no account data."
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "kind": "news",
+      "source": "coindesk",
+      "observed_at": "2026-10-01T00:00:00Z",
+      "content": "Synthetic public market update."
+    }
+  ]
+}

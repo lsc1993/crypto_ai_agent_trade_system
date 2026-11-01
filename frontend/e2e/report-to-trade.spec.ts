@@ -44,7 +44,8 @@ test("从报告详情仅携带报告 ID 创建研究日志", async ({ page }) =>
   await page.getByLabel("标签").fill("E2E报告关联");
   await page.getByLabel("研究理由").fill("人工填写的独立研究理由。");
   const firstLeg = page.getByRole("group", { name: "交易腿 1" });
-  await firstLeg.getByLabel("交易腿 ID").fill("leg-report-linked");
+  // 交易活动契约要求 UUID；固定合成标识保持保存流程可复现。
+  await firstLeg.getByLabel("交易腿 ID").fill("11111111-1111-4111-8111-111111111111");
   await firstLeg
     .getByLabel("执行时间（UTC）")
     .fill("2025-02-11T01:00:00Z");

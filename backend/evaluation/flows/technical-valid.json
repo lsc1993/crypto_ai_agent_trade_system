@@ -1,0 +1,11 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "message": {
+        "content": "{\"stance\":\"long\",\"selectedPlanRef\":\"plans.0\",\"marketStructure\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}],\"supportingEvidence\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}],\"counterEvidence\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}],\"methodApplications\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[\"volume_price\"]}],\"entryConditions\":[{\"text\":\"本次冻结事实为{{plans.0.triggerLevel}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"plans.0.triggerLevel\"],\"methodRefs\":[]}],\"stopRationale\":[{\"text\":\"本次冻结事实为{{plans.0.stopLoss}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"plans.0.stopLoss\"],\"methodRefs\":[]}],\"targetRationale\":[{\"text\":\"本次冻结事实为{{plans.0.target}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"plans.0.target\"],\"methodRefs\":[]}],\"invalidation\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}],\"alternative\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}],\"waitingConditions\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}],\"risks\":[{\"text\":\"本次冻结事实为{{facts.volumeRatio}}，需要结合后续收盘变化复核判断并观察反向证据。\",\"evidenceId\":\"__EVIDENCE_ID__\",\"factRefs\":[\"facts.volumeRatio\"],\"methodRefs\":[]}]}",
+        "reasoning_content": "OFFLINE_PRIVATE_REASONING"
+      }
+    }
+  ]
+}

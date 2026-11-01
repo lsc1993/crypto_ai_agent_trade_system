@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:http": "playwright test --config playwright.http.config.ts",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {

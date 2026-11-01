@@ -1,0 +1,88 @@
+{
+  "version": "research-offline-v1",
+  "cases": [
+    {
+      "id": "valid-dual-horizon",
+      "request_file": "request.json",
+      "response_file": "response-valid.json",
+      "expected": {
+        "outcome": "accepted",
+        "error_code": null,
+        "attempts": 1
+      }
+    },
+    {
+      "id": "malformed-json",
+      "request_file": "request.json",
+      "response_file": "response-malformed.json",
+      "expected": {
+        "outcome": "rejected",
+        "error_code": "model_invalid_response",
+        "attempts": 3
+      }
+    },
+    {
+      "id": "forged-evidence",
+      "request_file": "request.json",
+      "response_file": "response-forged.json",
+      "expected": {
+        "outcome": "rejected",
+        "error_code": "model_invalid_evidence",
+        "attempts": 1
+      }
+    },
+    {
+      "id": "trading-language",
+      "request_file": "request.json",
+      "response_file": "response-trading.json",
+      "expected": {
+        "outcome": "rejected",
+        "error_code": "model_invalid_response",
+        "attempts": 3
+      }
+    },
+    {
+      "id": "numeric-unauthorized-field",
+      "request_file": "request.json",
+      "response_file": "response-numeric-extra.json",
+      "expected": {
+        "outcome": "rejected",
+        "error_code": "model_invalid_response",
+        "attempts": 3
+      }
+    },
+    {
+      "id": "news-injection-boundary",
+      "request_file": "request-injection.json",
+      "response_file": "response-valid.json",
+      "expected": {
+        "outcome": "accepted",
+        "error_code": null,
+        "attempts": 1
+      },
+      "check_news_boundary": true
+    },
+    {
+      "id": "missing-model-configuration",
+      "request_file": "request.json",
+      "response_file": "response-valid.json",
+      "expected": {
+        "outcome": "degraded",
+        "error_code": "model_not_configured",
+        "attempts": 0
+      },
+      "configured": false
+    },
+    {
+      "id": "transport-timeout",
+      "request_file": "request.json",
+      "response_file": "response-valid.json",
+      "expected": {
+        "outcome": "degraded",
+        "error_code": "model_timeout",
+        "attempts": 1
+      },
+      "transport_timeout": true
+    }
+  ]
+}

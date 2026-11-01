@@ -1,0 +1,11 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "message": {
+        "content": "OFFLINE_PRIVATE_INVALID_JSON",
+        "reasoning_content": "OFFLINE_PRIVATE_REASONING"
+      }
+    }
+  ]
+}

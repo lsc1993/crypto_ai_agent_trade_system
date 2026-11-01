@@ -1,0 +1,80 @@
+name: Reproducible quality checks
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # 仅供本任务使用的临时服务；不挂载业务数据卷，不接触运行环境凭证。
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-admin-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      APP_ENV: test
+      DEEPSEEK_API_KEY: ""
+      UV_CACHE_DIR: ${{ github.workspace }}/.tmp/quality-uv-cache
+      TEST_DATABASE_URL: postgresql+asyncpg://crypto_research_test_runner:ci-test-only@127.0.0.1:5432/crypto_research_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.10.6"
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked development dependencies
+        run: |
+          uv sync --project backend --locked
+          npm ci --prefix frontend
+      - name: Prepare isolated database with restricted test role
+        # 管理权限只用于临时 CI 服务初始化；实际预检、迁移和测试使用受限角色。
+        run: |
+          docker exec -i '${{ job.services.postgres.id }}' psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE crypto_research_test_runner LOGIN PASSWORD 'ci-test-only'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+          CREATE DATABASE crypto_research_test OWNER crypto_research_test_runner;
+          REVOKE ALL ON DATABASE crypto_research_test FROM PUBLIC;
+          SQL
+      - name: Verify backend, frontend and offline evaluation
+        run: uv run --project backend --locked --no-sync python scripts/verify.py full --report .tmp/quality/full.json
+      - name: Install Chromium for Mock interface acceptance
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Verify Mock interface flows
+        run: uv run --project backend --locked --no-sync python scripts/verify.py e2e --report .tmp/quality/mock-e2e.json
+      - name: Verify HTTP and database interface flow
+        run: uv run --project backend --locked --no-sync python scripts/verify.py http-e2e --report .tmp/quality/http-e2e.json
+      - name: Upload safe verification summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-summary
+          path: .tmp/quality/*.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 7

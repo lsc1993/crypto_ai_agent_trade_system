@@ -1,6 +1,6 @@
 # 项目状态与文档索引
 
-核对日期：2026-10-14。整理前代码基线：`c6f7dfe`，并核对本次币种准入诊断修复与文档变更。下列“已实现”表示存在对应代码和测试入口；运行部署、公开源连通和真实模型质量需要独立证据，不能从历史计划或单元测试推断。
+核对日期：2026-10-31。本次质量基础设施变更基线：`417cae7`；此前功能核对及验证记录保留如下。下列“已实现”表示存在对应代码和测试入口；运行部署、公开源连通和真实模型质量需要独立证据，不能从历史计划或单元测试推断。
 
 ## 当前能力
 
@@ -20,8 +20,21 @@
 | 手动模拟盘 | 当前 BTCUSDT 本地账户、手动意图或单次策略评估、快照模拟成交、绩效与审计 | [模拟盘](../backend/src/app/paper_trading/)、[测试](../backend/tests/paper_trading/) |
 | 交易日志与复盘 | 本地持久化交易记录、统计和看板；不接入真实交易账户 | [trades](../backend/src/app/trades/)、[dashboard](../backend/src/app/dashboard/) |
 | 本地部署 | Compose 的 PostgreSQL/API/前端，以及 API 内币种同步与技术研究任务 | [部署说明](local-deployment.md)、[配置](../compose.yaml) |
+| 可复现质量检查 | 本地/CI 共用 doctor、quick、full、eval、Mock e2e；三态摘要、退出码、超时终止及 pytest 参数隔离 | [质量验证](quality-verification.md)、[入口](../scripts/verify.py)、[CI 配置](../.github/workflows/verify.yml) |
+| 测试库防误配置 | 显式测试授权、固定专用库/受限角色、只读身份权限预检；共享夹具及独立迁移用例均受保护 | [预检](../backend/scripts/check_test_database.py)、[测试](../backend/tests/tooling/test_test_database_guard.py) |
+| 固定离线契约评估 | 8 个合成案例通过真实综合研究适配器校验，分别统计接受/拒绝/可降级错误并保留版本指纹；不代表真实模型质量 | [样本说明](../backend/evaluation/README.md)、[评估入口](../backend/scripts/evaluate_research.py) |
+| 研究服务流程评估 | 9 个合成案例验证综合研究与技术 v2 的成功、拒绝、降级和证据不足门控；另有真实仓储降级历史及审计回归 | [流程集](../backend/evaluation/flows/README.md)、[真实仓储回归](../backend/tests/persistence/test_research_flow_evaluation_history.py) |
+| 架构机器门禁 | AST 检查研究/交易、Harness/IO及持久化、Risk/LLM 直接依赖；故意违规、漏扫及坏语法均有回归，保留原字符串安全检查 | [检查器](../backend/scripts/check_architecture.py)、[故障样例测试](../backend/tests/security/test_architecture_gate.py) |
+| HTTP 与数据库浏览器验收 | 交易日志在 api 模式经真实 HTTP 和生产仓储保存后，刷新及新上下文重读；随机测试 schema，不是整站生产装配验收 | [浏览器用例](../frontend/e2e-http/trade-persistence.spec.ts)、[隔离服务](../backend/scripts/http_e2e_server.py) |
+| 技术研究 HTTP 与任务恢复验收 | 生产队列/worker/Harness/适配器/SQL 的完成与降级闭环；worker 重建、子进程终止、取消、提交后恢复、去重与迟到租约拒绝 | [研究浏览器用例](../frontend/e2e-http/research-persistence.spec.ts)、[恢复测试](../backend/tests/persistence/test_technical_worker_recovery.py) |
 
 ## 本次整理的行为
+
+研究运行验收批次：扩展独立 HTTP 工厂，以合成行情和固定模型传输运行真实技术 v2 队列，BTC 完成、ETH 缺配置降级；新增报告刷新、历史列表和新会话读取。回收测试 schema 前先停止 worker/模型客户端。新增真实数据库故障恢复测试，不修改生产 worker、仓储规则或 schema；取消指协程/worker 生命周期，当前不增加用户取消 API，也不自动重放失败任务。
+
+2026-10-31：统一入口新增 `http-e2e`、AST 架构门禁及研究服务流程评估；pytest 安全插件保留失败代码标识，移除参数化值，零执行、缺失或损坏产物不可通过。CI 增加分支 push 触发、真实 HTTP 流程及两套评估/测试摘要归档。该工作不修改生产 schema、依赖锁文件或模型权限，远端 CI 与合并门禁仍需独立验收。
+
+2026-10-27：新增统一质量入口、GitHub Actions 配置、测试库预检和离线契约评估，运行契约见[质量验证](quality-verification.md)。数据库测试仅接受进程显式 `TEST_DATABASE_URL`，不再从 `.env` 自动授权；未修改业务配置、schema 或依赖锁文件。为使格式门禁可用，对 66 个存量文件执行 Ruff 机械格式整理：历史迁移 AST 不变，两处普通函数文档字符串缩进调整，其他格式文件 AST 不变。首次浏览器回归发现两条旧用例填写非 UUID 交易腿 ID，已改为合成 UUID，保持应用契约不变。
 
 研究币种准入失败返回结构化、安全的检查详情，管理页展示后端消息并去重检查提示。公开行情超限、限流和超时使用固定摘要，不透出上游异常原文。Binance 公开 JSON 响应上限调整为 1,500,000 字节，允许原上限以上的正常合约目录，仍拒绝超过新上限的响应。相关回归见[错误接口测试](../backend/tests/api/test_errors.py)、[行情适配器测试](../backend/tests/market/test_binance_usdm.py)、[资金费率测试](../backend/tests/market/test_funding_history.py)、[准入服务测试](../backend/tests/symbols/test_service.py)及[页面测试](../frontend/src/test/research-symbols.test.tsx)。
 
@@ -30,6 +43,27 @@
 后端全部 248 个 Python 文件（源码、脚本、测试和历史迁移）补充中文注释，说明职责、关键流程、契约、失败路径与设计原因；可添加注释的构建配置同步补充说明。根目录与后端 `AGENTS.md`、[AI 维护指南](ai-maintenance.md)明确 AI Agent 生成代码必须维护详细注释，具体要求见[后端规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)。锁文件、严格 JSON/XML 样本、版本标记与冻结技术方法保留原内容；Windows Alembic 配置采用 ASCII 注释以兼容本地编码读取。
 
 ## 最近验证
+
+研究运行验收批次：根目录统一 `full` 最终通过，安全摘要记录 790 collected/passed，failed/skipped/collection_errors 均为 0。后端 Ruff/格式/Pyright/AST/迁移链头/两套评估及前端 lint/typecheck/Vitest/build 均通过；统一 `http-e2e` 的日志、研究完成、研究降级共 3 条用例通过，统一 Mock `e2e` 的 16 条通过。
+
+专用 PostgreSQL 17 使用受限角色与随机 schema；实际终止 worker 子进程后验证租约恢复，另外验证保存后收尾故障、模型执行中取消、提交报告后取消、并发去重与旧所有者拒绝。独立只读审查无 P1/P2 阻断项；审查后补充的提交后取消窗口纳入最终全量回归。临时 schema 残留 0，测试容器已回收。没有修改生产 worker/仓储规则、业务数据库、迁移链或模型权限，未提交、推送、部署或运行远端 CI。
+
+证明范围：实际被终止的子进程使用阻塞执行器，完整 Harness/适配器链由其他测试覆盖；浏览器新 context 不等于后端 OS 重启。只验证 worker/协程取消，未新增用户取消接口。固定响应及合成行情不代表真实模型质量或公开源连通性。
+
+2026-10-31，根目录统一 `full` 最终通过，安全 pytest 摘要记录 collected/passed 均为 780，failed/skipped/collection_errors 均为 0：
+
+- 后端 Ruff、格式、严格 Pyright、AST 架构门禁、完整 pytest、迁移链头及两套离线评估通过；AST 扫描 32 个受保护源码文件，0 findings。适配器评估 8/8、服务流程评估 9/9 匹配，后者接受 2、拒绝 2、降级 3、证据不足 2。
+- 前端 lint、typecheck、完整 Vitest、build 通过；统一 `e2e` 的 16 个 Mock 浏览器用例通过，统一 `http-e2e` 的 1 个真实 HTTP/PostgreSQL 浏览器闭环通过。HTTP 测试库使用独立临时 PostgreSQL 17、受限角色及随机 schema，没有访问业务库。
+- 新增真实 SQL 回归覆盖三类技术 v2 降级历史重读及 Harness 审计；独立代码审查未发现需阻断的 P1/P2 问题。共享链接、workflow YAML 解析与 `git diff --check` 通过。
+- 本地验证不替代远端 CI；本轮尚未提交、推送、运行 GitHub Actions 或设置分支保护。未部署、迁移业务库、调用真实模型或验证真实公开源。
+
+2026-10-27，本次质量基础设施变更后，在仓库根目录执行 `uv run --project backend --locked --no-sync python scripts/verify.py full --report .tmp/quality/full-final.json`，最终退出 0，各检查均为 passed：
+
+- 后端 Ruff lint、格式检查、Pyright、完整 pytest 706 项通过；测试使用新建独立 PostgreSQL 17 与受限测试角色，迁移链头仍为 `0018_technical_report_runs`。临时测试容器已停止并自动清理，未迁移业务库。
+- 前端 lint、typecheck、完整 Vitest 和 build 通过。单独执行统一入口 `e2e`，两个桌面视口下共 16 个 Mock 界面用例通过；首次运行中的过期非 UUID 测试输入已修复。
+- 适配器离线评估 8/8 预期匹配：接受 2、拒绝 4、可降级错误 2；未调用真实模型。详细样本、版本与证明范围见[评估说明](../backend/evaluation/README.md)。
+- 独立代码审查发现并修复 `PYTEST_ADDOPTS` 污染风险；首次运行临时目录缺失也已补红绿回归。共享文档链接、workflow YAML 解析及 `git diff --check` 通过。
+- 未推送、执行远端 GitHub Actions、设置分支保护、重新部署、迁移业务库或验证真实公开源及付费模型。HTTP/数据库端到端验收与真实模型质量基准仍未完成。
 
 2026-10-14，在本次整理的工作区执行：
 
@@ -46,7 +80,8 @@
 - 初始同步采集行情/K 线/衍生品和资金费率。资讯、情绪留待报告运行时按需采集；管理侧 ETF 能力当前标为不支持。报告侧另有 BTC/ETH ETF 适配器，两个状态不能混为一谈。
 - 技术研究的数值与价格由确定性程序计算或按冻结字段渲染，模型不能改写数值、扩大交易范围或自动执行条件计划。历史触发状态冻结，到期不自动重算。
 - 当前迁移链头为 `0018_technical_report_runs`，v2 部署需前后端与该迁移配套。测试库迁移通过不代表业务库已升级；业务环境须按[部署说明](local-deployment.md)另行验收。
-- 真实模型曾出现数值、引用和交易措辞校验降级；有限纠错与合法段落保留已有实现。个别成功样本不代表长期成功率、模型质量基准或交易表现，固定评估集仍待补充。
+- 真实模型曾出现数值、引用和交易措辞校验降级；有限纠错与合法段落保留已有实现。已有适配器及综合/技术 v2 服务离线评估和真实仓储回归，固定响应仍不代表真实模型质量、抗注入能力或交易表现，真实模型质量基准待补充。
+- CI 配置已加入仓库，但尚无远端成功记录，分支保护是否设为必需门禁需独立确认。HTTP 浏览器验收覆盖交易日志及技术 v2 完成/降级闭环，不代表整站功能、真实模型、完整生产 lifespan 或后端操作系统重启联验；AST 门禁只覆盖可解析直接依赖，不是任意动态代码执行安全证明。
 - 当前不提供真实执行、模型任意工具、长期用户记忆或自动策略交易。Harness 后续阶段保留为规划，不能因历史设计列出就视为启用。
 
 ## 阅读顺序

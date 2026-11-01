@@ -63,4 +63,6 @@ docker compose up -d --build --force-recreate api
 
 `TEST_DATABASE_URL` 只用于专用测试数据库，不是普通启动的必填项。迁移与仓储测试的前提见[后端开发约定](../backend/AGENTS.md)。执行质量检查不能替代部署后的迁移、公开源连通与页面流程验收。
 
+数据库测试改为要求进程显式注入测试连接，并核对固定专用库及受限角色；`.env` 中的测试连接不再自动授权测试。只读预检与 CI 临时实例说明见[质量验证](quality-verification.md)，无需为普通应用启动更改业务配置。
+
 技术计划书 v2 升级需同时部署前后端和迁移 `0018_technical_report_runs`。它新增持久化队列，不删除或改写历史报告；升级前按既有流程备份，升级后检查版本、健康、任务进度及 v1/v2 历史读取。额度与租约说明见 [交易计划书](technical-trading-plan.md)。

@@ -1,0 +1,9 @@
+{
+  "version": "synthetic-breakout-v1",
+  "initial_price": "80.0",
+  "step": "0.3",
+  "plateau": "105.0",
+  "last_close": "106.2",
+  "swing_low": "98.0",
+  "swing_high": "125.0"
+}

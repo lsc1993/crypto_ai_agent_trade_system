@@ -17,7 +17,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from alembic import command
-from app.shared.config import AppSettings
 
 PAPER_TEST_NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
 AGENT_TEST_NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
@@ -40,13 +39,14 @@ async def test_database_engine_factory_uses_an_asyncpg_postgresql_url() -> None:
         await engine.dispose()
 
 
-def test_alembic_upgrade_creates_its_version_table_in_an_isolated_schema() -> None:
+def test_alembic_upgrade_creates_its_version_table_in_an_isolated_schema(
+    checked_test_database_url: SecretStr,
+) -> None:
     database = import_module("app.shared.database")
     upgrade_database = getattr(database, "upgrade_database", None)
 
     assert callable(upgrade_database)
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+    test_database_url = checked_test_database_url
     schema = f"market_test_{uuid4().hex[:16]}"
 
     asyncio.run(_create_schema(test_database_url, schema))
@@ -57,9 +57,10 @@ def test_alembic_upgrade_creates_its_version_table_in_an_isolated_schema() -> No
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
-def test_market_migration_creates_numeric_candle_columns_and_unique_key() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_market_migration_creates_numeric_candle_columns_and_unique_key(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"market_test_{uuid4().hex[:16]}"
 
     asyncio.run(_create_schema(test_database_url, schema))
@@ -78,9 +79,10 @@ def test_market_migration_creates_numeric_candle_columns_and_unique_key() -> Non
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
-def test_backtest_migration_creates_immutable_numeric_snapshot_tables() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_backtest_migration_creates_immutable_numeric_snapshot_tables(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"market_test_{uuid4().hex[:16]}"
 
     asyncio.run(_create_schema(test_database_url, schema))
@@ -106,9 +108,10 @@ def test_backtest_migration_creates_immutable_numeric_snapshot_tables() -> None:
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
-def test_paper_trading_migration_enforces_active_account_and_immutable_records() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_paper_trading_migration_enforces_active_account_and_immutable_records(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"paper_test_{uuid4().hex[:16]}"
     account_id = uuid4()
 
@@ -146,9 +149,10 @@ def test_paper_trading_migration_enforces_active_account_and_immutable_records()
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
-def test_agent_research_migration_adds_immutable_tables_without_rewriting_reports() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_agent_research_migration_adds_immutable_tables_without_rewriting_reports(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"agent_test_{uuid4().hex[:16]}"
     report_id = uuid4()
 
@@ -252,9 +256,10 @@ def test_report_market_metrics_migration_is_forward_only_and_nullable() -> None:
     assert "server_default" not in source
 
 
-def test_harness_audit_migration_adds_immutable_tables_without_rewriting_reports() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_harness_audit_migration_adds_immutable_tables_without_rewriting_reports(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"harness_test_{uuid4().hex[:16]}"
     report_id = uuid4()
 
@@ -318,9 +323,10 @@ def test_harness_audit_migration_adds_immutable_tables_without_rewriting_reports
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
-def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"harness_test_{uuid4().hex[:16]}"
 
     asyncio.run(_create_schema(test_database_url, schema))
@@ -411,9 +417,10 @@ def test_harness_event_lifecycle_migration_enforces_exact_kind_sequence_mapping(
         asyncio.run(_drop_schema(test_database_url, schema))
 
 
-def test_harness_audit_migration_emits_only_atomic_agent_terminal_events() -> None:
-    test_database_url = AppSettings().test_database_url
-    assert test_database_url is not None
+def test_harness_audit_migration_emits_only_atomic_agent_terminal_events(
+    checked_test_database_url: SecretStr,
+) -> None:
+    test_database_url = checked_test_database_url
     schema = f"harness_test_{uuid4().hex[:16]}"
     completed_run_id = uuid4()
     degraded_run_id = uuid4()

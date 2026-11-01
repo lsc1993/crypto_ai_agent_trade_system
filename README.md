@@ -28,6 +28,20 @@ DeepSeek 只在本机未跟踪运行时环境提供密钥后参与受限 JSON �
 
 ## 质量检查
 
+初始化与统一验证在仓库根目录执行：
+
+```powershell
+uv sync --project backend --locked
+npm ci --prefix frontend
+uv run --project backend --locked --no-sync python scripts/verify.py doctor
+uv run --project backend --locked --no-sync python scripts/verify.py quick
+uv run --project backend --locked --no-sync python scripts/verify.py full --report .tmp/quality/full.json
+```
+
+`quick` 不包含数据库、Compose、构建或浏览器验收；完整检查需要显式测试环境与受限数据库角色。档位、退出码、排障、离线评估和 CI 说明见[质量验证](docs/quality-verification.md)。
+
+`quick/full` 包含 AST 依赖门禁，两套离线评估分别验证适配器和研究服务流程。数据库浏览器闭环另执行 `uv run --project backend --locked --no-sync python scripts/verify.py http-e2e`。安全报告保留失败代码标识和计数，不保存参数值及异常原文。
+
 后端：`cd backend` 后运行 `uv run ruff check .`、`uv run pyright`、`uv run pytest`。
 
 前端：`cd frontend` 后运行 `npm run lint`、`npm run typecheck`、`npm run test -- --run`、`npm run build`。

@@ -1,0 +1,133 @@
+{
+  "version": "research-flows-offline-v1",
+  "market_file": "market.json",
+  "cases": [
+    {
+      "id": "technical-complete",
+      "flow": "technical",
+      "scenario": "valid",
+      "response_file": "technical-valid.json",
+      "expected": {
+        "outcome": "accepted",
+        "quality": "complete",
+        "error_code": null,
+        "calls": [
+          "analysis",
+          "composition"
+        ]
+      }
+    },
+    {
+      "id": "technical-analysis-rejected",
+      "flow": "technical",
+      "scenario": "invalid",
+      "response_file": "invalid.json",
+      "expected": {
+        "outcome": "rejected",
+        "quality": "analysis_unavailable",
+        "error_code": "model_invalid_response",
+        "calls": [
+          "analysis",
+          "analysis"
+        ]
+      }
+    },
+    {
+      "id": "technical-composition-fallback",
+      "flow": "technical",
+      "scenario": "composition_timeout",
+      "response_file": "technical-valid.json",
+      "expected": {
+        "outcome": "degraded",
+        "quality": "composition_fallback",
+        "error_code": "model_timeout",
+        "calls": [
+          "analysis",
+          "composition",
+          "composition"
+        ]
+      }
+    },
+    {
+      "id": "technical-evidence-gate",
+      "flow": "technical",
+      "scenario": "insufficient",
+      "response_file": "technical-valid.json",
+      "expected": {
+        "outcome": "insufficient",
+        "quality": "data_insufficient",
+        "error_code": "data_quality_insufficient",
+        "calls": []
+      }
+    },
+    {
+      "id": "research-complete",
+      "flow": "research",
+      "scenario": "valid",
+      "response_file": "research-valid.json",
+      "expected": {
+        "outcome": "accepted",
+        "quality": "research_complete",
+        "error_code": null,
+        "calls": [
+          "research"
+        ]
+      }
+    },
+    {
+      "id": "research-invalid",
+      "flow": "research",
+      "scenario": "invalid",
+      "response_file": "invalid.json",
+      "expected": {
+        "outcome": "rejected",
+        "quality": "research_degraded",
+        "error_code": "model_invalid_response",
+        "calls": [
+          "research",
+          "research",
+          "research"
+        ]
+      }
+    },
+    {
+      "id": "research-timeout",
+      "flow": "research",
+      "scenario": "timeout",
+      "response_file": "research-valid.json",
+      "expected": {
+        "outcome": "degraded",
+        "quality": "research_degraded",
+        "error_code": "model_timeout",
+        "calls": [
+          "research"
+        ]
+      }
+    },
+    {
+      "id": "research-evidence-gate",
+      "flow": "research",
+      "scenario": "insufficient",
+      "response_file": "research-valid.json",
+      "expected": {
+        "outcome": "insufficient",
+        "quality": "research_degraded",
+        "error_code": "market_closed_candle_missing",
+        "calls": []
+      }
+    },
+    {
+      "id": "technical-not-configured",
+      "flow": "technical",
+      "scenario": "valid",
+      "response_file": "technical-valid.json",
+      "expected": {
+        "outcome": "degraded",
+        "quality": "analysis_unavailable",
+        "error_code": "model_not_configured",
+        "calls": []
+      },
+      "configured": false
+    }
+  ]
+}

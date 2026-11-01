@@ -32,4 +32,8 @@ npm run build
 
 端到端入口为 `npm run test:e2e`，配置见 `playwright.config.ts`，需要已安装 Chromium。确认 4173 端口上被复用的服务属于本任务且模式正确；截图、trace 和报告属于本地测试产物，不提交敏感数据。
 
+根目录统一入口 `scripts/verify.py e2e` 会强制 Mock 模式且禁止复用已有服务；这是界面验收，不代表 HTTP 与数据库联验。档位与证据见[质量验证](../docs/quality-verification.md)。
+
+`scripts/verify.py http-e2e` 单独验证交易日志及技术研究队列的真实 HTTP 与测试库闭环，默认端口 8174/4174，不复用已有服务，仅注入合成行情与固定模型传输。研究路径使用真实 worker/Harness/SQL 仓储，不装配完整生产 lifespan；相关代码在 `e2e-http/`，Vitest 与该目录分离。
+
 可重点参考 `src/test/research-symbols.test.tsx`、`src/features/reports/` 中的测试，以及 `src/shared/api/` 的契约测试。新增或改变数据模式、页面操作和报告字段时，同步更新前端 README 与项目状态。

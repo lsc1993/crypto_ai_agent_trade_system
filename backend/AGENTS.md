@@ -38,11 +38,14 @@ AI Agent 新增、生成或修改后端代码时，必须把详细中文注释�
 
 ```powershell
 uv run ruff check .
+uv run ruff format --check .
 uv run pyright
 uv run pytest
 ```
 
 `tests/conftest.py` 的 `migrated_database` 使用 `TEST_DATABASE_URL`，创建唯一临时 schema、运行迁移并清理该测试 schema。运行此类测试必须确认指向专用测试 PostgreSQL，不能指向开发业务库或生产库；不要打印配置值，也不要自行修改 `.env`。测试夹具对其临时 schema 的生命周期不授权人工清理业务数据。
+
+测试授权仅取进程显式 `TEST_DATABASE_URL`，不从 `.env` 自动读取；固定库名 `crypto_research_test`、角色 `crypto_research_test_runner`，只读预检核对身份及受限权限，拒绝与业务库同名。独立迁移用例同样受预检保护；`uv run python -m scripts.check_test_database` 可单独诊断。完整契约及统一入口见[质量验证](../docs/quality-verification.md)。
 
 缺少测试数据库时，可以运行不使用数据库的聚焦测试，但必须注明全量持久化测试未运行。迁移检查还应核对 `uv run alembic heads`，不能把静态检查通过当作迁移验证通过。
 

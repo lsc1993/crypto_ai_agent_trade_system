@@ -14,7 +14,8 @@ test("新建多腿 Mock 交易日志并按标签筛选", async ({ page }) => {
   await page.getByLabel("研究理由").fill("仅用于验证多腿模拟日志流程。");
 
   const firstLeg = page.getByRole("group", { name: "交易腿 1" });
-  await firstLeg.getByLabel("交易腿 ID").fill("leg-e2e-open");
+  // 与实际交易活动 UUID 契约一致，三条记录各使用独立合成标识。
+  await firstLeg.getByLabel("交易腿 ID").fill("22222222-2222-4222-8222-222222222221");
   await firstLeg
     .getByLabel("执行时间（UTC）")
     .fill("2025-02-10T01:00:00Z");
@@ -24,7 +25,7 @@ test("新建多腿 Mock 交易日志并按标签筛选", async ({ page }) => {
 
   await page.getByRole("button", { name: "添加交易腿" }).click();
   const reduceLeg = page.getByRole("group", { name: "交易腿 2" });
-  await reduceLeg.getByLabel("交易腿 ID").fill("leg-e2e-reduce");
+  await reduceLeg.getByLabel("交易腿 ID").fill("22222222-2222-4222-8222-222222222222");
   await reduceLeg.getByLabel("动作").selectOption("reduce");
   await reduceLeg
     .getByLabel("执行时间（UTC）")
@@ -35,7 +36,7 @@ test("新建多腿 Mock 交易日志并按标签筛选", async ({ page }) => {
 
   await page.getByRole("button", { name: "添加交易腿" }).click();
   const closeLeg = page.getByRole("group", { name: "交易腿 3" });
-  await closeLeg.getByLabel("交易腿 ID").fill("leg-e2e-close");
+  await closeLeg.getByLabel("交易腿 ID").fill("22222222-2222-4222-8222-222222222223");
   await closeLeg.getByLabel("动作").selectOption("close");
   await closeLeg
     .getByLabel("执行时间（UTC）")

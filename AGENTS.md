@@ -57,8 +57,11 @@ Risk Engine 不得依赖 LLM 输出作最终放行依据；模型研究结论不
 
 每次改动后按影响范围验证，并报告执行目录、结果和未验证项。后端命令在 `backend/` 执行：
 
+统一入口在根目录运行 `uv run --project backend --locked --no-sync python scripts/verify.py`，默认 `full`；编辑批次可用 `quick`，前置诊断用 `doctor`，关键界面另用 `e2e`。快速检查不替代完整验收，子 Agent 只跑聚焦检查，由主会话跑完整入口。详见[质量验证](docs/quality-verification.md)。
+
 ```powershell
 uv run ruff check .
+uv run ruff format --check .
 uv run pyright
 uv run pytest
 ```

@@ -46,6 +46,8 @@
 
 ## 回归清单
 
+技术队列的运行验收见[质量验证](quality-verification.md#研究报告-http-与任务恢复验收)。`tests/persistence/test_technical_worker_recovery.py` 使用真实 SQL、worker 和可控故障窗口验证重建、实际进程终止、取消与去重；`frontend/e2e-http/research-persistence.spec.ts` 验证真实 HTTP 生成、完成/降级及历史读取。未保存的过期任务不自动重放，保存成功优先恢复为报告终态；取消是 worker 生命周期动作，不代表新增用户取消接口。
+
 现有测试与样本是起点，无需为日常验证调用真实付费模型。以下命令在 `backend/` 执行，不包含依赖 PostgreSQL 的持久化验收：
 
 ```powershell
@@ -63,4 +65,8 @@ uv run pytest tests/agent tests/harness tests/security
 
 修改数据源或专题时还需运行相应 `tests/market/`、`tests/news/`、`tests/symbols/`。新增 schema 或报告字段需要专用测试数据库与前后端联验；聚焦测试不替代这些检查。
 
-后续若建立固定样本评估集，应复用 `tests/fixtures/agent/` 中可审查的样本，记录 Prompt/模型/契约版本及证据覆盖、格式通过、降级和引用正确性。该评估集与真实模型质量基准目前属于待补充工作，不能把替身单元测试通过等同于模型质量已获验证。
+固定适配器离线评估集位于 [`backend/evaluation/`](../backend/evaluation/README.md)，在 `backend/` 执行 `uv run python -m scripts.evaluate_research`，或从根目录使用统一入口 `scripts/verify.py eval`。它使用合成冻结证据与固定 HTTP 替身，通过真实综合研究适配器验证合法输出、格式/引用/交易文本拒绝、新闻边界和配置/超时错误，记录样本、Prompt 与契约指纹；接受、拒绝和可降级错误分别统计。
+
+该评估不需要真实密钥、网络或数据库，不证明真实模型质量、抗注入能力或数值事实准确性，也不单独覆盖完整研究图的证据不足门控与降级持久化。上述图/持久化回归继续使用现有服务及仓储测试；真实模型质量基准仍待补充，不能把替身评估通过等同于模型质量已获验证。统一命令、证据与 CI 见[质量验证](quality-verification.md)。
+
+第二阶段另有[研究服务流程评估](../backend/evaluation/flows/README.md)：通过实际综合研究服务、技术 v2 两阶段适配器及证据门控，验证不足时不调模型、成功或降级后按合同保存和重读。其内存仓储证明范围与[真实数据库历史回归](../backend/tests/persistence/test_research_flow_evaluation_history.py)分开；后者使用受限测试库、实际 Harness 审计与新仓储读取技术 v2 降级报告。两类评估均不代表真实模型质量或数值事实准确性。

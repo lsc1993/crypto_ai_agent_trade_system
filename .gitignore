@@ -8,6 +8,7 @@ __pycache__/
 .pytest-tmp*/
 .venv/
 .uv-cache/
+.ruff_cache/
 
 # JavaScript generated files
 node_modules/

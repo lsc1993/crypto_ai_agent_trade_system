@@ -88,6 +88,8 @@ npm run test:e2e
 
 端到端测试会在 1280 px 与 1440 px 两种桌面视口下运行，并将截图保存在被 Git 忽略的 `test-results/` 中，供人工检查。
 
+本地与 CI 共用根目录 `scripts/verify.py`；`full --component frontend` 运行上述前端检查，`e2e` 强制 Mock 且不复用既有服务。另有 `http-e2e`，使用真实 HTTP 与独立 PostgreSQL 随机 schema，覆盖日志与技术研究报告的提交、后台生成、完成/降级展示、刷新与新会话重读；该路径需要完整测试库授权，不能只指定前端范围。验收覆盖交易日志与技术研究队列闭环，不代表完整生产装配或全部功能联验，详见[质量验证](../docs/quality-verification.md)。
+
 ## 冻结的客户端契约
 
 - 金额、数量、价格、费用和统计指标均为规范的 `DecimalString`；只有图表显示适配器可以临时转换为 `number`。
