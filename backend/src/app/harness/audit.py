@@ -143,10 +143,10 @@ class HarnessAuditEvent(_AuditModel):
         # 事件类型、序号、错误码相互约束，避免出现“成功但带错误码”之类自相矛盾的记录。
         if self.sequence != _EVENT_SEQUENCE_BY_KIND[self.kind]:
             raise ValueError("审计事件生命周期序号与事件类型不匹配")
-        if self.kind in {
-            HarnessAuditEventKind.WORKFLOW_COMPLETED,
-            HarnessAuditEventKind.WORKFLOW_DEGRADED,
-        }:
+        # 完成事件不能附带错误；降级事件允许可选安全原因码。综合报告的数据库触发器
+        # 会原样追加降级原因，技术报告可能仅在报告内记录原因，重读必须兼容两种历史。
+        # StableErrorCode 继续限制错误码格式，不能把上游正文或任意异常变成审计内容。
+        if self.kind is HarnessAuditEventKind.WORKFLOW_COMPLETED:
             if self.sequence != 3 or self.error_code is not None:
                 raise ValueError("终态事件必须为序号 3 且不含错误码")
         elif self.kind in {
@@ -155,7 +155,9 @@ class HarnessAuditEvent(_AuditModel):
         }:
             if self.error_code is None:
                 raise ValueError("拒绝或失败事件必须含错误码")
-        elif self.error_code is not None:
+        elif (
+            self.kind is not HarnessAuditEventKind.WORKFLOW_DEGRADED and self.error_code is not None
+        ):
             raise ValueError("该事件不能含错误码")
 
         if self.details.is_empty() and self.kind not in {

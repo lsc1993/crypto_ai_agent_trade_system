@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -13,6 +13,224 @@ import pytest
 from scripts import check_public_sources as diagnostics
 
 NOW = datetime(2026, 11, 2, 12, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["fresh", "stale", "future", "gap", "empty"])
+async def test_real_sentiment_context_history(case: str) -> None:
+    # 真实情绪适配器负责固定请求与解析；诊断检查全部返回时间、每日覆盖和48小时裕量。
+    newest = NOW - timedelta(days=3 if case == "stale" else 0)
+    if case == "future":
+        newest = NOW + timedelta(seconds=1)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert str(request.url) == "https://api.alternative.me/fng/?limit=8&format=json"
+        return httpx.Response(
+            200,
+            json={
+                "data": []
+                if case == "empty"
+                else [
+                    {
+                        "value": "42",
+                        "value_classification": "UNTRUSTED",
+                        "timestamp": str(
+                            int(
+                                (
+                                    newest - timedelta(days=index * (2 if case == "gap" else 1))
+                                ).timestamp()
+                            )
+                        ),
+                    }
+                    for index in range(8)
+                ]
+            },
+        )
+
+    async with (
+        httpx.AsyncClient(
+            base_url="https://api.alternative.me", transport=httpx.MockTransport(respond)
+        ) as sentiment,
+        httpx.AsyncClient(
+            base_url="https://farside.co.uk", transport=httpx.MockTransport(respond)
+        ) as etf,
+    ):
+        specs = diagnostics.build_context_checks(sentiment, etf, clock=lambda: NOW)
+        report = await diagnostics.run_checks((specs[0],), clock=lambda: NOW)
+    result = report.checks[0]
+    assert (
+        result.reason
+        == {
+            "fresh": "fresh",
+            "stale": "stale_data",
+            "future": "future_data",
+            "gap": "incomplete_history",
+            "empty": "unavailable",
+        }[case]
+    )
+    assert result.threshold_seconds == 172800
+    assert result.count == (0 if case == "empty" else 8)
+    assert "UNTRUSTED" not in report.to_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["fresh", "incomplete", "stale", "utc_boundary", "empty"])
+async def test_real_etf_context_dates_and_disclosure(case: str) -> None:
+    # 纽约交易日必须原样保留；UTC已跨天时仍按纽约日期计算七日calendar时效。
+    now = datetime(2026, 11, 3, 1, tzinfo=UTC) if case == "utc_boundary" else NOW
+    day = "26 Oct 2026" if case in {"stale", "utc_boundary"} else "30 Oct 2026"
+    if case == "stale":
+        day = "23 Oct 2026"
+    html = (
+        "<table><tr><th></th><th>IBIT</th><th>FBTC</th></tr>"
+        f"<tr><td>{day}</td><td>1.0</td><td>{'-' if case == 'incomplete' else '2.0'}</td>"
+        f"<td>{'1.0' if case == 'incomplete' else '3.0'}</td></tr></table>"
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.host == "farside.co.uk"
+        assert request.url.path in {"/btc/", "/eth/"}
+        assert not request.url.query
+        return httpx.Response(200, text="<table></table>" if case == "empty" else html)
+
+    async with (
+        httpx.AsyncClient(
+            base_url="https://api.alternative.me", transport=httpx.MockTransport(respond)
+        ) as sentiment,
+        httpx.AsyncClient(
+            base_url="https://farside.co.uk", transport=httpx.MockTransport(respond)
+        ) as etf,
+    ):
+        specs = diagnostics.build_context_checks(sentiment, etf, clock=lambda: now)
+        assert len(specs) == 3
+        report = await diagnostics.run_checks(specs[1:], clock=lambda: now)
+    for result in report.checks:
+        assert (
+            result.reason
+            == {
+                "fresh": "fresh",
+                "incomplete": "incomplete_disclosure",
+                "stale": "stale_data",
+                "utc_boundary": "fresh",
+                "empty": "invalid_response",
+            }[case]
+        )
+        assert result.observed_at is None
+        assert result.threshold_calendar_days == 7
+        assert result.trading_date_timezone == "America/New_York"
+        if case != "empty":
+            assert result.latest_trading_date == date(2026, 10, int(day[:2]))
+            assert result.disclosure_complete == (case != "incomplete")
+        assert "IBIT" not in report.to_json()
+
+
+def test_context_cli_is_explicit_and_default_inventory_unchanged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 默认调用仍是原24项，显式选项才传入扩展标志；CLI不增加任意URL选项。
+    calls: list[bool] = []
+
+    async def fake_run(*, include_context: bool = False) -> diagnostics.DiagnosticReport:
+        calls.append(include_context)
+        return diagnostics.DiagnosticReport("passed", "checks_complete", NOW, NOW, ())
+
+    monkeypatch.setattr(diagnostics, "run_diagnostics", fake_run)
+    assert diagnostics.main([]) == 0
+    assert diagnostics.main(["--include-context"]) == 0
+    assert calls == [False, True]
+    assert "UNTRUSTED" not in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_context", [False, True])
+async def test_diagnostics_inventory_and_client_boundary(
+    monkeypatch: pytest.MonkeyPatch, include_context: bool
+) -> None:
+    # 调度入口创建真实客户端但不发请求：默认24项，显式扩展27项；所有客户端禁用重定向，
+    # 不覆盖 trust_env，因此维持生产 httpx 的默认进程网络方式。
+    original_client = httpx.AsyncClient
+    clients: list[dict[str, object]] = []
+
+    def client(**kwargs: object) -> httpx.AsyncClient:
+        clients.append(kwargs)
+        # 原始参数由检查入口固定构造；测试保留真实客户端初始化与关闭生命周期。
+        return original_client(**kwargs)  # type: ignore[arg-type]
+
+    async def inspect(
+        specs: tuple[diagnostics.CheckSpec, ...], *, clock: object
+    ) -> diagnostics.DiagnosticReport:
+        assert len(specs) == (27 if include_context else 24)
+        assert {spec.check_id for spec in specs} == (
+            diagnostics.CHECK_IDS | diagnostics.CONTEXT_CHECK_IDS
+            if include_context
+            else diagnostics.CHECK_IDS
+        )
+        return diagnostics.DiagnosticReport("passed", "checks_complete", NOW, NOW, ())
+
+    monkeypatch.setattr(diagnostics.httpx, "AsyncClient", client)
+    monkeypatch.setattr(diagnostics, "run_checks", inspect)
+    await diagnostics.run_diagnostics(include_context=include_context)
+    assert len(clients) == (4 if include_context else 2)
+    assert all(c["follow_redirects"] is False and "trust_env" not in c for c in clients)
+    if include_context:
+        assert [c.get("base_url") for c in clients[2:]] == [
+            "https://api.alternative.me",
+            "https://farside.co.uk",
+        ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["timeout", "429", "redirect", "invalid"])
+async def test_context_real_adapter_failures_are_safe_and_isolated(case: str) -> None:
+    # 情绪适配器的合并领域错误不虚构HTTP状态；ETF保留自身安全码，两项失败均不阻断同行。
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.host in {"api.alternative.me", "farside.co.uk"}
+        if case == "timeout":
+            raise httpx.ReadTimeout("UNTRUSTED-secret", request=request)
+        return httpx.Response(
+            {"429": 429, "redirect": 302, "invalid": 200}[case],
+            content=b"UNTRUSTED-secret",
+            headers={"Location": "https://unsafe.invalid/?token=hidden"},
+        )
+
+    async with (
+        httpx.AsyncClient(
+            base_url="https://api.alternative.me", transport=httpx.MockTransport(respond)
+        ) as sentiment,
+        httpx.AsyncClient(
+            base_url="https://farside.co.uk", transport=httpx.MockTransport(respond)
+        ) as etf,
+    ):
+        specs = diagnostics.build_context_checks(sentiment, etf, clock=lambda: NOW)
+        report = await diagnostics.run_checks(specs, clock=lambda: NOW)
+    assert len(report.checks) == 3
+    assert report.checks[0].reason == ("timeout" if case == "timeout" else "unavailable")
+    expected = {
+        "timeout": "timeout",
+        "429": "rate_limited",
+        "redirect": "upstream_rejected",
+        "invalid": "invalid_response",
+    }[case]
+    assert [result.reason for result in report.checks[1:]] == [expected, expected]
+    assert "UNTRUSTED" not in report.to_json()
+    assert "unsafe" not in report.to_json()
+
+
+@pytest.mark.asyncio
+async def test_etf_returned_future_date_is_rejected() -> None:
+    # 生产网关已过滤网页未来日期；这个替身只验证诊断对返回契约中未来字段的独立防线。
+    async def future() -> diagnostics.Observation:
+        return diagnostics.Observation(
+            1, latest_trading_date=date(2026, 11, 3), disclosure_complete=True
+        )
+
+    report = await diagnostics.run_checks(
+        (diagnostics.CheckSpec("BTCUSDT.etf_flows", future, None, etf=True),), clock=lambda: NOW
+    )
+    assert (report.checks[0].status, report.checks[0].reason) == ("failed", "future_data")
 
 
 @pytest.mark.asyncio

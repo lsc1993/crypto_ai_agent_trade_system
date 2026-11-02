@@ -119,6 +119,22 @@ def test_audit_events_enforce_terminal_error_and_detail_rules() -> None:
         )
 
 
+@pytest.mark.parametrize("reason", [None, "model_not_configured", "partial_data"])
+def test_degraded_terminal_preserves_optional_safe_reason(reason: str | None) -> None:
+    """综合报告触发器保存降级原因，技术路径可不提供；两类历史均须可合法重读。"""
+    event = HarnessAuditEvent(
+        run_id=RUN_ID,
+        sequence=3,
+        kind=HarnessAuditEventKind.WORKFLOW_DEGRADED,
+        occurred_at=NOW,
+        duration_ms=0,
+        error_code=reason,
+        details=HarnessEventDetails(),
+    )
+
+    assert event.error_code == reason
+
+
 # 合法请求、授权、启动与终态分别占固定位置，事件类别与序号必须一起成立。
 @pytest.mark.parametrize(
     ("kind", "sequence", "error_code", "details"),

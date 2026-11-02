@@ -1,4 +1,4 @@
-# 显式公开源诊断入口：固定 BTC/ETH 与登记 RSS，经生产适配器读取后仅输出安全元数据。
+# 显式公开源诊断入口：固定 BTC/ETH 与登记 RSS，可选已治理情绪/ETF，经生产适配器只输出安全元数据。
 # 不读取 AppSettings、.env、数据库、账户或模型；不保存新闻、价格或原始响应。
 # 本命令不属于默认 full/CI；仅 python -m scripts.check_public_sources 显式执行时联网。
 from __future__ import annotations
@@ -7,17 +7,21 @@ import argparse
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import asdict, dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from xml.etree.ElementTree import ParseError
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import ValidationError
 
 from app.market.binance_usdm import BINANCE_USDM_BASE_URL, BinanceUsdmPublicMarketGateway
 from app.market.contracts import MarketDataUnavailableError, MarketTimeframe
+from app.market.etf_flows import FARSIDE_BASE_URL, FarsideEtfFlowGateway
+from app.market.research_context import ALTERNATIVE_ME_BASE_URL, AlternativeMeFearGreedGateway
 from app.news.contracts import ALLOWED_NEWS_SOURCES
 from app.news.rss import RssNewsSourceAdapter
 
@@ -32,6 +36,7 @@ Reason = Literal[
     "filtered_entries",
     "entry_limit",
     "incomplete_history",
+    "incomplete_disclosure",
     "timeout",
     "rate_limited",
     "upstream_rejected",
@@ -43,6 +48,10 @@ Reason = Literal[
 ]
 NETWORK_MODE = "httpx_default_process_environment; host_process_only; container_network_not_tested"
 CHECK_TIMEOUT_SECONDS = 20
+NEW_YORK = ZoneInfo("America/New_York")
+CONTEXT_CHECK_IDS = frozenset(
+    {"alternative_me.fear_greed", "BTCUSDT.etf_flows", "ETHUSDT.etf_flows"}
+)
 SYMBOLS = ("BTCUSDT", "ETHUSDT")
 TIMEFRAME_SECONDS = {
     MarketTimeframe.M15: 900,
@@ -77,6 +86,8 @@ class Observation:
     coverage_complete: bool = True
     rejected_entry_count: int = 0
     omitted_entry_count: int = 0
+    latest_trading_date: date | None = None
+    disclosure_complete: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -86,10 +97,11 @@ class CheckSpec:
     read: Callable[[], Awaitable[Observation]]
     threshold_seconds: int | None
     news: bool = False
+    etf: bool = False
 
     def __post_init__(self) -> None:
         # 在调度前检查标识，保证意外文本不会进入安全报告。
-        if self.check_id not in CHECK_IDS:
+        if self.check_id not in CHECK_IDS | CONTEXT_CHECK_IDS:
             raise ValueError("unknown_check_id")
 
 
@@ -109,6 +121,10 @@ class CheckResult:
     http_status: int | None = None
     rejected_entry_count: int = 0
     omitted_entry_count: int = 0
+    latest_trading_date: date | None = None
+    trading_date_timezone: Literal["America/New_York"] | None = None
+    threshold_calendar_days: int | None = None
+    disclosure_complete: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +143,8 @@ class DiagnosticReport:
         def encode(value: object) -> str:
             if isinstance(value, datetime):
                 return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            if isinstance(value, date):
+                return value.isoformat()
             raise TypeError("unsupported_report_value")
 
         return json.dumps(asdict(self), default=encode, ensure_ascii=True, indent=2)
@@ -154,6 +172,8 @@ def _safe_error(error: Exception) -> tuple[Reason, int | None]:
         "market_data_response_too_large": "invalid_response",
         "market_data_missing": "empty_data",
         "market_data_unavailable": "unavailable",
+        # 情绪网关将短历史、空数据和部分上游拒绝合并为领域不可用，不能臆断具体根因。
+        "market_context_unavailable": "unavailable",
     }
     if isinstance(error, MarketDataUnavailableError):
         return mapping.get(error.code, "unexpected_error"), None
@@ -191,7 +211,12 @@ async def run_checks(
                 recent = sum(completed - timedelta(days=7) <= t <= completed for t in times)
                 status: Status = "passed"
                 reason: Reason = "fresh"
-                if any(t > completed for t in times):
+                trading_date = observation.latest_trading_date
+                if any(t > completed for t in times) or (
+                    spec.etf
+                    and trading_date is not None
+                    and trading_date > completed.astimezone(NEW_YORK).date()
+                ):
                     status, reason = "failed", "future_data"
                 elif spec.news and observation.rejected_entry_count:
                     # 已过滤与真空订阅分开；即使全拒绝，也不能隐藏拒绝后报告 empty_data。
@@ -200,6 +225,15 @@ async def run_checks(
                     status, reason = "partial", "entry_limit"
                 elif observation.count == 0:
                     status, reason = ("partial" if spec.news else "failed"), "empty_data"
+                elif spec.etf:
+                    # 公开表仅有纽约交易日，没有实际披露时刻；保持 observed_at 为空，
+                    # 以当地日历日期诊断七日宽限，避免 UTC 跨天和夏令时造成误判。
+                    if trading_date is None:
+                        status, reason = "failed", "empty_data"
+                    elif observation.disclosure_complete is not True:
+                        status, reason = "partial", "incomplete_disclosure"
+                    elif (completed.astimezone(NEW_YORK).date() - trading_date).days > 7:
+                        status, reason = "partial", "stale_data"
                 elif spec.threshold_seconds is None:
                     reason = "metadata_available"
                 elif not times:
@@ -224,6 +258,10 @@ async def run_checks(
                     recent if spec.news else None,
                     rejected_entry_count=observation.rejected_entry_count,
                     omitted_entry_count=observation.omitted_entry_count,
+                    latest_trading_date=trading_date,
+                    trading_date_timezone="America/New_York" if spec.etf else None,
+                    threshold_calendar_days=7 if spec.etf else None,
+                    disclosure_complete=observation.disclosure_complete,
                 )
             except Exception as error:
                 reason, http_status = _safe_error(error)
@@ -238,6 +276,8 @@ async def run_checks(
                     spec.threshold_seconds,
                     "unavailable",
                     http_status=http_status,
+                    trading_date_timezone="America/New_York" if spec.etf else None,
+                    threshold_calendar_days=7 if spec.etf else None,
                 )
 
     results = tuple(await asyncio.gather(*(check(spec) for spec in specs)))
@@ -349,7 +389,47 @@ def build_checks(
     return tuple(specs)
 
 
-async def run_diagnostics() -> DiagnosticReport:
+def build_context_checks(
+    sentiment_client: httpx.AsyncClient,
+    etf_client: httpx.AsyncClient,
+    *,
+    clock: Callable[[], datetime],
+) -> tuple[CheckSpec, ...]:
+    # 可选范围固定为一个情绪历史与 BTC/ETH 表；直接复用生产解析与主机白名单，
+    # 不提供任意 URL、供应商或币种参数，也不改生产报告的证据准入阈值。
+    sentiment = AlternativeMeFearGreedGateway(client=sentiment_client, clock=clock)
+    etf = FarsideEtfFlowGateway(client=etf_client, clock=clock)
+
+    async def fear_greed() -> Observation:
+        readings = await sentiment.get_history()
+        times = tuple(reading.observed_at for reading in readings)
+        # 生产适配器验证八条倒序记录，但未保证逐日连续；重复日期/缺日需独立降为 partial。
+        complete = len(times) == 8 and all(
+            (a.date() - b.date()).days == 1 for a, b in zip(times, times[1:])
+        )
+        return Observation(len(readings), times, coverage_complete=complete)
+
+    def etf_spec(symbol: str) -> CheckSpec:
+        async def flows() -> Observation:
+            snapshot = await etf.collect(symbol, as_of=clock())
+            # days 是适配器保留的最多十五日，非完整历史；未来纽约日期已被生产适配器
+            # 过滤，诊断只能检查返回字段，不能证明原始网页没有被过滤的未来日期。
+            # 任一返回日披露不全均 partial；不得用 fetched_at 冒充交易日观测时刻。
+            return Observation(
+                len(snapshot.days),
+                latest_trading_date=max(day.trading_date for day in snapshot.days),
+                disclosure_complete=all(day.complete for day in snapshot.days),
+            )
+
+        return CheckSpec(f"{symbol}.etf_flows", flows, None, etf=True)
+
+    return (
+        CheckSpec("alternative_me.fear_greed", fear_greed, 172800),
+        *(etf_spec(symbol) for symbol in SYMBOLS),
+    )
+
+
+async def run_diagnostics(*, include_context: bool = False) -> DiagnosticReport:
     # httpx 默认 trust_env=True，与生产默认进程网络方式一致；不读取/输出代理值，
     # 此进程结果不代表 Docker 容器网络。显式关闭重定向，连接池和总分项并发均有限。
     limits = httpx.Limits(max_connections=8, max_keepalive_connections=4)
@@ -358,21 +438,41 @@ async def run_diagnostics() -> DiagnosticReport:
             base_url=BINANCE_USDM_BASE_URL, timeout=5, follow_redirects=False, limits=limits
         ) as market_client,
         httpx.AsyncClient(timeout=5, follow_redirects=False, limits=limits) as news_client,
+        AsyncExitStack() as context_stack,
     ):
 
         def clock() -> datetime:
             return datetime.now(UTC)
 
-        return await run_checks(build_checks(market_client, news_client, clock=clock), clock=clock)
+        specs = build_checks(market_client, news_client, clock=clock)
+        if include_context:
+            sentiment_client = await context_stack.enter_async_context(
+                httpx.AsyncClient(
+                    base_url=ALTERNATIVE_ME_BASE_URL,
+                    timeout=5,
+                    follow_redirects=False,
+                    limits=limits,
+                )
+            )
+            etf_client = await context_stack.enter_async_context(
+                httpx.AsyncClient(
+                    base_url=FARSIDE_BASE_URL, timeout=5, follow_redirects=False, limits=limits
+                )
+            )
+            specs += build_context_checks(sentiment_client, etf_client, clock=clock)
+        return await run_checks(specs, clock=clock)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    # 仅 --report 为输出路径；不存在任意 URL、模型、数据库或账户选项。
+    # --include-context 仅打开代码固定的三项诊断；不存在任意 URL、模型、数据库或账户选项。
     parser = argparse.ArgumentParser(description="Explicit read-only governed public-source checks")
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--include-context", action="store_true")
     args = parser.parse_args(argv)
     try:
-        report = asyncio.run(run_diagnostics())
+        report = asyncio.run(
+            run_diagnostics(include_context=True) if args.include_context else run_diagnostics()
+        )
     except Exception:
         # 客户端构造等顶层未知错误同样不输出环境值、traceback 或异常文本。
         now = datetime.now(UTC)

@@ -11,7 +11,7 @@
 | 公开行情与存储 | Binance USDⓈ-M 公开行情、K 线及衍生品指标；实时查询与已存储研究数据分别有接口 | [market](../backend/src/app/market/)、[市场测试](../backend/tests/market/) |
 | 研究币种管理 | 合约准入检查、目录登记、初始同步、失败重试、超时/租约恢复及归档；动态研究范围不扩大交易范围 | [symbols](../backend/src/app/symbols/)、[管理页](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.tsx)、[测试](../backend/tests/symbols/) |
 | 同步安全诊断 | 管理页展示 UTC 生命周期、固定中文失败原因与逐来源覆盖；离线缺项明确提示，不显示原始错误或来源载荷 | [诊断组件](../frontend/src/features/research-symbols/ResearchSymbolSyncDiagnostics.tsx)、[页面测试](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.test.tsx) |
-| 手动公开源诊断 | 显式运行生产适配器的 24 个只读分项，分别记录可用性与时效；不加入默认离线验收，不读取业务配置或数据库 | [检查脚本](../backend/scripts/check_public_sources.py)、[质量验证](quality-verification.md#手动验证真实公开源) |
+| 手动公开源诊断 | 默认24项，显式包含情绪/ETF时27项，分别记录可用性与时效；不加入默认离线验收，不读取业务配置或数据库 | [检查脚本](../backend/scripts/check_public_sources.py)、[质量验证](quality-verification.md#手动验证真实公开源) |
 | 按需 AI 研究 | 固定 LangGraph、冻结证据、中文双周期叙事、模型校验与降级；无模型工具调用 | [agent](../backend/src/app/agent/)、[测试](../backend/tests/agent/) |
 | 报告专题 | 美国政策、近七天资金费率、BTC/ETH 美国现货 ETF 资金流；各专题独立处理缺失和失败 | [专题说明](report-factors.md)、[因子测试](../backend/tests/agent/test_factors.py) |
 | 独立技术研究 | v2 两阶段模型、程序验证的条件候选、引用校验、规则降级与持久化后台任务；保留 v1 同步接口和历史读取 | [交易计划书](technical-trading-plan.md)、[technical](../backend/src/app/agent/technical/)、[模型测试](../backend/tests/agent/test_technical_plan_model.py)、[worker 测试](../backend/tests/agent/test_technical_worker.py) |
@@ -51,6 +51,10 @@
 后端全部 248 个 Python 文件（源码、脚本、测试和历史迁移）补充中文注释，说明职责、关键流程、契约、失败路径与设计原因；可添加注释的构建配置同步补充说明。根目录与后端 `AGENTS.md`、[AI 维护指南](ai-maintenance.md)明确 AI Agent 生成代码必须维护详细注释，具体要求见[后端规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)。锁文件、严格 JSON/XML 样本、版本标记与冻结技术方法保留原内容；Windows Alembic 配置采用 ASCII 注释以兼容本地编码读取。
 
 ## 最近验证
+
+2026-11-02 集中收尾：逐项核对历史优化，当前本地可执行项已汇总至[优化收尾清单](optimization-closeout.md)。补齐综合研究生产采集/新闻隔离/冻结证据/缺配置模型/真实SQL新仓储重读和不可变审计回归；由此发现并修复 Harness 降级事件读取不接受数据库已保存安全错误码的兼容缺陷，完成事件约束保持不变，无schema变更。可选情绪/ETF三项真实诊断通过；另以真实公开源运行一次隔离综合研究，23份证据、部分覆盖、零模型HTTP传输，降级报告与新仓储重读一致。固定测试与实时采集的证明范围分别记录，不等于真实模型质量验收。
+
+集中收尾最终验证：根目录统一 `full` 的22项检查全部通过，后端878 collected/passed，零失败/跳过/收集错误，前端lint/typecheck/Vitest/build通过。上下文诊断离线40项、Harness聚焦56项及综合SQL闭环1项通过；文档安全另55项通过。独立复核无P1/P2，链接与差异空白检查通过。测试schema清零且独立tmpfs数据库容器已回收。未执行付费模型、业务迁移、远端CI或推送；外部不可用及预算依赖继续明确保留。
 
 2026-11-02 新闻源地址与网络批次：CoinDesk 旧链接 308 仅去掉末尾斜线；直接验证同站规范路径 HTTP 200 后，更新固定登记地址，继续禁止自动跳转。生产适配器实测保留 20 条近期新闻、拒绝 0 条、预算截取 5 条，标为部分覆盖。Treasury 主机/临时容器在 5 秒及一次 15 秒复查均读超时，CFTC 两侧均 403；未发现需要修改本地配置的分歧，也没有成功证据支持增加生产超时。CFTC 官方另公告 RSS 自 2026 年 10 月起暂时停用，保留失败覆盖。官方依据、检查范围及资源回收见[地址复核记录](public-source-endpoints.md)。
 
