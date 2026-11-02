@@ -14,6 +14,22 @@ const queuedRun = {
 };
 
 describe("research symbol sync retry adapters", () => {
+  it.each([
+    { createdAt: "2026-02-30T00:00:00Z" },
+    { startedAt: "2026-11-01T00:00:01+08:00" },
+    { completedAt: 123 },
+    { error: { message: "arbitrary body" } },
+    { sources: [{ name: "arbitrary source body", status: "available" }] },
+    { sources: [{ name: "market", status: "arbitrary status body" }] },
+  ])("rejects invalid directory diagnostics %j", async (diagnostics) => {
+    const [entry] = await new MockWorkbenchApi().listResearchSymbols();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      items: [{ ...entry, lastSync: { id: failedId, status: "failed", ...diagnostics } }],
+    }));
+    const api = new HttpWorkbenchApi({ baseUrl: "http://localhost:8000", fetchImpl });
+    await expect(api.listResearchSymbols()).rejects.toBeInstanceOf(WorkbenchResponseError);
+  });
+
   it("posts the failed run UUID and validates the complete camelCase run response", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(queuedRun, { status: 202 }));
     const api = new HttpWorkbenchApi({ baseUrl: "http://localhost:8000", fetchImpl });

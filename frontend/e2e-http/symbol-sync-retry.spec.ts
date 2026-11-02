@@ -1,15 +1,22 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { z } from "zod";
 
 import {
+  researchSymbolEntrySchema,
   researchSymbolListSchema,
   researchSymbolSyncRunSchema,
 } from "../src/domain/research-symbol";
+
+// 页面只保留安全诊断投影；持久化验收另外校验完整 HTTP 任务，不能依赖投影保留内部字段。
+const persistedDirectorySchema = z.object({
+  items: z.array(researchSymbolEntrySchema.extend({ lastSync: researchSymbolSyncRunSchema.nullable() })),
+}).strict();
 
 // 只替换后端采集输入；浏览器通过生产路由/worker/SQL 完成人工重试，不拦截 HTTP。
 async function readEntry(client: APIRequestContext, backendUrl: string, symbol: string) {
   const response = await client.get(`${backendUrl}/api/v1/research-symbols`);
   expect(response.status()).toBe(200);
-  const entry = researchSymbolListSchema.parse(await response.json()).items.find(
+  const entry = persistedDirectorySchema.parse(await response.json()).items.find(
     (item) => item.symbol === symbol,
   );
   if (entry === undefined) throw new Error("Synthetic research symbol is missing");
@@ -35,6 +42,7 @@ for (const scenario of [
     const card = page.getByRole("article", { name: scenario.symbol, exact: true });
     const retryButton = card.getByRole("button", { name: "重试同步", exact: true });
     await expect(card.getByText("最近同步：失败", { exact: true })).toBeVisible();
+    await expect(card.getByText("失败原因：公开行情同步失败，请稍后重试。", { exact: true })).toBeVisible();
     await expect(retryButton).toBeEnabled();
 
     const enqueue = page.waitForResponse((response) => response.url() === `${backendUrl}${path}`
@@ -80,13 +88,18 @@ for (const scenario of [
     expect(saved.canResearch).toBe(scenario.canResearch);
     expect(terminal.completedAt).not.toBeNull();
     expect(terminal.leaseToken).toBeNull();
+    await expect(card.locator("time")).toHaveCount(3);
+    await expect(card.locator("time").last()).toHaveAttribute("datetime", terminal.completedAt ?? "");
     expect(JSON.stringify(saved)).not.toContain("OFFLINE_PRIVATE");
     if (scenario.canResearch) {
       expect(terminal.snapshotId).not.toBeNull();
       expect(terminal.sources.find((source) => source.name === "funding")?.status).toBe("missing");
+      await expect(card.getByRole("list", { name: "来源覆盖" }).getByText("资金费率：缺失", { exact: true })).toBeVisible();
     } else {
       expect(terminal.snapshotId).toBeNull();
       expect(terminal.error).toBe("market_sync_failed");
+      await expect(card.getByText("失败原因：公开行情同步失败，请稍后重试。", { exact: true })).toBeVisible();
+      await expect(card.getByRole("list", { name: "来源覆盖" }).getByText("公开行情：失败", { exact: true })).toBeVisible();
     }
     const stale = await page.request.post(`${backendUrl}${path}`, { data: { runId: original.id } });
     expect(stale.status()).toBe(409);
@@ -101,6 +114,7 @@ for (const scenario of [
       const cleanCard = cleanPage.getByRole("article", { name: scenario.symbol, exact: true });
       await expect(cleanCard.getByText(`最近同步：${scenario.label}`, { exact: true })).toBeVisible();
       await expect(cleanCard.getByText(scenario.canResearch ? "可研究" : "暂不可研究", { exact: true })).toBeVisible();
+      await expect(cleanCard.locator("time").last()).toHaveAttribute("datetime", terminal.completedAt ?? "");
       expect(await readEntry(fresh.request, backendUrl, scenario.symbol)).toEqual(saved);
       await expect(cleanPage.getByText(/Mock 演示数据|OFFLINE_PRIVATE/)).toHaveCount(0);
     } finally {

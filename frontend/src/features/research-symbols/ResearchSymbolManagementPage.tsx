@@ -6,6 +6,7 @@ import { PageState } from "../../components/common/PageState";
 import type { ResearchSymbolEntry } from "../../domain/research-symbol";
 import { WorkbenchHttpError } from "../../shared/api/http-transport";
 import { rememberResearchSymbol, useResearchSymbolSelection } from "./useResearchSymbolSelection";
+import { ResearchSymbolSyncDiagnostics } from "./ResearchSymbolSyncDiagnostics";
 
 function admissionFailureReasons(error: Error | null): string[] {
   if (
@@ -127,8 +128,8 @@ export function ResearchSymbolManagementPage() {
       ) : null}
       {retryMutation.isError ? (
         <p className="inline-error" role="alert">
-          {retryMutation.error instanceof WorkbenchHttpError
-            ? retryMutation.error.message
+          {retryMutation.error instanceof WorkbenchHttpError && ["sync_retry_conflict", "research_symbol_sync_retry_conflict"].includes(retryMutation.error.code)
+            ? "任务状态已变化，请刷新后重试。"
             : "重试同步失败，请稍后重试。"}
         </p>
       ) : null}
@@ -148,6 +149,7 @@ export function ResearchSymbolManagementPage() {
                   <span>{entry.canResearch ? "可研究" : "暂不可研究"}</span>
                 </header>
                 <p>最近同步：{entry.lastSync ? syncLabels[entry.lastSync.status] : "尚未同步"}</p>
+                {entry.lastSync ? <ResearchSymbolSyncDiagnostics run={entry.lastSync} /> : null}
                 {entry.lastSync?.id.startsWith("offline-") ? (
                   <p>离线示例仅展示本地样例数据，不执行公开源同步。</p>
                 ) : null}
