@@ -89,6 +89,12 @@ uv run pytest tests/persistence/test_technical_worker_recovery.py tests/tooling/
 
 实际子进程测试使用阻塞执行器证明 worker/SQL 崩溃恢复；完整模型适配器/Harness 链由其他用例证明。新浏览器上下文只能证明没有客户端缓存依赖，不证明后端操作系统重启。取消时运行状态为 interrupted，已有不可变 Harness 终态可能先记录 workflow_exception/CancelledError，worker 不覆盖它。
 
+## 完整 Compose 运行与恢复
+
+独立 HTTP 工厂不是完整生产装配。2026-11-01 另行使用生产 Dockerfile、入口迁移、完整 API lifespan、Nginx 和独立 PostgreSQL 完成合成交易日志验收，包含 API 重启、保卷整套重建及备份恢复到独立空库；记录见[隔离 Compose 验收](superpowers/plans/2026-11-01-isolated-compose-acceptance.md)。没有新增统一入口档位，不能将 `http-e2e` 的通过结果直接解释为这组运行验收通过。
+
+该次验收使用临时编排与测试资源，API/数据库内部隔离、模型密钥为空。恢复实例有独立前端来源，且在原实例停止后通过新浏览器读取。证明范围限于所验合成日志和迁移链，不覆盖全业务数据、断电恢复、PITR、真实公开源或付费模型。
+
 ## 研究币种同步恢复回归
 
 在 `backend/` 运行 `uv run pytest tests/symbols/test_sync.py tests/persistence/test_symbol_repository.py tests/persistence/test_symbol_sync_recovery.py tests/api/test_symbol_sync_retry.py`。SQL 用例要求显式专用测试库授权，覆盖并发重试、迟到失败 ID、归档/版本、租约截止与新消费者回收；worker 联验使用固定合成行情与真实快照仓储，验证续租后超过原租约仍可保存、归档取消、超时和协程中断的持久化结果。另验证终态提交等待中的心跳异常会取消提交、队列存储暂时故障后继续消费，以及快照独立提交后取消时保留行情但不关联任务或授予准入。该组不连接公开源，不证明生产进程重启或公网质量。

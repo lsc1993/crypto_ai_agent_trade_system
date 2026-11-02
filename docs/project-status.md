@@ -27,6 +27,7 @@
 | 架构机器门禁 | AST 检查研究/交易、Harness/IO及持久化、Risk/LLM 直接依赖；故意违规、漏扫及坏语法均有回归，保留原字符串安全检查 | [检查器](../backend/scripts/check_architecture.py)、[故障样例测试](../backend/tests/security/test_architecture_gate.py) |
 | HTTP 与数据库浏览器验收 | 交易日志在 api 模式经真实 HTTP 和生产仓储保存后，刷新及新上下文重读；随机测试 schema，不是整站生产装配验收 | [浏览器用例](../frontend/e2e-http/trade-persistence.spec.ts)、[隔离服务](../backend/scripts/http_e2e_server.py) |
 | 技术研究 HTTP 与任务恢复验收 | 生产队列/worker/Harness/适配器/SQL 的完成与降级闭环；worker 重建、子进程终止、取消、提交后恢复、去重与迟到租约拒绝 | [研究浏览器用例](../frontend/e2e-http/research-persistence.spec.ts)、[恢复测试](../backend/tests/persistence/test_technical_worker_recovery.py) |
+| 完整 Compose 运行与恢复验收 | 生产镜像、入口迁移、完整应用 lifespan 与 Nginx；合成日志在 API 重启、保卷重建及独立空库备份恢复后保持一致 | [本地运行验收记录](superpowers/plans/2026-11-01-isolated-compose-acceptance.md)、[部署说明](local-deployment.md) |
 
 ## 本次整理的行为
 
@@ -45,6 +46,12 @@
 后端全部 248 个 Python 文件（源码、脚本、测试和历史迁移）补充中文注释，说明职责、关键流程、契约、失败路径与设计原因；可添加注释的构建配置同步补充说明。根目录与后端 `AGENTS.md`、[AI 维护指南](ai-maintenance.md)明确 AI Agent 生成代码必须维护详细注释，具体要求见[后端规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)。锁文件、严格 JSON/XML 样本、版本标记与冻结技术方法保留原内容；Windows Alembic 配置采用 ASCII 注释以兼容本地编码读取。
 
 ## 最近验证
+
+2026-11-01 隔离 Compose 验收，代码基线 `bf35bb0`：使用现有生产 Dockerfile 构建当前 API、前端及恢复实例的独立前端镜像，经实际入口迁移启动 PostgreSQL/API/Nginx。API 与数据库仅连接独立 internal 网络，空模型密钥且未设置非空代理环境变量；前端额外使用独立入口桥接网，仅发布回环端口。本机 Docker Desktop 的纯 internal 网络未发布宿主机端口，临时拓扑调整后重新启动验证通过，没有修改业务 Compose。
+
+真实生产页面保存合成交易日志，刷新和新 context 重读通过。随后 API 重启的 `StartedAt` 改变，保留原卷的 down/up 使三个容器 ID 均改变；再将 `pg_dump` 自定义格式备份恢复到不同卷、不同数据库集群的空库。四个阶段的同一交易 ID、完整响应 SHA256 与迁移链头 `0018_technical_report_runs` 一致。共四次浏览器验收通过；最终停止原栈，恢复实例的新浏览器只请求自己的入口，仍能读取原记录。两个研究币种在隔离网络下的初始同步均为失败，未冒充公开源同步成功。
+
+本批证明范围是合成交易日志及迁移链在正常重启、保卷重建和逻辑备份恢复后可用；不覆盖全部业务数据、断电恢复、PITR、真实公开源或模型质量。没有修改生产代码、Dockerfile、业务 Compose、依赖或 schema；没有执行远端 CI、推送、合并或部署到业务环境。详细步骤与资源回收结果见[验收记录](superpowers/plans/2026-11-01-isolated-compose-acceptance.md)。
 
 本地版本收尾：2026-11-01 在开发分支按纯格式整理、质量与研究验收、同步恢复形成三组本地提交。提交前重新执行统一 `full`，22 项检查全部通过，后端 813 项测试通过且零跳过，前端 lint/typecheck/Vitest/build 通过。收尾审查修正了运行边界文档中仍否认失败重试端点的旧说明。没有推送、合并、运行远端 CI、设置合并门禁或部署；此前各批次的“未提交”等记录保留其当时的验证状态。
 
@@ -91,7 +98,7 @@
 - 技术研究的数值与价格由确定性程序计算或按冻结字段渲染，模型不能改写数值、扩大交易范围或自动执行条件计划。历史触发状态冻结，到期不自动重算。
 - 当前迁移链头为 `0018_technical_report_runs`，v2 部署需前后端与该迁移配套。测试库迁移通过不代表业务库已升级；业务环境须按[部署说明](local-deployment.md)另行验收。
 - 真实模型曾出现数值、引用和交易措辞校验降级；有限纠错与合法段落保留已有实现。已有适配器及综合/技术 v2 服务离线评估和真实仓储回归，固定响应仍不代表真实模型质量、抗注入能力或交易表现，真实模型质量基准待补充。
-- CI 配置已加入仓库，但尚无远端成功记录，分支保护是否设为必需门禁需独立确认。HTTP 浏览器验收覆盖交易日志及技术 v2 完成/降级闭环，不代表整站功能、真实模型、完整生产 lifespan 或后端操作系统重启联验；AST 门禁只覆盖可解析直接依赖，不是任意动态代码执行安全证明。
+- 当前交付使用本地验收，远端 CI 与合并门禁不纳入本轮交付要求；已有 workflow 配置保留但未运行。HTTP 浏览器验收覆盖日志及技术 v2 的局部装配；另有完整生产 Compose 的日志、进程重启和备份恢复验收，两类证据不能扩展为整站功能或真实模型质量。AST 门禁只覆盖可解析直接依赖，不是任意动态代码执行安全证明。
 - 当前不提供真实执行、模型任意工具、长期用户记忆或自动策略交易。Harness 后续阶段保留为规划，不能因历史设计列出就视为启用。
 
 ## 阅读顺序
