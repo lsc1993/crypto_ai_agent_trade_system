@@ -20,14 +20,8 @@ from app.news.normalization import normalize_news_item
             NewsEventCategory.MACRO,
         ),
         (
-            "us_treasury_press_releases",
-            "Treasury announces stablecoin rules",
-            "The Treasury proposed new rules for digital asset issuers.",
-            NewsEventCategory.REGULATION,
-        ),
-        (
-            "cftc_press_releases",
-            "CFTC proposes digital asset regulation",
+            "sec_press_releases",
+            "SEC proposes digital asset regulation",
             "The Commission announced a proposed rule for crypto derivatives.",
             NewsEventCategory.REGULATION,
         ),
@@ -53,11 +47,11 @@ def test_official_policy_without_coin_name_reaches_both_reports(
 def test_unrelated_official_release_is_not_a_crypto_policy() -> None:
     item = normalize_news_item(
         ExternalNewsItem(
-            title="Treasury announces museum visitor schedule",
+            title="Federal Reserve announces museum visitor schedule",
             summary="The building will welcome visitors for an exhibition.",
             published_at=datetime(2026, 9, 1, tzinfo=UTC),
         ),
-        source=ALLOWED_NEWS_SOURCES["us_treasury_press_releases"],
+        source=ALLOWED_NEWS_SOURCES["federal_reserve_press_releases"],
         fetched_at=datetime(2026, 9, 6, tzinfo=UTC),
     )
     assert item.related_symbols == ()

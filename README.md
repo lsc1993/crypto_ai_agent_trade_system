@@ -8,7 +8,7 @@
 
 新增币种会排队进行初始同步，由 API 内的后台 worker 处理并展示状态。新闻和情绪在生成报告时按需采集，报告不会随同步自动生成。归档保留历史报告；研究范围扩展不扩大交易日志、回测或模拟盘的交易契约。
 
-输入只使用公开、只读数据：Binance USDⓈ-M 的公开行情和衍生品指标、[Alternative.me Fear & Greed Index](https://alternative.me/crypto/fear-and-greed-index/)（报告中保留归因），以及已登记的英文 RSS 标题与摘要。RSS 来源固定为 SEC Press Releases、CFTC Press Releases、Federal Reserve Press Releases、U.S. Treasury Press Releases、CoinDesk、Decrypt、Blockworks 和 The Block。单一来源失败会明确显示为部分覆盖，不会用历史数据冒充本次输入。
+输入只使用公开、只读数据：Binance USDⓈ-M 的公开行情和衍生品指标、[Alternative.me Fear & Greed Index](https://alternative.me/crypto/fear-and-greed-index/)（报告中保留归因），以及已登记的英文 RSS 标题与摘要。RSS 来源固定为 SEC Press Releases、Federal Reserve Press Releases、CoinDesk、Decrypt、Blockworks 和 The Block。单一来源失败会明确显示为部分覆盖，不会用历史数据冒充本次输入。
 
 报告另包含美国政策、近七天资金费率和美国现货 ETF 专题。ETF 仅适用于有来源支持的 BTC/ETH，读取固定 Farside 公开表；缺失与未披露值不补零。数据口径见[专题说明](docs/report-factors.md)。
 

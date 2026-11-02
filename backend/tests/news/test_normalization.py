@@ -12,9 +12,30 @@ from app.news.contracts import (
     COINDESK_SOURCE,
     SEC_PRESS_RELEASES_SOURCE,
     ExternalNewsItem,
+    NewsItemDraft,
     parse_http_url,
 )
 from app.news.normalization import normalize_news_item
+
+
+@pytest.mark.parametrize("source_id", ["cftc_press_releases", "us_treasury_press_releases"])
+def test_retired_source_historical_news_remains_readable(source_id: str) -> None:
+    # 读取历史草稿不能复用当前采集准入名单；原来源、去重键与冻结文本均保持不变。
+    historical = normalize_news_item(
+        ExternalNewsItem(
+            title="Bitcoin historical policy update",
+            summary="The original official announcement remains historical evidence.",
+            published_at=utc("2026-08-10T08:00:00Z"),
+        ),
+        source=SEC_PRESS_RELEASES_SOURCE,
+        fetched_at=utc("2026-08-10T08:01:00Z"),
+    ).model_dump(mode="json")
+    historical["source_id"] = source_id
+    historical["deduplication_key"] = f"{source_id}:source-item:historical-42"
+    restored = NewsItemDraft.model_validate(historical)
+    assert restored.source_id == source_id
+    assert restored.deduplication_key == historical["deduplication_key"]
+    assert restored.title == historical["title"]
 
 
 def utc(value: str) -> datetime:

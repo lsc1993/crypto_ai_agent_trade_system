@@ -2,6 +2,8 @@
 
 核对日期：2026-11-02。仅核对既有公开来源，不增加新供应商、网页采集、凭证或模型调用。
 
+后续范围调整：用户已要求删除 Treasury 与 CFTC RSS，两者现已退出活动白名单与覆盖分母。以下超时/403记录保留历史诊断意义，不再是当前来源恢复待办；不删除历史新闻或报告。
+
 ## CoinDesk 固定地址
 
 [CoinDesk 官方 RSS 说明](https://www.coindesk.com/coindesk-news/2021/09/17/coindesk-rss)仍发布带末尾斜线的旧链接。主机直接访问旧链接得到 308，其 Location 是同站相对路径 `/arc/outboundfeeds/rss`，没有 query 或主机变化。直接访问该规范路径得到 HTTP 200、31518 字节，未跟随跳转。

@@ -98,7 +98,7 @@ async def test_production_collection_distinguishes_content_coverage(case: str) -
 
 @pytest.mark.asyncio
 async def test_filtered_official_source_prevents_complete_policy_coverage() -> None:
-    # 四个官方来源均能读取，但一源过滤时政策来源覆盖仍只能 partial。
+    # 两个活动官方来源均能读取，但一源过滤时政策来源覆盖仍只能 partial。
     def respond(request: httpx.Request) -> httpx.Response:
         entry = _entry()
         if request.url.host == "www.sec.gov":
@@ -111,7 +111,10 @@ async def test_filtered_official_source_prevents_complete_policy_coverage() -> N
         service = NewsIngestionService(
             sources=tuple(
                 RssNewsSourceAdapter(source=source, client=client, timeout_seconds=5)
-                for source in tuple(ALLOWED_NEWS_SOURCES.values())[:4]
+                for source in (
+                    ALLOWED_NEWS_SOURCES["sec_press_releases"],
+                    ALLOWED_NEWS_SOURCES["federal_reserve_press_releases"],
+                )
             ),
             repository=_Repository(),
         )
@@ -119,6 +122,48 @@ async def test_filtered_official_source_prevents_complete_policy_coverage() -> N
             ContractSymbol.BTCUSDT, since=NOW - timedelta(days=7), until=NOW
         )
     assert _policy_source_coverage(result) == "partial"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy_only", [False, True])
+async def test_six_active_sources_and_two_policy_sources_have_complete_coverage(
+    policy_only: bool,
+) -> None:
+    # 六个活动来源都有近期合法条目即可完整覆盖；退役来源不再占政策覆盖分母。
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(
+            200, stream=_Stream(f"<rss><channel>{_entry()}</channel></rss>".encode())
+        )
+
+    sources = (
+        (
+            ALLOWED_NEWS_SOURCES["sec_press_releases"],
+            ALLOWED_NEWS_SOURCES["federal_reserve_press_releases"],
+        )
+        if policy_only
+        else tuple(ALLOWED_NEWS_SOURCES.values())
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        service = NewsIngestionService(
+            sources=tuple(
+                RssNewsSourceAdapter(source=source, client=client, timeout_seconds=5)
+                for source in sources
+            ),
+            repository=_Repository(),
+        )
+        result = await service.collect(
+            ContractSymbol.BTCUSDT, since=NOW - timedelta(days=7), until=NOW
+        )
+    expected_count = 2 if policy_only else 6
+    assert result.source_count == result.successful_source_count == expected_count
+    assert result.failed_source_count == 0
+    assert len(requests) == expected_count
+    assert all("cftc.gov" not in url and "treasury.gov" not in url for url in requests)
+    assert _source_coverage(result) == "complete"
+    assert _policy_source_coverage(result) == "complete"
 
 
 @pytest.mark.asyncio

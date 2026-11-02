@@ -23,12 +23,11 @@ from app.reports.factors import (
     unavailable_topic,
 )
 
+# 只计算当前活动官方来源的覆盖分母；退役来源的历史证据由报告读取链保留。
 POLICY_SOURCES = frozenset(
     {
         "sec_press_releases",
-        "cftc_press_releases",
         "federal_reserve_press_releases",
-        "us_treasury_press_releases",
     }
 )
 
@@ -98,8 +97,7 @@ def policy_topic(
         events=events,
         evidence_ids=tuple(event.evidence_id for event in events),
         limitations=(
-            "范围为 SEC、CFTC、美联储和美国财政部；"
-            "RSS 条目与本次证据数量均有上限，覆盖可能不完整。",
+            "范围为 SEC 和美联储；RSS 条目与本次证据数量均有上限，覆盖可能不完整。",
             "未获取相关事件不代表过去一周没有政策；发布时间不等于政策生效时间。",
         ),
     )

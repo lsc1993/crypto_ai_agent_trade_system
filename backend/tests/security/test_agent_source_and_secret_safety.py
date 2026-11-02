@@ -23,9 +23,7 @@ def test_agent_sources_are_allowlisted_and_cannot_enable_social_or_full_page_fet
     assert "ALLOWED_NEWS_SOURCES" in source
     assert set(ALLOWED_NEWS_SOURCES) == {
         "sec_press_releases",
-        "cftc_press_releases",
         "federal_reserve_press_releases",
-        "us_treasury_press_releases",
         "coindesk",
         "decrypt",
         "blockworks",
@@ -111,9 +109,9 @@ def test_operation_docs_keep_the_manual_research_and_secret_boundary() -> None:
     assert "缺失" in deployment and "降级" in deployment
     assert "抓取公开行情与英文新闻并分析" in readme
     for source_name in (
-        "CFTC Press Releases",
+        "SEC Press Releases",
         "Federal Reserve Press Releases",
-        "U.S. Treasury Press Releases",
+        "CoinDesk",
         "Decrypt",
         "Blockworks",
         "The Block",

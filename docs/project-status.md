@@ -11,7 +11,7 @@
 | 公开行情与存储 | Binance USDⓈ-M 公开行情、K 线及衍生品指标；实时查询与已存储研究数据分别有接口 | [market](../backend/src/app/market/)、[市场测试](../backend/tests/market/) |
 | 研究币种管理 | 合约准入检查、目录登记、初始同步、失败重试、超时/租约恢复及归档；动态研究范围不扩大交易范围 | [symbols](../backend/src/app/symbols/)、[管理页](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.tsx)、[测试](../backend/tests/symbols/) |
 | 同步安全诊断 | 管理页展示 UTC 生命周期、固定中文失败原因与逐来源覆盖；离线缺项明确提示，不显示原始错误或来源载荷 | [诊断组件](../frontend/src/features/research-symbols/ResearchSymbolSyncDiagnostics.tsx)、[页面测试](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.test.tsx) |
-| 手动公开源诊断 | 默认24项，显式包含情绪/ETF时27项，分别记录可用性与时效；不加入默认离线验收，不读取业务配置或数据库 | [检查脚本](../backend/scripts/check_public_sources.py)、[质量验证](quality-verification.md#手动验证真实公开源) |
+| 手动公开源诊断 | 默认22项，显式包含情绪/ETF时25项，分别记录可用性与时效；不加入默认离线验收，不读取业务配置或数据库 | [检查脚本](../backend/scripts/check_public_sources.py)、[质量验证](quality-verification.md#手动验证真实公开源) |
 | 按需 AI 研究 | 固定 LangGraph、冻结证据、中文双周期叙事、模型校验与降级；无模型工具调用 | [agent](../backend/src/app/agent/)、[测试](../backend/tests/agent/) |
 | 报告专题 | 美国政策、近七天资金费率、BTC/ETH 美国现货 ETF 资金流；各专题独立处理缺失和失败 | [专题说明](report-factors.md)、[因子测试](../backend/tests/agent/test_factors.py) |
 | 独立技术研究 | v2 两阶段模型、程序验证的条件候选、引用校验、规则降级与持久化后台任务；保留 v1 同步接口和历史读取 | [交易计划书](technical-trading-plan.md)、[technical](../backend/src/app/agent/technical/)、[模型测试](../backend/tests/agent/test_technical_plan_model.py)、[worker 测试](../backend/tests/agent/test_technical_worker.py) |
@@ -51,6 +51,10 @@
 后端全部 248 个 Python 文件（源码、脚本、测试和历史迁移）补充中文注释，说明职责、关键流程、契约、失败路径与设计原因；可添加注释的构建配置同步补充说明。根目录与后端 `AGENTS.md`、[AI 维护指南](ai-maintenance.md)明确 AI Agent 生成代码必须维护详细注释，具体要求见[后端规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)。锁文件、严格 JSON/XML 样本、版本标记与冻结技术方法保留原内容；Windows Alembic 配置采用 ASCII 注释以兼容本地编码读取。
 
 ## 最近验证
+
+2026-11-02 来源范围调整：按用户要求从活动白名单删除 Treasury/CFTC RSS，剩余 SEC、美联储、CoinDesk、Decrypt、Blockworks、The Block 六源；政策来源覆盖分母同步为 SEC/美联储。默认公开源诊断22项，含情绪/ETF时25项。历史来源记录和冻结报告保留，无数据删除、迁移或来源供应商新增。
+
+本批统一 `full` 的22项检查全部通过，后端881 collected/passed、零失败/跳过/收集错误，前端lint/typecheck/Vitest/build通过。聚焦109项及文档安全55项通过；真实25项诊断不含退役两源，六个RSS均可读取，过滤或预算截取仍明确为部分覆盖。文档链接和差异检查通过，临时schema清零且测试数据库容器已回收，未推送或运行远端CI。
 
 2026-11-02 集中收尾：逐项核对历史优化，当前本地可执行项已汇总至[优化收尾清单](optimization-closeout.md)。补齐综合研究生产采集/新闻隔离/冻结证据/缺配置模型/真实SQL新仓储重读和不可变审计回归；由此发现并修复 Harness 降级事件读取不接受数据库已保存安全错误码的兼容缺陷，完成事件约束保持不变，无schema变更。可选情绪/ETF三项真实诊断通过；另以真实公开源运行一次隔离综合研究，23份证据、部分覆盖、零模型HTTP传输，降级报告与新仓储重读一致。固定测试与实时采集的证明范围分别记录，不等于真实模型质量验收。
 
@@ -129,7 +133,7 @@
 - 技术研究的数值与价格由确定性程序计算或按冻结字段渲染，模型不能改写数值、扩大交易范围或自动执行条件计划。历史触发状态冻结，到期不自动重算。
 - 当前迁移链头为 `0018_technical_report_runs`，v2 部署需前后端与该迁移配套。测试库迁移通过不代表业务库已升级；业务环境须按[部署说明](local-deployment.md)另行验收。
 - 真实模型曾出现数值、引用和交易措辞校验降级；有限纠错与合法段落保留已有实现。已有适配器及综合/技术 v2 服务离线评估和真实仓储回归，固定响应仍不代表真实模型质量、抗注入能力或交易表现，真实模型质量基准待补充。
-- 2026-11-02 CoinDesk 更新为同站规范固定路径后可读取；此前条目隔离已恢复 Federal Reserve 与 Blockworks 的合法样本。Treasury 超时与 CFTC 拒绝仍未解决，研究新闻覆盖仍可能降级；CFTC 官方已公告 RSS 暂时停用。没有放宽语言规则、响应边界或增加来源供应商；单次检查不代表长期可用性。
+- 当前活动来源已按用户要求删除 Treasury/CFTC，两源不再采集或计入政策覆盖分母。历史超时/拒绝记录仅作诊断档案，不列为当前恢复待办；历史报告与新闻来源归因保留。其余来源仍按实际过滤与预算情况显示覆盖，单次检查不代表长期可用性。
 - 当前交付使用本地验收，远端 CI 与合并门禁不纳入本轮交付要求；已有 workflow 配置保留但未运行。HTTP 浏览器验收覆盖日志及技术 v2 的局部装配；另有完整生产 Compose 的日志、进程重启和备份恢复验收，两类证据不能扩展为整站功能或真实模型质量。AST 门禁只覆盖可解析直接依赖，不是任意动态代码执行安全证明。
 - 当前不提供真实执行、模型任意工具、长期用户记忆或自动策略交易。Harness 后续阶段保留为规划，不能因历史设计列出就视为启用。
 

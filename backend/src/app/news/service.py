@@ -353,8 +353,6 @@ def _has_expected_attribution(
 _BROAD_POLICY_SOURCES = frozenset(
     {
         "federal_reserve_press_releases",
-        "us_treasury_press_releases",
-        "cftc_press_releases",
         "sec_press_releases",
     }
 )

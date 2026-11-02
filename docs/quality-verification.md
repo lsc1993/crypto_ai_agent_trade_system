@@ -116,9 +116,9 @@ New-Item -ItemType Directory -Force ../.tmp/quality | Out-Null
 uv run --locked --no-sync python -m scripts.check_public_sources --report ../.tmp/quality/public-sources.json
 ```
 
-[诊断脚本](../backend/scripts/check_public_sources.py)默认只经生产适配器读取固定 BTCUSDT/ETHUSDT 的合约元数据、行情摘要、四周期已收盘 K 线、衍生品和七日资金费率，以及已登记的八个 RSS 源，共 24 个分项。两个分项并发，每项最多 20 秒，不叠加生产适配器之外的重试；K 线分项复用生产行情详情读取，仍依赖摘要可用，不能解释为独立 K 线端点探针。不读取应用配置、`.env`、数据库、账户或模型，不注册币种，不保存价格、新闻正文或原始响应，也不提供任意 URL 参数。真实模型和完整研究报告不在该命令范围。
+[诊断脚本](../backend/scripts/check_public_sources.py)默认只经生产适配器读取固定 BTCUSDT/ETHUSDT 的合约元数据、行情摘要、四周期已收盘 K 线、衍生品和七日资金费率，以及已登记的六个 RSS 源，共 22 个分项。两个分项并发，每项最多 20 秒，不叠加生产适配器之外的重试；K 线分项复用生产行情详情读取，仍依赖摘要可用，不能解释为独立 K 线端点探针。不读取应用配置、`.env`、数据库、账户或模型，不注册币种，不保存价格、新闻正文或原始响应，也不提供任意 URL 参数。真实模型和完整研究报告不在该命令范围。
 
-可显式加 `--include-context`，增加 Alternative.me 恐惧贪婪历史和 BTC/ETH Farside ETF，共27项。情绪阈值48小时，并核对返回八条日度历史的连续性；ETF按纽约当地日历七天及披露完整性判断，单列 `latest_trading_date`，`observed_at` 为空，不冒用抓取时刻。未来日期已由生产ETF适配器过滤，诊断只覆盖返回字段；部分披露不能记为完整通过。此选项仍只在手动运行时联网，不加入默认full或离线测试。
+可显式加 `--include-context`，增加 Alternative.me 恐惧贪婪历史和 BTC/ETH Farside ETF，共25项。情绪阈值48小时，并核对返回八条日度历史的连续性；ETF按纽约当地日历七天及披露完整性判断，单列 `latest_trading_date`，`observed_at` 为空，不冒用抓取时刻。未来日期已由生产ETF适配器过滤，诊断只覆盖返回字段；部分披露不能记为完整通过。此选项仍只在手动运行时联网，不加入默认full或离线测试。
 
 综合研究完整采集到SQL闭环的固定回归见 `tests/persistence/test_comprehensive_research_capture_history.py`：外层行情/新闻为合成输入，其余使用生产采集、新闻仓储、研究图、缺配置模型、报告仓储与Harness。另有一次真实公开源、空模型配置的隔离运行记录，见[收尾清单](optimization-closeout.md)。两者分别证明确定性回归与单次实时采集，不互相冒充，也不证明真实模型质量。
 

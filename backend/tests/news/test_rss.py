@@ -15,17 +15,19 @@ from app.news.contracts import (
     ALLOWED_NEWS_SOURCES,
     COINDESK_SOURCE,
     SEC_PRESS_RELEASES_SOURCE,
+    NewsItemDraft,
     NewsSourceDefinition,
+    NewsSourceTier,
+    parse_http_url,
 )
 from app.news.rss import RssNewsSourceAdapter
+from app.news.service import NewsIngestionService
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "news"
 FETCHED_AT = datetime(2026, 8, 10, 9, tzinfo=UTC)
 EXPECTED_SOURCE_IDS = {
     "sec_press_releases",
-    "cftc_press_releases",
     "federal_reserve_press_releases",
-    "us_treasury_press_releases",
     "coindesk",
     "decrypt",
     "blockworks",
@@ -40,9 +42,7 @@ def test_coindesk_uses_verified_canonical_feed_without_redirect() -> None:
 
 SOURCE_FIXTURES = {
     "sec_press_releases": "sec_press_releases.xml",
-    "cftc_press_releases": "cftc_press_releases.xml",
     "federal_reserve_press_releases": "federal_reserve_press_releases.xml",
-    "us_treasury_press_releases": "us_treasury_press_releases.xml",
     "coindesk": "coindesk.xml",
     "decrypt": "decrypt.xml",
     "blockworks": "blockworks.xml",
@@ -65,11 +65,57 @@ class _TrackedAsyncByteStream(httpx.AsyncByteStream):
         self.closed = True
 
 
-def test_allowed_news_sources_are_exactly_the_governed_eight() -> None:
+def test_allowed_news_sources_are_exactly_the_governed_six() -> None:
     assert set(ALLOWED_NEWS_SOURCES) == EXPECTED_SOURCE_IDS
     assert all(
         str(source.feed_url).startswith("https://") for source in ALLOWED_NEWS_SOURCES.values()
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_id,url",
+    [
+        ("cftc_press_releases", "https://www.cftc.gov/RSS/RSSGP/rssgp.xml"),
+        ("us_treasury_press_releases", "https://home.treasury.gov/rss/press-releases.xml"),
+    ],
+)
+async def test_retired_sources_cannot_be_assembled_or_requested(source_id: str, url: str) -> None:
+    # 模拟旧定义绕过构造校验进入装配边界，确认适配器和协调器均在发请求前拒绝。
+    source = NewsSourceDefinition.model_construct(
+        source_id=source_id,
+        source_name={
+            "cftc_press_releases": "U.S. Commodity Futures Trading Commission",
+            "us_treasury_press_releases": "U.S. Treasury Press Releases",
+        }[source_id],
+        tier=NewsSourceTier.PRIMARY,
+        feed_url=parse_http_url(url),
+        max_items_per_run=20,
+    )
+    requested: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(request)
+        return httpx.Response(200)
+
+    class RetiredAdapter:
+        # 故意绕过 RSS 构造器的替身验证服务独立核对白名单，不能靠调用者自律。
+        def __init__(self) -> None:
+            self.source = source
+
+        async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]:
+            raise AssertionError("退役来源不能被采集")
+
+    class Repository:
+        async def ingest_many(self, items: tuple[NewsItemDraft, ...]) -> tuple[NewsItemDraft, ...]:
+            raise AssertionError("装配拒绝不能写入新闻")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(ValueError, match="未获准的新闻来源"):
+            RssNewsSourceAdapter(source=source, client=client, timeout_seconds=5)
+        with pytest.raises(ValueError, match="未获准的新闻来源"):
+            NewsIngestionService(sources=(RetiredAdapter(),), repository=Repository())
+    assert requested == []
 
 
 @pytest.mark.asyncio

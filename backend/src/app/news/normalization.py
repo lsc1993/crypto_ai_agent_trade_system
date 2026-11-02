@@ -229,8 +229,6 @@ def _related_symbols(
         and source_id
         in {
             "federal_reserve_press_releases",
-            "us_treasury_press_releases",
-            "cftc_press_releases",
             "sec_press_releases",
         }
         and re.search(

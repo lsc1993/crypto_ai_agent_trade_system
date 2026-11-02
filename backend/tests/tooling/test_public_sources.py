@@ -129,7 +129,7 @@ async def test_real_etf_context_dates_and_disclosure(case: str) -> None:
 def test_context_cli_is_explicit_and_default_inventory_unchanged(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # 默认调用仍是原24项，显式选项才传入扩展标志；CLI不增加任意URL选项。
+    # 默认调用为22项，显式选项才传入扩展标志；CLI不增加任意URL选项。
     calls: list[bool] = []
 
     async def fake_run(*, include_context: bool = False) -> diagnostics.DiagnosticReport:
@@ -148,7 +148,7 @@ def test_context_cli_is_explicit_and_default_inventory_unchanged(
 async def test_diagnostics_inventory_and_client_boundary(
     monkeypatch: pytest.MonkeyPatch, include_context: bool
 ) -> None:
-    # 调度入口创建真实客户端但不发请求：默认24项，显式扩展27项；所有客户端禁用重定向，
+    # 调度入口创建真实客户端但不发请求：默认22项，显式扩展25项；所有客户端禁用重定向，
     # 不覆盖 trust_env，因此维持生产 httpx 的默认进程网络方式。
     original_client = httpx.AsyncClient
     clients: list[dict[str, object]] = []
@@ -161,7 +161,7 @@ async def test_diagnostics_inventory_and_client_boundary(
     async def inspect(
         specs: tuple[diagnostics.CheckSpec, ...], *, clock: object
     ) -> diagnostics.DiagnosticReport:
-        assert len(specs) == (27 if include_context else 24)
+        assert len(specs) == (25 if include_context else 22)
         assert {spec.check_id for spec in specs} == (
             diagnostics.CHECK_IDS | diagnostics.CONTEXT_CHECK_IDS
             if include_context
@@ -376,8 +376,8 @@ async def test_real_metadata_adapter_and_fixed_inventory() -> None:
         base_url="https://fapi.binance.com", transport=httpx.MockTransport(respond)
     ) as client:
         specs = diagnostics.build_checks(client, client, clock=lambda: NOW)
-        assert len(specs) == 24
-        assert len({spec.check_id for spec in specs}) == 24
+        assert len(specs) == 22
+        assert len({spec.check_id for spec in specs}) == 22
         report = await diagnostics.run_checks((specs[0],), clock=lambda: NOW)
     assert report.status == "passed"
     assert report.checks[0].reason == "metadata_available"
