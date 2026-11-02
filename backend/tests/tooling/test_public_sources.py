@@ -205,6 +205,48 @@ async def test_real_rss_adapter_and_safe_http_status(status: int) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("include_good", [False, True])
+async def test_real_rss_filtered_entries_are_partial_and_counted(include_good: bool) -> None:
+    # 全拒绝和部分拒绝均保持可连接但覆盖不完整；输出只能有计数和固定原因。
+    good = (
+        "<item><title>The market update UNTRUSTED</title>"
+        "<description>The report on market demand.</description>"
+        "<link>https://example.com/UNTRUSTED</link>"
+        "<pubDate>2026-11-02T10:00:00Z</pubDate></item>"
+    )
+    payload = (
+        "<rss><channel>"
+        + (good if include_good else "")
+        + good.replace("The market update UNTRUSTED", "中文拒绝")
+        + "</channel></rss>"
+    ).encode()
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield payload
+
+    def respond(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=Stream())
+
+    async with httpx.AsyncClient(
+        base_url="https://fapi.binance.com", transport=httpx.MockTransport(respond)
+    ) as client:
+        specs = diagnostics.build_checks(client, client, clock=lambda: NOW)
+        spec = next(spec for spec in specs if spec.check_id == "coindesk.rss")
+        report = await diagnostics.run_checks((spec,), clock=lambda: NOW)
+    result = report.checks[0]
+    assert (result.status, result.reason, result.availability) == (
+        "partial",
+        "filtered_entries",
+        "available",
+    )
+    assert result.count == int(include_good)
+    assert result.rejected_entry_count == 1
+    assert result.recent_news_count == int(include_good)
+    assert "UNTRUSTED" not in report.to_json()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("complete", [False, True])
 async def test_real_funding_adapter_requires_seven_day_coverage(complete: bool) -> None:
     # 单条最新费率不代表七日历史完整；完整固定样本覆盖21个八小时结算点。

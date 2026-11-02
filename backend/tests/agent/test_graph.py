@@ -43,10 +43,11 @@ from app.market.research_context import PublicResearchContext
 from app.news.contracts import (
     NewsEventCategory,
     NewsItemDraft,
+    NewsRejectionCount,
     NewsSourceTier,
     parse_http_url,
 )
-from app.news.service import NewsCollection
+from app.news.service import NewsCollection, NewsSourceDiagnostic
 from app.reports.contracts import (
     AgentReportCreation,
     AnalysisReportStatus,
@@ -664,6 +665,50 @@ async def test_graph_continues_after_one_news_source_fails() -> None:
     assert report.status is AnalysisReportStatus.COMPLETED
     assert report.agent_analysis is not None
     assert report.agent_analysis.data_quality.source_coverage == "partial"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_enabled", [False, True])
+async def test_graph_freezes_filtered_news_limitations_in_completed_and_degraded_reports(
+    model_enabled: bool,
+) -> None:
+    # 全拒绝来源仍能连接但不提供新闻证据；模型未配置时诊断也必须保存，历史不回写。
+    collection = NewsCollection(
+        items=(),
+        source_count=1,
+        successful_source_count=1,
+        failed_source_count=0,
+        error_codes=(),
+        successful_source_ids=("coindesk",),
+        source_diagnostics=(
+            NewsSourceDiagnostic(
+                source_id="coindesk",
+                outcome="partial",
+                entry_count=2,
+                rejections=(NewsRejectionCount(code="non_english", count=2),),
+            ),
+        ),
+    )
+    repository = RecordingRepository()
+    model = (
+        LimitedProposalModel(tuple(f"Model limitation {index}." for index in range(12)))
+        if model_enabled
+        else None
+    )
+    report = await _service(
+        market=_market(), news=collection, model=model, repository=repository
+    ).generate(ContractSymbol.BTCUSDT)
+    assert report.status is (
+        AnalysisReportStatus.COMPLETED if model_enabled else AnalysisReportStatus.DEGRADED
+    )
+    assert report.agent_analysis is not None
+    assert report.agent_analysis.data_quality.source_coverage == "partial"
+    expected = "英文新闻条目过滤：拒绝 2 条，来源 coindesk；覆盖不完整。"
+    assert expected in report.limitations
+    assert expected in report.agent_analysis.limitations
+    assert expected in repository.creations[0].report.limitations
+    assert len(report.limitations) <= 12
+    assert not any(item.source == "coindesk" for item in report.evidence)
 
 
 # 新闻全失败和行情失效是不同情形，市场证据仍可支持有限且注明覆盖不足的报告。

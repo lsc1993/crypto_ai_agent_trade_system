@@ -14,14 +14,16 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Protocol, TypeGuard, cast
+from typing import Any, Literal, Protocol, TypeGuard, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.news.contracts import (
     ALLOWED_NEWS_SOURCES,
     NewsEventCategory,
+    NewsFetchResult,
     NewsItemDraft,
+    NewsRejectionCount,
     NewsSourceDefinition,
 )
 from app.symbols.contracts import ResearchSymbolEntry
@@ -35,6 +37,12 @@ class NewsSourceAdapter(Protocol):
 
     # 从登记的订阅源读取有界响应，解析条目并规范化为新闻草稿；最多返回来源限定数量。
     async def fetch_items(self, *, fetched_at: datetime) -> tuple[NewsItemDraft, ...]: ...
+
+
+@runtime_checkable
+class DiagnosticNewsSourceAdapter(Protocol):
+    # 可选扩展协议；旧替身继续只实现 fetch_items，生产适配器从返回值提供局部诊断。
+    async def fetch_result(self, *, fetched_at: datetime) -> NewsFetchResult: ...
 
 
 # NewsRepository 定义本领域依赖接口；调用方仅依赖类型契约，外部读写由注入实现负责。
@@ -59,6 +67,54 @@ class _ApprovedSourceAdapter:
     source: NewsSourceDefinition
 
 
+class NewsSourceDiagnostic(BaseModel):
+    # 只包含固定来源、状态、数量与拒绝码；窗口计数针对保留样本，先于币种筛选计算。
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_id: str
+    outcome: Literal["complete", "partial", "empty", "no_recent", "failed"]
+    entry_count: int = Field(default=0, ge=0)
+    accepted_count: int = Field(default=0, ge=0)
+    recent_count: int = Field(default=0, ge=0)
+    rejections: tuple[NewsRejectionCount, ...] = ()
+    omitted_count: int = Field(default=0, ge=0)
+
+    @property
+    def rejected_count(self) -> int:
+        return sum(reason.count for reason in self.rejections)
+
+    @field_validator("source_id")
+    @classmethod
+    def require_allowed_source(cls, value: str) -> str:
+        if value not in ALLOWED_NEWS_SOURCES:
+            raise ValueError("新闻诊断来源必须获准")
+        return value
+
+    @model_validator(mode="after")
+    def require_consistent_counts(self) -> NewsSourceDiagnostic:
+        # 每个结果都必须可解释；失败不能伪装成读取了零条成功内容。
+        if self.accepted_count + self.rejected_count + self.omitted_count != self.entry_count:
+            raise ValueError("新闻诊断计数不一致")
+        if self.recent_count > self.accepted_count:
+            raise ValueError("新闻诊断窗口计数不一致")
+        if len({reason.code for reason in self.rejections}) != len(self.rejections):
+            raise ValueError("新闻诊断拒绝原因不能重复")
+        expected = (
+            "partial"
+            if self.rejected_count or self.omitted_count
+            else "empty"
+            if self.entry_count == 0
+            else "no_recent"
+            if self.recent_count == 0
+            else "complete"
+        )
+        if (self.outcome == "failed" and self.entry_count) or (
+            self.outcome != "failed" and self.outcome != expected
+        ):
+            raise ValueError("新闻诊断状态与计数不一致")
+        return self
+
+
 # 一次新闻收集的项目、来源覆盖计数和不含上游细节的安全错误码。
 class NewsCollection(BaseModel):
     """一次新闻收集的项目、来源覆盖计数和不含上游细节的安全错误码。"""
@@ -72,6 +128,7 @@ class NewsCollection(BaseModel):
     error_codes: tuple[Literal["news_source_failed"], ...] = Field(max_length=30)
     successful_source_ids: tuple[str, ...] = Field(default=(), max_length=30)
     failed_source_ids: tuple[str, ...] = Field(default=(), max_length=30)
+    source_diagnostics: tuple[NewsSourceDiagnostic, ...] = Field(default=(), max_length=30)
 
     # 校验error_codes 字段，返回规范化值或模型；不满足约束时抛出验证错误。
     # 拒绝条件包括：新闻采集结果只能包含最小安全错误码。
@@ -102,6 +159,15 @@ class NewsCollection(BaseModel):
             or len(self.failed_source_ids) != self.failed_source_count
         ):
             raise ValueError("新闻来源明细与覆盖计数不一致")
+        if self.source_diagnostics:
+            diagnostic_ids = tuple(item.source_id for item in self.source_diagnostics)
+            if len(set(diagnostic_ids)) != len(diagnostic_ids) or set(diagnostic_ids) != set(ids):
+                raise ValueError("新闻诊断来源与覆盖明细不一致")
+            if any(
+                (item.outcome == "failed") != (item.source_id in self.failed_source_ids)
+                for item in self.source_diagnostics
+            ):
+                raise ValueError("新闻诊断失败状态与覆盖明细不一致")
         return self
 
 
@@ -163,25 +229,55 @@ class NewsIngestionService:
             raise ValueError("新闻采集开始时间不能晚于结束时间")
 
         results = await asyncio.gather(
-            *(source.adapter.fetch_items(fetched_at=normalized_until) for source in self._sources),
+            *(
+                _fetch_source(source.adapter, fetched_at=normalized_until)
+                for source in self._sources
+            ),
             return_exceptions=True,
         )
         successful: list[tuple[NewsItemDraft, ...]] = []
         success_ids: list[str] = []
         failure_ids: list[str] = []
         failed_count = 0
+        diagnostics: list[NewsSourceDiagnostic] = []
         for source, result in zip(self._sources, results, strict=True):
             # 取消属于任务生命周期信号，必须继续传播；不能当作某个来源失败后继续写入。
             if isinstance(result, asyncio.CancelledError):
                 raise result
             if isinstance(result, BaseException) or not _has_expected_attribution(
-                result,
+                result.items,
                 source.source,
             ):
                 failed_count += 1
                 failure_ids.append(source.source.source_id)
+                diagnostics.append(
+                    NewsSourceDiagnostic(source_id=source.source.source_id, outcome="failed")
+                )
                 continue
-            successful.append(result)
+            recent_count = sum(
+                normalized_since <= item.published_at <= normalized_until for item in result.items
+            )
+            outcome = (
+                "partial"
+                if result.rejected_count or result.omitted_count
+                else "empty"
+                if result.entry_count == 0
+                else "no_recent"
+                if recent_count == 0
+                else "complete"
+            )
+            diagnostics.append(
+                NewsSourceDiagnostic(
+                    source_id=source.source.source_id,
+                    outcome=outcome,
+                    entry_count=result.entry_count,
+                    accepted_count=len(result.items),
+                    recent_count=recent_count,
+                    rejections=result.rejections,
+                    omitted_count=result.omitted_count,
+                )
+            )
+            successful.append(result.items)
             success_ids.append(source.source.source_id)
         attributed = await self._attribute_research_symbols(
             tuple(item for items in successful for item in items)
@@ -201,6 +297,7 @@ class NewsIngestionService:
             error_codes=("news_source_failed",) * failed_count,
             successful_source_ids=tuple(success_ids),
             failed_source_ids=tuple(failure_ids),
+            source_diagnostics=tuple(diagnostics),
         )
 
     # 依据已启用目录记录给新闻补充研究币种归因，无目录或条目时保持原输入。
@@ -215,6 +312,17 @@ class NewsIngestionService:
         if not entries:
             return items
         return tuple(_with_research_symbols(item, entries) for item in items)
+
+
+async def _fetch_source(adapter: NewsSourceAdapter, *, fetched_at: datetime) -> NewsFetchResult:
+    # 协议能力检测不触发额外请求；旧替身的元组仍校验来源，生产诊断与条目原子返回。
+    if isinstance(adapter, DiagnosticNewsSourceAdapter):
+        # 结果契约入口核对返回类型/字段，不依赖外部实现遵守静态注解。
+        return NewsFetchResult.model_validate(await adapter.fetch_result(fetched_at=fetched_at))
+    items = await adapter.fetch_items(fetched_at=fetched_at)
+    if not isinstance(cast(object, items), tuple):
+        raise TypeError("新闻适配器条目返回类型非法")
+    return NewsFetchResult(items=items, entry_count=len(items))
 
 
 # 验证并标准化新闻窗口边界为 UTC，确保跨来源时间过滤可比较。

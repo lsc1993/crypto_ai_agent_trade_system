@@ -659,6 +659,8 @@ class _AgentResearchRun:
                 generated_at=completed_at,
                 data_cutoff_at=_data_cutoff(evidence),
                 error=self.degraded_error,
+                news=self.news,
+                market=self.market,
             )
         )
         agent_analysis = _agent_analysis(
@@ -904,6 +906,8 @@ def _degraded_report(
     generated_at: datetime,
     data_cutoff_at: datetime | None,
     error: AgentErrorCode | None,
+    news: NewsCollection | None = None,
+    market: CapturedAgentMarket | None = None,
 ) -> AnalysisReportDraft:
     return AnalysisReportDraft(
         id=report_id,
@@ -915,9 +919,13 @@ def _degraded_report(
         facts=(),
         inferences=(),
         risks=(_degraded_risk(error),),
-        limitations=(
-            f"限制原因：{_error_code_value(error)}。",
-            "仅保留可审计的冻结证据，未形成市场结论。",
+        limitations=_limitations(
+            news,
+            (
+                f"限制原因：{_error_code_value(error)}。",
+                "仅保留可审计的冻结证据，未形成市场结论。",
+            ),
+            market=market,
         ),
         generated_at=generated_at,
         data_cutoff_at=data_cutoff_at,
@@ -951,7 +959,9 @@ def _agent_analysis(
                 missing_inputs=(_error_code_value(error),),
                 source_coverage=_source_coverage(news),
             ),
-            limitations=(f"{_error_code_value(error)}：未形成市场结论。",),
+            limitations=_limitations(
+                news, (f"{_error_code_value(error)}：未形成市场结论。",), market=market
+            ),
         )
     return AgentAnalysis(
         horizon=proposal.horizon,
@@ -1027,16 +1037,32 @@ def _proposal_uses_known_evidence(
 
 
 def _source_coverage(news: NewsCollection | None) -> SourceCoverage:
+    # 可读取不等于内容完整：拒绝、空源、预算截取和窗口无内容均保持部分覆盖。
     if news is None or news.successful_source_count == 0:
         return "none"
-    return "partial" if news.failed_source_count else "complete"
+    return (
+        "partial"
+        if news.failed_source_count
+        or any(item.outcome != "complete" for item in news.source_diagnostics)
+        else "complete"
+    )
 
 
 def _policy_source_coverage(news: NewsCollection) -> SourceCoverage:
     if not news.successful_source_ids and not news.failed_source_ids:
         return _source_coverage(news)
     covered = set(news.successful_source_ids) & POLICY_SOURCES
-    return "none" if not covered else "complete" if covered == set(POLICY_SOURCES) else "partial"
+    incomplete = any(
+        item.source_id in POLICY_SOURCES and item.outcome != "complete"
+        for item in news.source_diagnostics
+    )
+    return (
+        "none"
+        if not covered
+        else "complete"
+        if covered == set(POLICY_SOURCES) and not incomplete
+        else "partial"
+    )
 
 
 def _limitations(
@@ -1047,10 +1073,43 @@ def _limitations(
 ) -> tuple[str, ...]:
     limitations = list(dict.fromkeys(proposal_limitations))
     input_limits: list[str] = []
-    if _source_coverage(news) == "none":
+    if news is None or news.successful_source_count == 0:
         input_limits.append("英文新闻来源暂不可用，报告仅基于冻结公开行情。")
-    elif _source_coverage(news) == "partial":
+    elif news.failed_source_count and not news.failed_source_ids:
         input_limits.append("部分英文新闻来源不可用，来源覆盖不完整。")
+    # 安全诊断转成现有不可变 limitations，旧报告无需迁移；窗口只统计本次保留样本，
+    # 不把币种筛选或预算截取误写成整个来源无近期。
+    if news is not None:
+        if news.failed_source_ids:
+            input_limits.append(
+                f"英文新闻来源读取失败：{'、'.join(news.failed_source_ids)}；来源覆盖不完整。"
+            )
+        rejected = tuple(item for item in news.source_diagnostics if item.rejected_count)
+        if rejected:
+            input_limits.append(
+                f"英文新闻条目过滤：拒绝 {sum(item.rejected_count for item in rejected)} 条，"
+                f"来源 {'、'.join(item.source_id for item in rejected)}；覆盖不完整。"
+            )
+        empty = tuple(item.source_id for item in news.source_diagnostics if item.outcome == "empty")
+        if empty:
+            input_limits.append(f"英文新闻空订阅：{'、'.join(empty)}；本次未提供条目。")
+        no_recent = tuple(
+            item.source_id
+            for item in news.source_diagnostics
+            if item.accepted_count and not item.recent_count
+        )
+        if no_recent:
+            input_limits.append(
+                f"本次保留的英文新闻条目在时间窗内无内容：{'、'.join(no_recent)}；"
+                "不能据此认定连接失败或整个来源无近期内容。"
+            )
+        omitted = tuple(item for item in news.source_diagnostics if item.omitted_count)
+        if omitted:
+            omitted_count = sum(item.omitted_count for item in omitted)
+            input_limits.append(
+                f"英文新闻条目预算限制：另有 {omitted_count} 条未纳入，"
+                f"来源 {'、'.join(item.source_id for item in omitted)}；覆盖不完整。"
+            )
     if (
         market is not None
         and market.research_context_error is AgentErrorCode.MARKET_CONTEXT_UNAVAILABLE

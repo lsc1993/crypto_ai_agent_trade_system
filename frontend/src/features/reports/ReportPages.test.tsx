@@ -499,6 +499,16 @@ class MissingSentimentReportDetailApi extends DualHorizonReportDetailApi {
   }
 }
 
+class FrozenReportDetailApi extends ControlledReportDetailApi {
+  constructor(private readonly report: AnalysisReport) {
+    super();
+  }
+
+  override getReport(): Promise<AnalysisReport> {
+    return Promise.resolve(this.report);
+  }
+}
+
 class RoutedReportDetailApi extends ControlledReportDetailApi {
   override getReport(reportId: string): Promise<AnalysisReport> {
     return Promise.resolve(
@@ -809,6 +819,30 @@ describe("ReportGenerator", () => {
 });
 
 describe("ReportDetailPage", () => {
+  it.each(["completed", "degraded"] as const)("shows frozen news coverage limitations for %s reports", async (status) => {
+    const base = await (status === "completed"
+      ? new DualHorizonReportDetailApi()
+      : new AgentReportDetailApi()).getReport();
+    if (base.agentAnalysis === null) throw new Error("Expected Agent analysis fixture");
+    const limitations = [
+      "英文新闻来源读取失败：cftc_press_releases；来源覆盖不完整。",
+      "英文新闻条目过滤：拒绝 2 条，来源 federal_reserve_press_releases；覆盖不完整。",
+      "本次保留的英文新闻条目在时间窗内无内容：blockworks；不能据此认定连接失败或整个来源无近期内容。",
+    ];
+    renderReportDetail(new FrozenReportDetailApi(analysisReportSchema.parse({
+      ...base, status,
+      agentAnalysis: {
+        ...base.agentAnalysis,
+        dataQuality: { ...base.agentAnalysis.dataQuality, sourceCoverage: "partial" },
+        limitations,
+      },
+    })));
+    for (const message of limitations) {
+      expect(await screen.findByText(message, { exact: false })).toBeVisible();
+    }
+    expect(screen.getAllByText(/部分覆盖/).length).toBeGreaterThan(0);
+  });
+
   it("renders the standard loading state while report detail is pending", () => {
     renderReportDetail(new PendingReportDetailApi());
 
@@ -986,6 +1020,51 @@ describe("ReportDetailPage", () => {
     expect(
       screen.queryByRole("region", { name: "未来 1–3 天市场研判" }),
     ).not.toBeInTheDocument();
+  });
+
+  it.each(["completed", "degraded"] as const)(
+    "keeps a historical %s report readable without news coverage explanations",
+    async (status) => {
+      const api = status === "completed"
+        ? new DualHorizonReportDetailApi()
+        : new AgentReportDetailApi();
+      renderReportDetail(api);
+
+      const limitations = await screen.findByRole("region", {
+        name: status === "completed" ? "风险与失效条件" : "数据限制与重试提示",
+      });
+      expect(limitations).toHaveTextContent(status === "completed"
+        ? "报告仅基于本次冻结的公开证据，不构成交易指令。"
+        : "Not trading advice.");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
+
+  it("uses frozen data quality for coverage even when the model narrative claims complete coverage", async () => {
+    const report = await new DualHorizonReportDetailApi().getReport();
+    const analysis = report.agentAnalysis;
+    if (analysis === null || analysis.horizon !== "dual_horizon") {
+      throw new Error("Expected a dual-horizon report fixture");
+    }
+    renderReportDetail(new FrozenReportDetailApi(analysisReportSchema.parse({
+      ...report,
+      agentAnalysis: {
+        ...analysis,
+        narrative: {
+          ...analysis.narrative,
+          marketOverview: {
+            ...analysis.narrative.marketOverview,
+            headline: "模型叙述声称来源完整",
+          },
+        },
+      },
+    })));
+
+    expect(await screen.findByRole("heading", {
+      name: "模型叙述声称来源完整",
+    })).toBeVisible();
+    expect(screen.getByText("来源覆盖：部分覆盖")).toBeVisible();
+    expect(screen.queryByText("来源覆盖：完整")).not.toBeInTheDocument();
   });
 
   it("marks only sentiment unavailable when the frozen public context is absent", async () => {

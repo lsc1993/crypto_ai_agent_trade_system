@@ -21,7 +21,7 @@ from app.news.contracts import (
     NewsSourceTier,
     parse_http_url,
 )
-from app.news.service import NewsCollection, NewsIngestionService
+from app.news.service import NewsCollection, NewsIngestionService, NewsSourceDiagnostic
 from app.symbols.contracts import ResearchSymbolEntry
 
 NOW = datetime(2026, 8, 10, 12, tzinfo=UTC)
@@ -126,6 +126,22 @@ async def test_news_collection_is_bounded_filtered_and_deduplicated() -> None:
         failed_source_count=0,
         error_codes=(),
         successful_source_ids=("coindesk", "sec_press_releases"),
+        source_diagnostics=(
+            NewsSourceDiagnostic(
+                source_id="coindesk",
+                outcome="complete",
+                entry_count=3,
+                accepted_count=3,
+                recent_count=2,
+            ),
+            NewsSourceDiagnostic(
+                source_id="sec_press_releases",
+                outcome="complete",
+                entry_count=1,
+                accepted_count=1,
+                recent_count=1,
+            ),
+        ),
     )
     assert repository.ingested == [(duplicate, sec_duplicate)]
     assert [source.fetch_times for source in sources] == [[NOW], [NOW]]
@@ -216,6 +232,10 @@ async def test_news_collection_reports_all_source_failures_without_persisting() 
         failed_source_count=2,
         error_codes=("news_source_failed", "news_source_failed"),
         failed_source_ids=("coindesk", "sec_press_releases"),
+        source_diagnostics=(
+            NewsSourceDiagnostic(source_id="coindesk", outcome="failed"),
+            NewsSourceDiagnostic(source_id="sec_press_releases", outcome="failed"),
+        ),
     )
     assert repository.ingested == []
 

@@ -25,6 +25,7 @@ from app.news.contracts import (
     ExternalNewsItem,
     NewsEventCategory,
     NewsItemDraft,
+    NewsItemRejectedError,
     NewsSourceDefinition,
     parse_http_url,
 )
@@ -110,7 +111,7 @@ def normalize_news_item(
     title = _normalize_text(item.title, maximum=300)
     summary = _normalize_text(item.summary, maximum=1_600)
     if not _is_english_text(f"{title} {summary}"):
-        raise ValueError("仅支持英文新闻")
+        raise NewsItemRejectedError("non_english")
 
     canonical_url = _canonicalize_url(str(item.url)) if item.url is not None else None
     normalized_fetched_at = fetched_at.astimezone(UTC)
@@ -147,7 +148,7 @@ def _normalize_text(value: str, *, maximum: int) -> str:
     plain_text = _WHITESPACE.sub(" ", _HTML_TAG.sub("", html.unescape(without_scripts))).strip()
     normalized = plain_text[:maximum].strip()
     if not normalized:
-        raise ValueError("新闻文本不能为空")
+        raise NewsItemRejectedError("empty_text")
     return normalized
 
 

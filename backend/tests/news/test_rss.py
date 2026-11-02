@@ -1,6 +1,7 @@
 # 验证受治理 RSS/Atom 来源的元数据读取与资源限制。
 # 本地 XML 和跟踪字节流替身覆盖来源、流式截断、压缩响应及 HTML 清洗。
 # 不跟随跳转、不读取文章正文，非法时间在发请求之前拒绝。
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -276,3 +277,119 @@ async def test_rss_adapter_excludes_nested_script_and_style_text_before_normaliz
         items = await adapter.fetch_items(fetched_at=FETCHED_AT)
 
     assert items[0].summary == "Public evidence remains mixed."
+
+
+# 每个坏条目只能影响自身；缺字段、非法日期/URL与语言拒绝必须留下固定码计数。
+@pytest.mark.asyncio
+async def test_rss_isolates_rejected_entries_with_request_local_diagnostics() -> None:
+    good = (
+        "<item><title>The Bitcoin market update</title>"
+        "<description>The report on market demand.</description>"
+        "<link>https://www.coindesk.com/safe</link>"
+        "<pubDate>2026-08-10T08:00:00Z</pubDate></item>"
+    )
+    entries = (
+        good,
+        good.replace("<title>The Bitcoin market update</title>", ""),
+        good.replace("2026-08-10T08:00:00Z", "unsafe-date"),
+        good.replace("https://www.coindesk.com/safe", "javascript:unsafe"),
+        good.replace("The Bitcoin market update", "中文新闻"),
+        good,
+    )
+    payload = f"<rss><channel>{''.join(entries)}</channel></rss>".encode()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_TrackedAsyncByteStream((payload,)))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
+        result = await adapter.fetch_result(fetched_at=FETCHED_AT)
+        assert len(await adapter.fetch_items(fetched_at=FETCHED_AT)) == 2
+    assert len(result.items) == 2
+    assert result.entry_count == 6
+    assert result.rejected_count == 4
+    assert {reason.code: reason.count for reason in result.rejections} == {
+        "missing_metadata": 1,
+        "invalid_published_at": 1,
+        "invalid_url": 1,
+        "non_english": 1,
+    }
+    assert "unsafe" not in result.model_dump_json(exclude={"items"})
+
+
+# 未知程序错误不能被误判为坏新闻，必须让整源采集失败边界处理。
+@pytest.mark.asyncio
+async def test_rss_does_not_swallow_unknown_normalization_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.news.rss as rss
+
+    def broken(*args: object, **kwargs: object) -> None:
+        raise ValueError("unexpected normalization defect")
+
+    monkeypatch.setattr(rss, "normalize_news_item", broken)
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, stream=_TrackedAsyncByteStream(((FIXTURES / "coindesk.xml").read_bytes(),))
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
+        with pytest.raises(ValueError, match="unexpected normalization defect"):
+            await adapter.fetch_items(fetched_at=FETCHED_AT)
+
+
+# 同一个适配器同时采集不能共享过滤计数；超出预算的合法项与预算后坏条目分别计数。
+@pytest.mark.asyncio
+async def test_rss_diagnostics_are_concurrent_and_include_rejections_after_budget() -> None:
+    good = (
+        "<item><title>The Bitcoin market update</title>"
+        "<description>The report on market demand.</description>"
+        "<link>https://example.com/safe</link><pubDate>2026-08-10T08:00:00Z</pubDate></item>"
+    )
+    bad = good.replace("2026-08-10T08:00:00Z", "unsafe")
+    payloads = [
+        f"<rss><channel>{good * 21}{bad}</channel></rss>".encode(),
+        f"<rss><channel>{good}</channel></rss>".encode(),
+    ]
+
+    def respond(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_TrackedAsyncByteStream((payloads.pop(0),)))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
+        first, second = await asyncio.gather(
+            adapter.fetch_result(fetched_at=FETCHED_AT), adapter.fetch_result(fetched_at=FETCHED_AT)
+        )
+    assert (len(first.items), first.entry_count, first.rejected_count, first.omitted_count) == (
+        20,
+        22,
+        1,
+        1,
+    )
+    assert (len(second.items), second.entry_count, second.rejected_count, second.omitted_count) == (
+        1,
+        1,
+        0,
+        0,
+    )
+
+
+# XML语法和实体攻击属于整源失败，不能变成可用的空订阅或单条拒绝。
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload", [b"<rss>", b'<!DOCTYPE rss [<!ENTITY x "unsafe">]><rss>&x;</rss>']
+)
+async def test_rss_xml_failures_remain_source_failures(payload: bytes) -> None:
+    from xml.etree.ElementTree import ParseError
+
+    from defusedxml.common import DefusedXmlException
+
+    def respond(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_TrackedAsyncByteStream((payload,)))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        adapter = RssNewsSourceAdapter(source=COINDESK_SOURCE, client=client, timeout_seconds=8)
+        with pytest.raises((DefusedXmlException, ParseError)):
+            await adapter.fetch_result(fetched_at=FETCHED_AT)

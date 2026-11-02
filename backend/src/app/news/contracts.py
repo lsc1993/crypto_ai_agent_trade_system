@@ -6,7 +6,15 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import (
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
@@ -184,3 +192,52 @@ class NewsItemDraft(_NewsModel):
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise ValueError("新闻时间必须是 UTC 且带时区")
         return value.astimezone(UTC)
+
+
+# 单条拒绝只公开固定分类；不携带原文、条目 ID、URL或异常消息。
+NewsRejectionCode = Literal[
+    "missing_metadata",
+    "invalid_published_at",
+    "invalid_url",
+    "invalid_metadata",
+    "empty_text",
+    "non_english",
+]
+
+
+class NewsItemRejectedError(ValueError):
+    # 仅已知输入拒绝使用此类型；程序错误保持原异常，让整源边界显式失败。
+    code: NewsRejectionCode
+
+    def __init__(self, code: NewsRejectionCode) -> None:
+        self.code = code
+        super().__init__(
+            {"non_english": "仅支持英文新闻", "empty_text": "新闻文本不能为空"}.get(code, code)
+        )
+
+
+class NewsRejectionCount(_NewsModel):
+    # 一次请求中某固定拒绝原因的安全数量，不是适配器实例上的累计状态。
+    code: NewsRejectionCode
+    count: int = Field(ge=1)
+
+
+class NewsFetchResult(_NewsModel):
+    # 返回合法的有界条目与全订阅解析计数；超出预算的合法条目单独计数，不冒充拒绝。
+    items: tuple[NewsItemDraft, ...]
+    entry_count: int = Field(ge=0)
+    rejections: tuple[NewsRejectionCount, ...] = ()
+    omitted_count: int = Field(default=0, ge=0)
+
+    @property
+    def rejected_count(self) -> int:
+        return sum(reason.count for reason in self.rejections)
+
+    @model_validator(mode="after")
+    def require_consistent_counts(self) -> NewsFetchResult:
+        # 总数由返回、拒绝、预算截取三部分组成，防止过滤后无诊断地宣称成功。
+        if len({reason.code for reason in self.rejections}) != len(self.rejections):
+            raise ValueError("新闻拒绝原因不能重复")
+        if len(self.items) + self.rejected_count + self.omitted_count != self.entry_count:
+            raise ValueError("新闻条目解析计数不一致")
+        return self

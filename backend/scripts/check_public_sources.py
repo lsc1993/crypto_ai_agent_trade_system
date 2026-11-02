@@ -29,6 +29,8 @@ Reason = Literal[
     "stale_data",
     "future_data",
     "no_recent_news",
+    "filtered_entries",
+    "entry_limit",
     "incomplete_history",
     "timeout",
     "rate_limited",
@@ -73,6 +75,8 @@ class Observation:
     count: int
     observed_times: tuple[datetime, ...] = ()
     coverage_complete: bool = True
+    rejected_entry_count: int = 0
+    omitted_entry_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -103,6 +107,8 @@ class CheckResult:
     availability: Literal["available", "unavailable"]
     recent_news_count: int | None = None
     http_status: int | None = None
+    rejected_entry_count: int = 0
+    omitted_entry_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -174,7 +180,11 @@ async def run_checks(
                     observation = await spec.read()
                 completed = clock()
                 times = observation.observed_times
-                if observation.count < 0 or any(
+                if min(
+                    observation.count,
+                    observation.rejected_entry_count,
+                    observation.omitted_entry_count,
+                ) < 0 or any(
                     value.tzinfo is None or value.utcoffset() != timedelta(0) for value in times
                 ):
                     raise ValueError("invalid_observation")
@@ -183,6 +193,11 @@ async def run_checks(
                 reason: Reason = "fresh"
                 if any(t > completed for t in times):
                     status, reason = "failed", "future_data"
+                elif spec.news and observation.rejected_entry_count:
+                    # 已过滤与真空订阅分开；即使全拒绝，也不能隐藏拒绝后报告 empty_data。
+                    status, reason = "partial", "filtered_entries"
+                elif spec.news and observation.omitted_entry_count:
+                    status, reason = "partial", "entry_limit"
                 elif observation.count == 0:
                     status, reason = ("partial" if spec.news else "failed"), "empty_data"
                 elif spec.threshold_seconds is None:
@@ -207,6 +222,8 @@ async def run_checks(
                     spec.threshold_seconds,
                     "available",
                     recent if spec.news else None,
+                    rejected_entry_count=observation.rejected_entry_count,
+                    omitted_entry_count=observation.omitted_entry_count,
                 )
             except Exception as error:
                 reason, http_status = _safe_error(error)
@@ -316,8 +333,15 @@ def build_checks(
 
         def news_spec(adapter: RssNewsSourceAdapter) -> CheckSpec:
             async def news() -> Observation:
-                values = await adapter.fetch_items(fetched_at=clock())
-                return Observation(len(values), tuple(v.published_at for v in values))
+                # 与生产协调器相同，条目与拒绝数量必须来自同一个返回值，避免二次请求与实例串扰。
+                result = await adapter.fetch_result(fetched_at=clock())
+                return Observation(
+                    len(result.items),
+                    tuple(v.published_at for v in result.items),
+                    coverage_complete=not (result.rejected_count or result.omitted_count),
+                    rejected_entry_count=result.rejected_count,
+                    omitted_entry_count=result.omitted_count,
+                )
 
             return CheckSpec(f"{adapter.source.source_id}.rss", news, 604800, news=True)
 
