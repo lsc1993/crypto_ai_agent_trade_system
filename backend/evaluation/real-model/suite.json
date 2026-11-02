@@ -1,0 +1,26 @@
+{
+  "version": "real-model-research-v1",
+  "scope": "comprehensive-research-only",
+  "cases": [
+    {
+      "id": "baseline-history",
+      "request_file": "request-baseline-history.json",
+      "check_news_boundary": false
+    },
+    {
+      "id": "conflicting-evidence",
+      "request_file": "request-conflicting-evidence.json",
+      "check_news_boundary": false
+    },
+    {
+      "id": "sparse-evidence",
+      "request_file": "request-sparse-evidence.json",
+      "check_news_boundary": false
+    },
+    {
+      "id": "news-injection",
+      "request_file": "request-news-injection.json",
+      "check_news_boundary": true
+    }
+  ]
+}

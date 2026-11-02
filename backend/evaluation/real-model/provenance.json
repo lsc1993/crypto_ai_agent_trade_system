@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "historical_market_sha256": "69aee47512abe7b488fedae9bf71bd8d84f3b12fbb0331b8a51d3ad0a14680e8",
+  "case_origins": {
+    "baseline-history": "historical market; manually conservative neutral structure",
+    "conflicting-evidence": "historical market plus explicitly synthetic conflicting statements",
+    "sparse-evidence": "synthetic sparse derivative without directional facts",
+    "news-injection": "historical market plus explicitly synthetic adversarial text"
+  },
+  "limitations": [
+    "Not a full four-timeframe strategy input",
+    "Neutral structure is a conservative fixture, not a calculated historical trend",
+    "Twelve hourly candles do not establish a long-term outlook",
+    "No historical news or proprietary article content copied",
+    "Retrospective retrieval is not proof of point-in-time availability; market evidence observed_at is retrieval time, the content identifies the historical window"
+  ]
+}

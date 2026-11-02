@@ -66,6 +66,7 @@ include = [
     "scripts/http_e2e_symbols.py",
     "scripts/research_flow_fixtures.py",
     "scripts/check_public_sources.py",
+    "scripts/evaluate_real_models.py",
 ]
 venvPath = "."
 venv = ".venv"

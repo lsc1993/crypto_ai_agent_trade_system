@@ -130,6 +130,8 @@ uv run --locked --no-sync python -m scripts.check_public_sources --report ../.tm
 
 ## 评估产物与 CI 证明范围
 
+真实模型评估工具为独立显式入口 `python -m scripts.evaluate_real_models`，默认仅准备固定历史/合成扰动样本，不联网、不读密钥。只有 `--live`、专用进程密钥、明确调用/输入/输出/时间额度及新产物路径同时提供时才允许付费请求；不挂接默认full/CI。适配器接受率与引用ID合法性不等于语义质量，人工评分始终单列pending。命令、语料来源、费用估算限制与本地人工提案注意事项见[真实模型评估说明](../backend/evaluation/real-model/README.md)。
+
 统一摘要现为 schema_version 2，后端测试通过显式 pytest 插件生成安全计数和失败代码标识，去掉所有参数化后缀，不保存异常、捕获输出或跳过原因。只收集、零执行、摘要缺失/格式损坏或写入失败不能通过。失败时可直接查看报告的 `diagnostics.failures`，再按代码标识运行聚焦回归，无需再次全量测试才能定位。每次运行使用独立产物名防止旧报告冒充新结果。
 
 CI 归档目录包含 `pytest-*`、`architecture-*`、`research-adapter-*`、`research-flows-*` 安全 JSON，保留测试计数与评估版本指纹；不会上传 pytest 原始日志、浏览器 trace 或模型原文。
