@@ -31,6 +31,13 @@ EXPECTED_SOURCE_IDS = {
     "blockworks",
     "the_block",
 }
+
+
+def test_coindesk_uses_verified_canonical_feed_without_redirect() -> None:
+    # 官方旧链接只重定向去掉末尾斜线；固定规范地址避免生产适配器必须跟随跳转。
+    assert str(COINDESK_SOURCE.feed_url) == "https://www.coindesk.com/arc/outboundfeeds/rss"
+
+
 SOURCE_FIXTURES = {
     "sec_press_releases": "sec_press_releases.xml",
     "cftc_press_releases": "cftc_press_releases.xml",

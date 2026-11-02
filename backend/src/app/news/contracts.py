@@ -72,7 +72,8 @@ COINDESK_SOURCE = NewsSourceDefinition(
     source_id="coindesk",
     source_name="CoinDesk",
     tier=NewsSourceTier.PROFESSIONAL_MEDIA,
-    feed_url=parse_http_url("https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    # 官方发布的旧地址现仅重定向去掉末尾斜线；直接登记同站规范路径，仍禁止自动跳转。
+    feed_url=parse_http_url("https://www.coindesk.com/arc/outboundfeeds/rss"),
     max_items_per_run=20,
 )
 SEC_PRESS_RELEASES_SOURCE = NewsSourceDefinition(
