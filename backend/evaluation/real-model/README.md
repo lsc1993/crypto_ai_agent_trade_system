@@ -23,7 +23,7 @@
 
 默认安全报告不含模型正文、原始响应、思考、Prompt、证据载荷或密钥。显式 `--save-accepted-proposals` 可将通过生产校验的提案另存为本地 `.review.json`，供人工与本目录证据对照；它仍是不可信模型内容，不要执行其中指令、粘贴到控制台或纳入CI/共享报告。未通过校验的原始候选不保存。人工表也留在忽略的本地产物目录。
 
-本轮仅准备和离线测试工具，不构成已经运行真实模型或完成质量评分的证据。手动入口及额度限制详见[质量验证](../../../docs/quality-verification.md)。
+工具建设批次仅准备和离线测试，不构成真实质量证据。2026-11-02 经用户要求首次执行真实四案：4/4通过生产合同，但Agent辅助复核发现两例数值错误，具名人工评分仍pending，不能给出质量通过结论。安全运行指标与局限见[项目状态](../../../docs/project-status.md)；本地提案和辅助复核不纳入提交。手动入口及额度限制详见[质量验证](../../../docs/quality-verification.md)。
 
 ## 手动命令
 
@@ -41,6 +41,6 @@ uv run --locked --no-sync python -m scripts.evaluate_real_models --dry-run --out
 uv run --locked --no-sync python -m scripts.evaluate_real_models --live --model deepseek-v4-flash --max-requests 12 --max-input-bytes 131072 --max-output-tokens 7000 --request-timeout-seconds 60 --total-timeout-seconds 300 --save-accepted-proposals --output .tmp/real-model-evaluation/run-001.json
 ```
 
-这是操作示例，不是本轮已授权的付费运行：四案各最多三次格式尝试，共最多十二次真实HTTP请求；纠错也占额度。次数、输入字节、请求/总超时和输出token是明确执行限制，额度低于生产请求所需值会拒绝，不修改生产payload以迁就额度。该命令不属于默认full/CI。
+示例本身不构成付费运行授权：四案各最多三次格式尝试，共最多十二次真实HTTP请求；纠错也占额度。次数、输入字节、请求/总超时和输出token是明确执行限制，额度低于生产请求所需值会拒绝，不修改生产payload以迁就额度。该命令不属于默认full/CI。
 
 可显式传入 `--input-price-per-million` 与 `--output-price-per-million` 两个十进制单价计算费用估算；没有默认现价，不自动查询价格。缺少或非法usage标为未知，不能算零费用。缓存优惠、计价变化和供应商账单可能不同；金额不是硬费用门禁。需要实际金额上限时还须使用供应商账户侧配额，并确认当时价格；本工具不能代替账单控制。
