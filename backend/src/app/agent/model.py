@@ -3,7 +3,8 @@
 """语言模型提案边界模块。
 
 数据流：冻结的 ModelEvidence 与确定性 MarketStructure → 受限 JSON 请求 → Pydantic
-格式与证据 ID 校验 → AgentAnalysisProposal。模型输出始终是待业务层验证的提案。
+事实引用绑定与程序渲染、格式及证据 ID 校验 → AgentAnalysisProposal。
+模型输出始终是待业务层验证的提案，不构成自然语言语义已经被证明的结论。
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -33,6 +34,7 @@ from pydantic_core import ErrorDetails
 
 from app.agent.factors import apply_interpretations
 from app.agent.market_structure import MarketStructure
+from app.agent.numeric_facts import NumericFact, NumericReferenceError, render_numeric_references
 from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
@@ -120,11 +122,16 @@ class ResearchModelRequest(_AgentModel):
     report_language: Literal["zh-CN"] = "zh-CN"
     horizon: Literal["dual_horizon"] = "dual_horizon"
     factor_analysis: FactorAnalysis | None = None
+    numeric_facts: tuple[NumericFact, ...] = Field(default=(), max_length=256)
 
     @model_validator(mode="after")
     def require_unique_evidence_ids(self) -> ResearchModelRequest:
         if len({evidence.id for evidence in self.evidences}) != len(self.evidences):
             raise ValueError("模型证据 ID 必须唯一")
+        if not {fact.evidence_id for fact in self.numeric_facts} <= {e.id for e in self.evidences}:
+            raise ValueError("数值事实必须属于本次冻结证据")
+        if len({fact.token for fact in self.numeric_facts}) != len(self.numeric_facts):
+            raise ValueError("数值事实引用不能重复")
         return self
 
 
@@ -211,10 +218,14 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         client: httpx.AsyncClient,
         api_key: SecretStr | None,
         model: Literal["deepseek-v4-flash", "deepseek-v4-pro"],
+        validation_observer: Callable[[ModelOutputError, int], None] | None = None,
     ) -> None:
         self._client = client
         self._api_key = api_key
         self._model = model
+        # 受信调用方可收集有界校验诊断，不依赖进程日志配置；模型不能选择或调用此回调。
+        # 回调按参数传递每次错误，实例不保存跨请求的候选/诊断列表。
+        self._validation_observer = validation_observer
 
     async def generate(self, request: ResearchModelRequest) -> AgentAnalysisProposal:
         """请求 DeepSeek 生成 JSON 提案，并只记录不含密钥和正文的运行元数据。"""
@@ -306,6 +317,8 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                 if error.code != "model_invalid_response":
                     raise
                 self._log_response_rejected(error=error, attempt=attempt)
+                if self._validation_observer is not None:
+                    self._validation_observer(error, attempt)
                 # 最后一次仍失败才标注格式尝试次数，供报告保存有限失败摘要。
                 if attempt == _MAX_FORMAT_ATTEMPTS:
                     error.format_attempt_count = attempt
@@ -375,10 +388,27 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             duration_ms=_duration_ms(started_at),
             attempt=attempt,
         )
-        # 字面量解包和完整句压缩只是预处理，之后仍走全文契约及引用校验。
-        content = _compact_overlong_narrative_content(
-            _normalize_json_object_content(_response_content(response))
-        )
+        # 先校验原候选，不能让压缩删除不可信数值后将其冒充合格输出。
+        # 引用渲染后才做全文长度/交易措辞验证，持久化的是确定性语句而非模型占位符。
+        content = _normalize_json_object_content(_response_content(response))
+        try:
+            content = render_numeric_references(
+                content, request.numeric_facts, symbol=request.symbol
+            )
+        except NumericReferenceError as error:
+            path = error.path if _VALIDATION_FIELD_PATH.fullmatch(error.path) else "schema"
+            raise ModelOutputError(
+                "model_invalid_response",
+                "模型数值事实引用不合法",
+                validation_issue_count=1,
+                validation_field_paths=(path,),
+                validation_error_categories=(error.category,),
+            ) from None
+        except (ValueError, TypeError):
+            raise ModelOutputError(
+                "model_invalid_response", "DeepSeek 返回了无效研究 JSON"
+            ) from None
+        content = _compact_overlong_narrative_content(content)
         try:
             proposal = AgentAnalysisProposal.model_validate_json(content)
         except (ValidationError, ValueError, json.JSONDecodeError) as error:
@@ -392,6 +422,10 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
             )
         # 格式合格不代表有证据；所有嵌套引用必须属于本次冻结输入集合。
         _require_known_evidence_ids(proposal, request.evidences)
+        # 未启用专题时没有专题准入集合；即使引用了合法市场ID也不能凭空增加政策等解读。
+        # 与错误专题引用保持同一失败类别，不进入仅针对格式问题的纠错循环。
+        if request.factor_analysis is None and proposal.factor_interpretations:
+            raise ModelOutputError("model_invalid_evidence", "模型生成了未请求的专题解读")
         if request.factor_analysis is not None:
             try:
                 # 专题还要检查引用所属类别，引用了本次另一专题也不能放行。
@@ -655,7 +689,17 @@ def _truncate_research_text(
 ) -> str | None:
     """Return a whole sentence within the requested bound, never a character slice."""
     candidate = value[:maximum_length].rstrip()
-    sentence_end = max(candidate.rfind(mark) for mark in "。！？；")
+    # 程序渲染的【事实】内部也有分号，不能把时刻或窗口之后的分号当成句尾。
+    # 若预算落在事实内部，只能回退至前一个外部完整句；调用方再决定是否保留原文。
+    sentence_end = -1
+    fact_depth = 0
+    for index, character in enumerate(candidate):
+        if character == "【":
+            fact_depth += 1
+        elif character == "】":
+            fact_depth = max(0, fact_depth - 1)
+        elif character in "。！？；" and fact_depth == 0:
+            sentence_end = index
     if sentence_end < 0:
         return None
     # 返回至末个完整中文句末，不将任意字符切片直接当成可保存叙事。

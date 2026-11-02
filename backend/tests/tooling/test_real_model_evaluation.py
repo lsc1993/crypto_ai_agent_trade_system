@@ -164,6 +164,38 @@ def test_live_uses_production_contract_and_safe_report(
     assert not list(module.REPORT_ROOT.glob("*.review.json"))
 
 
+def test_rejected_numeric_claim_retains_only_safe_attempt_diagnostics(
+    corpus: Path,
+    responses: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """付费失败需能定位具体门禁，但报告只留类别、字段与次数，不留拒绝正文。"""
+    import structlog
+
+    module = evaluator()
+    # 模拟应用已缓存的日志器：capture_logs无法替换其既有处理器，诊断不能依赖日志捕获。
+    monkeypatch.setattr(
+        module.model_module,
+        "logger",
+        structlog.BoundLogger(structlog.ReturnLogger(), processors=[], context={}),
+    )
+    response = json.loads(json.dumps(responses))
+    proposal = json.loads(response["choices"][0]["message"]["content"])
+    proposal["market_overview"]["summary"] += " private-numeric-marker 76717.00"
+    response["choices"][0]["message"]["content"] = json.dumps(proposal)
+    mock_http(monkeypatch, lambda request, number: httpx.Response(200, json=response))
+    assert module.main(live_args(module, "numeric-rejected")) == 0
+    output = capsys.readouterr().out
+    report = json.loads(output)
+    item = report["cases"][0]
+    assert item["outcome"] == "rejected"
+    assert len(item["validation_failures"]) == 3
+    assert item["validation_failures"][0]["categories"] == ["unbound_numeric_claim"]
+    assert item["validation_failures"][0]["field_paths"] == ["market_overview.summary"]
+    assert "private-numeric-marker" not in output and "76717.00" not in output
+
+
 def test_correction_attempts_count_as_actual_requests(
     corpus: Path,
     responses: dict[str, Any],

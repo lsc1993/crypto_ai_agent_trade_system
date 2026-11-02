@@ -34,6 +34,107 @@ MARKET_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000001")
 NEWS_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
+@pytest.mark.asyncio
+async def test_model_rejects_unrequested_factor_interpretation() -> None:
+    """未请求专题时，合法市场证据ID也不能用于生成政策观点；离线重现稀疏案例缺陷。"""
+    payload = _proposal_payload()
+    payload["factor_interpretations"] = [
+        {
+            "topic": "policy",
+            "outlook": "neutral",
+            "summary": "政策证据缺失，无法评估影响。",
+            "short_term": "短期缺少政策依据。",
+            "long_term": "长期缺少政策依据。",
+            "invalidation": "补充政策证据后复核。",
+            "evidence_ids": [str(MARKET_EVIDENCE_ID)],
+        }
+    ]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=_model_response(payload))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline-test"), model="deepseek-v4-flash"
+        )
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(_request())
+    assert error.value.code == "model_invalid_evidence"
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_model_renders_frozen_fact_and_keeps_reference_in_prompt() -> None:
+    """完整适配器输出含程序渲染的数值及范围，模型仅发送事实token且不能自行改价。"""
+    from app.agent.numeric_facts import NumericFact
+
+    fact = NumericFact(
+        evidence_id=MARKET_EVIDENCE_ID,
+        label="市场快照价格",
+        value=Decimal("77962.60"),
+        unit="USDT",
+        observed_at=datetime(2026, 8, 10, 12, tzinfo=UTC),
+    )
+    request = _request().model_copy(update={"numeric_facts": (fact,)})
+    payload = _proposal_payload()
+    overview = cast(dict[str, object], payload["market_overview"])
+    overview["summary"] = fact.token + "\n" + str(overview["summary"])
+    sent: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        sent.append(req)
+        return httpx.Response(200, json=_model_response(payload))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        proposal = await model.generate(request)
+    assert fact.statement in proposal.market_overview.summary
+    assert fact.token not in proposal.market_overview.summary
+    posted = json.loads(sent[0].content)
+    catalog = json.loads(posted["messages"][1]["content"])["numeric_facts"]
+    assert catalog[0]["token"] == fact.token
+    assert catalog[0]["statement"] == fact.statement
+
+
+@pytest.mark.asyncio
+async def test_compaction_keeps_rendered_fact_atomic() -> None:
+    """独立审查复现：压缩预算落在事实内部时，字段、单位、窗口不能被分号截断。"""
+    from app.agent.numeric_facts import NumericFact
+
+    fact = NumericFact(
+        evidence_id=MARKET_EVIDENCE_ID,
+        label="历史窗口最低价",
+        value=Decimal("76444.00"),
+        unit="USDT",
+        observed_at=datetime(2026, 8, 10, 12, tzinfo=UTC),
+        window_start=datetime(2026, 8, 10, tzinfo=UTC),
+        window_end=datetime(2026, 8, 10, 12, tzinfo=UTC),
+    )
+    payload = _proposal_payload()
+    overview = cast(dict[str, object], payload["market_overview"])
+    overview["summary"] = "研" * 283 + "。\n" + fact.token + "\n" + "补充说明。" * 90
+    for name in ("short_term", "long_term"):
+        section = cast(dict[str, object], payload[name])
+        section["thesis"] = "中性研究。" * 130
+        cast(list[dict[str, object]], section["drivers"])[0]["detail"] = "公开证据。" * 50
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=_model_response(payload))
+        )
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        proposal = await model.generate(_request().model_copy(update={"numeric_facts": (fact,)}))
+    summary = proposal.market_overview.summary
+    assert "【" not in summary or fact.statement in summary
+    assert summary.count("【") == summary.count("】")
+
+
 # 政策专题只允许新闻证据，故意引用合法市场证据仍必须被拒绝，不能只校验全局 ID 存在。
 @pytest.mark.asyncio
 async def test_enriched_model_request_reserves_tokens_and_rejects_wrong_topic_citations() -> None:
@@ -547,10 +648,10 @@ async def test_deepseek_model_compacts_an_overlong_valid_narrative_before_valida
     assert 1_100 <= display_length <= 2_500
 
 
-# 把完整数字放在长正文尾部，防止按字符裁剪留下被截断的阻力价。
+# 不可信数值即使位于本将被压缩掉的尾部也不能绕过新门禁。
 @pytest.mark.asyncio
-async def test_deepseek_model_compaction_never_splits_a_numeric_resistance_value() -> None:
-    payload, complete_summary = _oversized_proposal_with_numeric_resistance_tail()
+async def test_deepseek_rejects_unbound_numeric_tail_before_compaction() -> None:
+    payload, _ = _oversized_proposal_with_numeric_resistance_tail()
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -564,11 +665,12 @@ async def test_deepseek_model_compaction_never_splits_a_numeric_resistance_value
             model="deepseek-v4-flash",
         )
 
-        proposal = await model.generate(_request())
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(_request())
 
-    assert len(requests) == 1
-    # 比较完整原句而不是仅查找数字，保证正文压缩没有改变数值上下文。
-    assert proposal.narrative.market_overview.summary == complete_summary
+    assert len(requests) == 3
+    assert error.value.validation_error_categories == ("unbound_numeric_claim",)
+    assert error.value.validation_field_paths == ("market_overview.summary",)
 
 
 # 首响应格式错误、次响应合法，记录第二次请求以检查安全纠正提示而非盲目重复。

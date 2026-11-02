@@ -40,6 +40,7 @@ from app.agent.model import (
     ResearchLanguageModel,
     ResearchModelRequest,
 )
+from app.agent.numeric_facts import factor_numeric_facts, snapshot_numeric_facts
 from app.market.capture import MarketCaptureService
 from app.market.contracts import (
     CandleSeries,
@@ -545,6 +546,18 @@ class _AgentResearchRun:
             symbol=self.symbol,
             structure=self.structure,
             factor_analysis=self.factor_analysis,
+            # 数值目录只来自服务端已冻结结构化载荷与确定性专题；不解析新闻或证据自由文本。
+            numeric_facts=(
+                *(
+                    fact
+                    for evidence in self._evidences()
+                    if evidence.kind == ModelEvidenceKind.MARKET
+                    for fact in snapshot_numeric_facts(
+                        evidence.payload, evidence_id=evidence.id, observed_at=evidence.observed_at
+                    )
+                ),
+                *factor_numeric_facts(self.factor_analysis),
+            ),
             evidences=tuple(
                 ModelEvidence(
                     id=evidence.id,

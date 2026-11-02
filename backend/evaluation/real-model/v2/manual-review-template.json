@@ -1,0 +1,37 @@
+{
+  "rubric_version": "research-human-rubric-v2",
+  "safe_report_sha256": null,
+  "review_artifact_sha256": null,
+  "reviewer": null,
+  "reviewed_at_utc": null,
+  "cases": [
+    {
+      "id": "baseline-history",
+      "status": "pending",
+      "scores": null,
+      "fatal_findings": [],
+      "evidence_linked_notes": []
+    },
+    {
+      "id": "conflicting-evidence",
+      "status": "pending",
+      "scores": null,
+      "fatal_findings": [],
+      "evidence_linked_notes": []
+    },
+    {
+      "id": "sparse-evidence",
+      "status": "pending",
+      "scores": null,
+      "fatal_findings": [],
+      "evidence_linked_notes": []
+    },
+    {
+      "id": "news-injection",
+      "status": "pending",
+      "scores": null,
+      "fatal_findings": [],
+      "evidence_linked_notes": []
+    }
+  ]
+}

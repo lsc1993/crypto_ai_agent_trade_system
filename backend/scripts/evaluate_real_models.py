@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from structlog.testing import capture_logs
 
 from app.agent import model as model_module
+from app.agent import numeric_facts as numeric_facts_module
 from app.agent import prompt as prompt_module
 from app.agent.model import (
     AgentAnalysisProposal,
@@ -29,7 +31,7 @@ from app.agent.model import (
 from app.agent.prompt import system_prompt
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SUITE = ROOT / "backend" / "evaluation" / "real-model" / "suite.json"
+DEFAULT_SUITE = ROOT / "backend" / "evaluation" / "real-model" / "v2" / "suite.json"
 REPORT_ROOT = ROOT / ".tmp" / "real-model-evaluation"
 ENDPOINT = "https://api.deepseek.com/chat/completions"
 MAX_SUITE_BYTES = 131_072
@@ -401,6 +403,47 @@ def _write_report(artifact: ReservedArtifact, report: dict[str, Any]) -> None:
     os.fsync(artifact.handle.fileno())
 
 
+def _safe_validation_log(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """每次拒绝仅保留白名单诊断；未知类别/键或原始正文不能进入安全报告。"""
+    allowed = {
+        "schema",
+        "trading_instruction",
+        "text_length",
+        "narrative_length",
+        "numeric_reference",
+        "unbound_numeric_claim",
+    }
+    paths = entry.get("validation_field_paths", ())
+    categories = entry.get("validation_error_categories", ())
+    # 数值模块的路径收敛器仅允许契约位置，不转发任意ASCII JSON键。
+    safe_paths = (
+        [
+            numeric_facts_module.NumericReferenceError(path).path
+            for path in cast(list[object] | tuple[object, ...], paths)[:8]
+            if isinstance(path, str)
+        ]
+        if isinstance(paths, (tuple, list))
+        else []
+    )
+    safe_categories = (
+        [
+            category if category in allowed else "schema"
+            for category in cast(list[object] | tuple[object, ...], categories)[:8]
+            if isinstance(category, str)
+        ]
+        if isinstance(categories, (tuple, list))
+        else []
+    )
+    attempt = entry.get("attempt")
+    count = entry.get("validation_issue_count")
+    return {
+        "attempt": min(3, max(1, attempt)) if type(attempt) is int else 1,
+        "issue_count": min(99, max(0, count)) if type(count) is int else 0,
+        "field_paths": safe_paths,
+        "categories": safe_categories,
+    }
+
+
 async def evaluate(
     *,
     report: dict[str, Any],
@@ -425,6 +468,9 @@ async def evaluate(
             Path(prompt_module.__file__).read_bytes()
         ).hexdigest(),
         "adapter_sha256": hashlib.sha256(Path(model_module.__file__).read_bytes()).hexdigest(),
+        "numeric_renderer_sha256": hashlib.sha256(
+            Path(numeric_facts_module.__file__).read_bytes()
+        ).hexdigest(),
         "contract_sha256": hashlib.sha256(
             json.dumps(AgentAnalysisProposal.model_json_schema(), sort_keys=True).encode("utf-8")
         ).hexdigest(),
@@ -441,6 +487,7 @@ async def evaluate(
             "news_boundary_checked": False,
             "reference_membership": "not_checked",
             "semantic_review": "pending",
+            "validation_failures": cast(list[dict[str, Any]], []),
             "duration_ms": 0,
         }
         for case, _, digest in loaded
@@ -460,7 +507,24 @@ async def evaluate(
         follow_redirects=False,
         timeout=httpx.Timeout(limits.request_timeout_seconds),
     ) as client:
-        adapter = DeepSeekResearchLanguageModel(client=client, api_key=key, model=model)
+        validation_records: list[dict[str, Any]] = []
+
+        def observe_validation(error: ModelOutputError, attempt: int) -> None:
+            """直接接收生产适配器的安全诊断，不从日志反解析，也不改变重试/验证结论。"""
+            validation_records.append(
+                _safe_validation_log(
+                    {
+                        "attempt": attempt,
+                        "validation_issue_count": error.validation_issue_count,
+                        "validation_field_paths": error.validation_field_paths,
+                        "validation_error_categories": error.validation_error_categories,
+                    }
+                )
+            )
+
+        adapter = DeepSeekResearchLanguageModel(
+            client=client, api_key=key, model=model, validation_observer=observe_validation
+        )
         for index, (case, request, _) in enumerate(loaded):
             result: dict[str, Any] = report["cases"][index]
             if state.stop_code:
@@ -473,6 +537,7 @@ async def evaluate(
             before_completion = state.completion_tokens
             transport.check_news = case.check_news_boundary
             transport.news_checked = False
+            validation_records.clear()
             try:
                 # 捕获生产安全诊断，不让多行日志污染唯一 JSON 产物；不保留日志内容。
                 with capture_logs():
@@ -506,6 +571,7 @@ async def evaluate(
             except Exception:
                 state.stop_code = "evaluation_runtime_error"
                 result.update(outcome="error", error_code=state.stop_code)
+            result["validation_failures"] = list(validation_records[:3])
             result.update(
                 actual_requests=state.actual_requests - before,
                 format_retries=max(0, state.actual_requests - before - 1),

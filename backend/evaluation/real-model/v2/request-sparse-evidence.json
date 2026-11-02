@@ -1,0 +1,24 @@
+{
+  "symbol": "BTCUSDT",
+  "structure": {
+    "trend_alignment": {
+      "1h": "neutral"
+    },
+    "support_zones": [],
+    "resistance_zones": [],
+    "confidence": "low"
+  },
+  "evidences": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "kind": "market",
+      "source": "binance_usdm_public_rest_historical",
+      "observed_at": "2026-11-02T11:57:00.649286Z",
+      "content": "Sparse derived fixture: a single historical hourly candle was closed. No price direction, longer-term history or news is provided. Long-term evidence is unavailable."
+    }
+  ],
+  "report_language": "zh-CN",
+  "horizon": "dual_horizon",
+  "factor_analysis": null,
+  "numeric_facts": []
+}

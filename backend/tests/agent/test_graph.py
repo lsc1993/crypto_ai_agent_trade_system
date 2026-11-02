@@ -193,6 +193,16 @@ async def test_graph_collects_seven_days_and_freezes_policy_topic_with_missing_f
     report = await service.generate(ContractSymbol.BTCUSDT)
     assert collector.requests[0][1] == NOW - timedelta(days=7)
     assert len(report.evidence) == 2
+    # 数值目录来自同一次冻结快照，不能从模型或新闻正文临时抽取数值。
+    numeric_facts = model.requests[0].numeric_facts
+    assert numeric_facts
+    market_id = next(e.id for e in model.requests[0].evidences if e.kind.value == "market")
+    assert {fact.evidence_id for fact in numeric_facts} <= {
+        e.id for e in model.requests[0].evidences
+    }
+    price_fact = next(fact for fact in numeric_facts if fact.label == "市场快照价格")
+    assert price_fact.evidence_id == market_id
+    assert price_fact.value == _market().snapshot.summary.price
     assert report.agent_analysis is not None
     factors = report.agent_analysis.factor_analysis
     assert factors is not None
