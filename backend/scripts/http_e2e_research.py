@@ -38,8 +38,10 @@ FIXTURES = Path(__file__).resolve().parents[1] / "evaluation" / "flows"
 
 
 class SyntheticMarket:
-    # 合成两币种使用同一价格路径，替换每层领域标识，不伪装为实时行情。
-    def __init__(self) -> None:
+    # 合成白名单使用同一价格路径，替换每层领域标识，不伪装为实时行情。
+    def __init__(self, *, symbols: tuple[ResearchSymbol, ...] = ("BTCUSDT", "ETHUSDT")) -> None:
+        # 默认维持研究夹具的双币种范围；同步验收可显式注入自己的合成白名单。
+        self.symbols = symbols
         self.detail = build_market(
             MarketRecipe.model_validate_json((FIXTURES / "market.json").read_bytes())
         )
@@ -48,7 +50,7 @@ class SyntheticMarket:
         self, symbol: ResearchSymbol, timeframes: tuple[MarketTimeframe, ...]
     ) -> MarketDetail:
         # 返回请求周期的冻结副本，摘要及每根 K 线同时换币种，防止合成 ETH 混入 BTC 标识。
-        if symbol not in {"BTCUSDT", "ETHUSDT"}:
+        if symbol not in self.symbols:
             raise ValueError("unsupported synthetic symbol")
         return self.detail.model_copy(
             update={
@@ -153,12 +155,14 @@ class ResearchRuntime:
                     )
                 )
 
-    def install(self, app: FastAPI) -> None:
-        # 向独立验收应用注入真实仓储和路由；不注册到生产 main.py，也不装配旧版同步服务。
+    def install(self, app: FastAPI, *, include_symbols: bool = True) -> None:
+        # 向独立验收应用注入真实研究仓储和路由，不注册到生产 main.py。
+        # 共用同步装配时由它安装目录路由，避免同一路径被重复注册。
         app.state.technical_run_repository = self.runs
         app.state.technical_report_repository = self.reports
         app.state.symbol_repository = self.symbols
-        app.include_router(symbols_router, prefix="/api/v1")
+        if include_symbols:
+            app.include_router(symbols_router, prefix="/api/v1")
         app.include_router(reports_router, prefix="/api/v1")
 
     async def close(self) -> None:

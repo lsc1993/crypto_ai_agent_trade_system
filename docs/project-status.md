@@ -27,6 +27,7 @@
 | 架构机器门禁 | AST 检查研究/交易、Harness/IO及持久化、Risk/LLM 直接依赖；故意违规、漏扫及坏语法均有回归，保留原字符串安全检查 | [检查器](../backend/scripts/check_architecture.py)、[故障样例测试](../backend/tests/security/test_architecture_gate.py) |
 | HTTP 与数据库浏览器验收 | 交易日志在 api 模式经真实 HTTP 和生产仓储保存后，刷新及新上下文重读；随机测试 schema，不是整站生产装配验收 | [浏览器用例](../frontend/e2e-http/trade-persistence.spec.ts)、[隔离服务](../backend/scripts/http_e2e_server.py) |
 | 技术研究 HTTP 与任务恢复验收 | 生产队列/worker/Harness/适配器/SQL 的完成与降级闭环；worker 重建、子进程终止、取消、提交后恢复、去重与迟到租约拒绝 | [研究浏览器用例](../frontend/e2e-http/research-persistence.spec.ts)、[恢复测试](../backend/tests/persistence/test_technical_worker_recovery.py) |
+| 币种同步重试 HTTP 验收 | 浏览器手动重试、运行中禁用/轮询、重复任务复用、部分恢复或再次失败及新会话重读；生产 worker/SQL/快照仓储，固定合成来源 | [同步浏览器用例](../frontend/e2e-http/symbol-sync-retry.spec.ts)、[隔离装配](../backend/scripts/http_e2e_symbols.py) |
 | 完整 Compose 运行与恢复验收 | 生产镜像、入口迁移、完整应用 lifespan 与 Nginx；合成日志在 API 重启、保卷重建及独立空库备份恢复后保持一致 | [本地运行验收记录](superpowers/plans/2026-11-01-isolated-compose-acceptance.md)、[部署说明](local-deployment.md) |
 
 ## 本次整理的行为
@@ -46,6 +47,10 @@
 后端全部 248 个 Python 文件（源码、脚本、测试和历史迁移）补充中文注释，说明职责、关键流程、契约、失败路径与设计原因；可添加注释的构建配置同步补充说明。根目录与后端 `AGENTS.md`、[AI 维护指南](ai-maintenance.md)明确 AI Agent 生成代码必须维护详细注释，具体要求见[后端规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)。锁文件、严格 JSON/XML 样本、版本标记与冻结技术方法保留原内容；Windows Alembic 配置采用 ASCII 注释以兼容本地编码读取。
 
 ## 最近验证
+
+2026-11-02 币种同步 HTTP 验收：新增 SOL 首次失败后手动重试为部分覆盖、XRP 再次失败两条浏览器旅程，经真实重试路由、生产同步 worker、SQL 租约/审计及快照仓储，验证 202 入队、运行中禁用与轮询、重复请求复用、旧失败请求 409、刷新及新上下文读取。初次失败同样由 worker 写入，目录与行情来自固定合成夹具；未注入资金费率，未将部分覆盖宣称为就绪。修复 Playwright worker 重载配置时重新生成 token 导致控制请求 403 的验收配置问题；测试控制入口只在独立验收服务注册，生产应用未增加接口。
+
+根目录统一 `full` 的 22 项检查全部通过，后端 817 collected/passed、零失败/跳过/收集错误，前端 lint/typecheck/Vitest/build 通过；统一 `http-e2e` 的五条浏览器旅程通过，后端目录安全文档回归 55 项通过。独立只读审查未发现 P1/P2；四份说明相对链接与 `git diff --check` 通过。测试使用本次独立 tmpfs PostgreSQL 和受限身份，结束时临时 schema 为 0，核对标签后移除测试容器。未新增生产依赖、迁移或业务接口，未操作远端 CI、推送、业务配置或真实公开源。
 
 2026-11-01 隔离 Compose 验收，代码基线 `bf35bb0`：使用现有生产 Dockerfile 构建当前 API、前端及恢复实例的独立前端镜像，经实际入口迁移启动 PostgreSQL/API/Nginx。API 与数据库仅连接独立 internal 网络，空模型密钥且未设置非空代理环境变量；前端额外使用独立入口桥接网，仅发布回环端口。本机 Docker Desktop 的纯 internal 网络未发布宿主机端口，临时拓扑调整后重新启动验证通过，没有修改业务 Compose。
 

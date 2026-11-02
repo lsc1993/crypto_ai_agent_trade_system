@@ -41,6 +41,38 @@ async def test_research_stops_before_engine_and_schema_cleanup(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("sync_close_fails", [False, True])
+async def test_all_consumers_close_before_schema_cleanup(sync_close_fails: bool) -> None:
+    # 两个消费者共用 schema；同步回收异常也要回收研究 worker，且向清理调用方保留异常。
+    events: list[str] = []
+    database = MagicMock()
+    research = MagicMock()
+    symbols = MagicMock()
+
+    async def close_sync() -> None:
+        events.append("sync")
+        if sync_close_fails:
+            raise RuntimeError("synthetic close failure")
+
+    async def close_research() -> None:
+        events.append("research")
+
+    symbols.close = close_sync
+    research.close = close_research
+    app = server.create_http_e2e_app(
+        database, token="synthetic-run-token", research=research, symbols=symbols
+    )
+    research.install.assert_called_once_with(app, include_symbols=False)
+    symbols.install.assert_called_once_with(app, token="synthetic-run-token")
+    if sync_close_fails:
+        with pytest.raises(RuntimeError, match="synthetic close failure"):
+            await database.before_cleanup()
+    else:
+        await database.before_cleanup()
+    assert events == ["sync", "research"]
+
+
+@pytest.mark.asyncio
 async def test_failed_preflight_never_creates_schema_or_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

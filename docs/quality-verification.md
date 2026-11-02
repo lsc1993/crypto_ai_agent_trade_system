@@ -26,7 +26,7 @@ uv run --project backend --locked --no-sync python scripts/verify.py full --repo
 | `full`（默认） | 后端格式/lint/类型、全部 pytest、迁移链头和离线评估；前端 lint/类型/Vitest/build；需要专用测试库及 Docker Compose |
 | `eval` | 只运行后端离线契约评估及其依赖诊断，不发起真实模型调用 |
 | `e2e` | 单独运行 Chromium 下的 Mock 界面验收，强制 Mock 模式且不复用既有 4173 服务；不代表 HTTP/数据库联验 |
-| `http-e2e` | 浏览器通过真实 HTTP 保存日志及提交技术研究队列，验证完成/降级、刷新和新会话读取；专用测试库与随机 schema，不装配完整业务 lifespan |
+| `http-e2e` | 浏览器通过真实 HTTP 保存日志、提交技术研究及重试失败的币种同步，验证终态、刷新和新会话读取；专用测试库与随机 schema，不装配完整业务 lifespan |
 
 可加 `--component backend` 或 `--component frontend` 缩小范围；不兼容的档位与范围组合会拒绝。`--timeout` 为每条检查的秒数上限，默认 900。检查超时会终止进程树。pytest 临时目录在 `.tmp/pytest/` 下按运行隔离。统一入口清空继承的 `PYTEST_ADDOPTS`，防止外部 `--collect-only`、`-k` 或 `-m` 将完整验收悄悄缩小；手动聚焦 pytest 不受此限制。
 
@@ -75,7 +75,7 @@ uv run --project backend --locked --no-sync python scripts/verify.py full --repo
 
 ## 研究报告 HTTP 与任务恢复验收
 
-`http-e2e` 现有三条浏览器流程：日志保存、BTC 技术报告完成、ETH 技术报告缺模型配置降级。研究路径经生产 202 入队、真实 worker/Harness/两阶段适配器与 SQL 仓储；只有行情和模型传输为固定合成输入，浏览器不拦截请求。用例核对报告与 run 的分析身份、完成或降级分类、刷新/历史列表及全新浏览器上下文读取。该装配不访问真实外部源，不是完整生产 lifespan 或真实模型质量验收。
+`http-e2e` 包含五条浏览器流程：日志保存、BTC 技术报告完成、ETH 技术报告缺模型配置降级，以及下述两条币种同步重试。研究路径经生产 202 入队、真实 worker/Harness/两阶段适配器与 SQL 仓储；只有行情和模型传输为固定合成输入，浏览器不拦截请求。用例核对报告与 run 的分析身份、完成或降级分类、刷新/历史列表及全新浏览器上下文读取。该装配不访问真实外部源，不是完整生产 lifespan 或真实模型质量验收。
 
 研究验收工厂在清理 schema 前先取消并回收 worker，再关闭模型 HTTP 客户端和 SQL 引擎；不把测试回收端点加入生产应用。历史迁移预置的 BTC/ETH 目录在隔离 schema 内追加合成 ready 记录，用于走实际目录授权，而非模拟真实初始同步已经成功。
 
@@ -101,6 +101,10 @@ uv run pytest tests/persistence/test_technical_worker_recovery.py tests/tooling/
 
 前端回归为 `src/features/research-symbols/ResearchSymbolManagementPage.test.tsx`、`src/shared/api/research-symbol-sync.test.ts` 和已有目录旅程，覆盖状态、请求契约、重试禁用、安全错误与活跃任务轮询。Mock 不执行同步，HTTP/Hybrid 写入失败不回退离线结果。
 
+`http-e2e` 另使用 [同步装配](../backend/scripts/http_e2e_symbols.py)及[浏览器用例](../frontend/e2e-http/symbol-sync-retry.spec.ts)验证 SOL 首次失败后重试为部分覆盖、XRP 再次失败。目录元数据为固定夹具，不代表公网准入检查；初次失败与重试终态均由生产 worker、SQL 租约/审计和快照仓储写入。资金费率未注入，恢复结果明确为部分覆盖而非就绪。
+
+浏览器检查失败任务 ID、202 排队、运行中按钮禁用、目录轮询、重复请求复用同一任务、迟到旧请求 409、刷新及新上下文重读同一终态。仅在隔离验收服务注册的 token 认证事件门控制采集完成，避免固定等待造成偶然通过；主 runner 生成随机 token，Playwright worker 重载配置时继承它，token 不进入 `VITE_*`。回收先取消并等待同步和研究消费者，再删除随机 schema；不证明真实公开源可用或整个生产同步进程重启。
+
 ## 评估产物与 CI 证明范围
 
 统一摘要现为 schema_version 2，后端测试通过显式 pytest 插件生成安全计数和失败代码标识，去掉所有参数化后缀，不保存异常、捕获输出或跳过原因。只收集、零执行、摘要缺失/格式损坏或写入失败不能通过。失败时可直接查看报告的 `diagnostics.failures`，再按代码标识运行聚焦回归，无需再次全量测试才能定位。每次运行使用独立产物名防止旧报告冒充新结果。
@@ -113,4 +117,4 @@ AST 检查覆盖研究到交易模块、Harness 到交易/外部 IO/持久化实
 
 [研究服务流程集](../backend/evaluation/flows/README.md)补充技术 v2 两阶段、综合研究证据门控及保存/读取合同；离线内存读取与真实数据库回归分别给出证据，不能互相替代，详见该集的限制说明。
 
-[GitHub Actions](../.github/workflows/verify.yml)安装锁定依赖，创建独立 PostgreSQL 17 与受限测试身份，在分支 push/PR 时调用同一 `full`、`e2e` 与 `http-e2e` 入口。CI 不使用真实模型密钥，不发布、不部署、不访问业务数据库；只上传安全摘要。远端运行与分支保护仍待独立验收，本地配置不代表已启用门禁。
+[GitHub Actions](../.github/workflows/verify.yml)配置保留为参考，声明安装锁定依赖、创建独立 PostgreSQL 17 与受限测试身份，并调用同一 `full`、`e2e` 与 `http-e2e` 入口。当前交付只要求本地验收，不执行远端 CI 或设置分支合并门禁；仓库中的配置不代表远端已验证或已启用门禁。

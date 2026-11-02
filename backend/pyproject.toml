@@ -63,6 +63,7 @@ include = [
     "scripts/check_architecture.py", "scripts/evaluate_research_flows.py", "scripts/pytest_summary.py",
     "scripts/http_e2e_server.py",
     "scripts/http_e2e_research.py",
+    "scripts/http_e2e_symbols.py",
     "scripts/research_flow_fixtures.py",
 ]
 venvPath = "."

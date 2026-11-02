@@ -1,6 +1,7 @@
 # 仅供 HTTP/数据库浏览器验收使用的独立服务，不装配生产 AppSettings 或生产 lifespan。
 # 显式测试库准入通过后创建随机 schema、运行现有迁移，并使用生产交易日志服务和仓储。
-# 研究使用固定模型传输和合成行情，不访问公开源或订单执行；清理只作用于本次 schema。
+# 研究使用固定模型传输，同步使用合成行情和事件门；均不访问公开源或订单执行。
+# 清理先关闭两个消费者，再回收本次 schema，不触及业务数据。
 from __future__ import annotations
 
 import argparse
@@ -32,6 +33,7 @@ from app.shared.database import (
 from app.trades.service import TradeService
 from scripts.check_test_database import DatabaseGuardError, check_test_database
 from scripts.http_e2e_research import ResearchRuntime, research_runtime
+from scripts.http_e2e_symbols import SymbolSyncRuntime, symbol_sync_runtime
 
 
 @dataclass
@@ -105,10 +107,14 @@ class ReadyResponse(BaseModel):
 
 
 def create_http_e2e_app(
-    database: HttpE2EDatabase, *, token: str, research: ResearchRuntime | None = None
+    database: HttpE2EDatabase,
+    *,
+    token: str,
+    research: ResearchRuntime | None = None,
+    symbols: SymbolSyncRuntime | None = None,
 ) -> FastAPI:
     # 最小装配复用生产 HTTP 映射、确定性盈亏和 SQLAlchemy 事务/审计写入。
-    # 提供交易日志、显式注入的研究队列及验收生命周期路由，不冒充完整生产装配。
+    # 提供交易日志、显式注入的研究/同步队列及验收生命周期路由，不冒充完整生产装配。
     if not token:
         raise ValueError("HTTP E2E run token is required")
     app = FastAPI(title="Isolated HTTP database E2E", docs_url=None, redoc_url=None)
@@ -124,8 +130,20 @@ def create_http_e2e_app(
     app.state.trade_service = TradeService(repository=repository)
     app.include_router(trades_router, prefix="/api/v1")
     if research is not None:
-        research.install(app)
-        database.before_cleanup = research.close
+        research.install(app, include_symbols=symbols is None)
+    if symbols is not None:
+        symbols.install(app, token=token)
+
+    async def close_workers() -> None:
+        # 两个消费者都必须先退出；同步关闭异常也不能跳过研究 worker 的回收。
+        try:
+            if symbols is not None:
+                await symbols.close()
+        finally:
+            if research is not None:
+                await research.close()
+
+    database.before_cleanup = close_workers
 
     async def ready() -> ReadyResponse:
         # 清理完成后不再向 Playwright 宣称数据库就绪。
@@ -149,8 +167,11 @@ def create_http_e2e_app(
 async def _serve(port: int, token: str) -> None:
     # 主进程拥有数据库作用域，uvicorn 正常退出或启动失败后都回收同一 schema。
     async with test_database_scope() as database:
-        async with research_runtime(database.session_factory) as research:
-            app = create_http_e2e_app(database, token=token, research=research)
+        async with (
+            research_runtime(database.session_factory) as research,
+            symbol_sync_runtime(database.session_factory) as symbols,
+        ):
+            app = create_http_e2e_app(database, token=token, research=research, symbols=symbols)
             configuration = uvicorn.Config(
                 app, host="127.0.0.1", port=port, log_level="critical", access_log=False
             )
