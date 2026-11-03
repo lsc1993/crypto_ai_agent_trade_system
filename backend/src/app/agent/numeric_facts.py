@@ -120,9 +120,22 @@ class NumericFact(BaseModel):
 class NumericReferenceError(ValueError):
     """只携带安全类别和契约字段位置，不携带模型原文或事实数值。"""
 
-    def __init__(self, path: str, category: str = "numeric_reference") -> None:
+    def __init__(
+        self,
+        path: str,
+        category: str = "numeric_reference",
+        *,
+        issues: Sequence[NumericReferenceError] | None = None,
+    ) -> None:
         # 未知JSON键可能包含模型任意内容；只允许契约字段进入诊断和纠错提示。
         fields = {
+            "horizon",
+            "outlook",
+            "confidence",
+            "evidence_ids",
+            "category",
+            "direction",
+            "topic",
             "market_overview",
             "headline",
             "summary",
@@ -147,6 +160,7 @@ class NumericReferenceError(ValueError):
         self.path = (
             path
             if len(path) <= 160
+            and parts[0] in fields
             and all(
                 part in fields or (part.isascii() and part.isdigit() and len(part) <= 3)
                 for part in parts
@@ -154,13 +168,60 @@ class NumericReferenceError(ValueError):
             else "schema"
         )
         self.category = category
+        collected = tuple(issues[:99]) if issues else (self,)
+        self.issue_count = len(collected)
+        self.field_paths = tuple(dict.fromkeys(issue.path for issue in collected))[:8]
+        self.categories = tuple(sorted({issue.category for issue in collected}))
         super().__init__(category)
+
+
+def select_numeric_facts(facts: Sequence[NumericFact]) -> tuple[NumericFact, ...]:
+    """可见目录最多十六条：按来源和字段轮询，同组优先首尾时点；不修改完整冻结事实。"""
+    limit = 16
+    if len(facts) <= limit:
+        return tuple(facts)
+    sources: dict[UUID, dict[str, list[NumericFact]]] = {}
+    for fact in facts:
+        sources.setdefault(fact.evidence_id, {}).setdefault(fact.label, []).append(fact)
+    by_source = [list(fields.values()) for fields in sources.values()]
+    groups: list[list[NumericFact]] = []
+    # 先交错来源，再交错字段，避免一个来源的重复指标占满全部目录。
+    for field_index in range(max(len(fields) for fields in by_source)):
+        for fields in by_source:
+            if field_index >= len(fields):
+                continue
+            ordered = sorted(
+                fields[field_index],
+                key=lambda f: (
+                    f.window_start or f.observed_at,
+                    f.window_end or f.observed_at,
+                    f.token,
+                ),
+            )
+            endpoints: list[NumericFact] = []
+            left, right = 0, len(ordered) - 1
+            while left <= right:
+                endpoints.append(ordered[left])
+                if left != right:
+                    endpoints.append(ordered[right])
+                left += 1
+                right -= 1
+            groups.append(endpoints)
+    selected: list[NumericFact] = []
+    for position in range(max(len(group) for group in groups)):
+        for group in groups:
+            if position < len(group):
+                selected.append(group[position])
+                if len(selected) == limit:
+                    return tuple(selected)
+    return tuple(selected)
 
 
 def render_numeric_references(content: str, facts: Sequence[NumericFact], *, symbol: str) -> str:
     """在压缩与提案构造前拒绝自由数值，检查事实引用后渲染；未知/跨证据引用不修补。"""
     root = cast(JsonValue, json.loads(content))
     catalog = {fact.token: fact for fact in facts}
+    issues: list[NumericReferenceError] = []
 
     def ids(value: JsonValue) -> set[str]:
         result: set[str] = set()
@@ -181,11 +242,11 @@ def render_numeric_references(content: str, facts: Sequence[NumericFact], *, sym
             return {
                 key: child
                 if key == "evidence_ids"
-                else walk(child, f"{path}.{key}".strip("."), scope)
+                else visit(child, f"{path}.{key}".strip("."), scope)
                 for key, child in value.items()
             }
         if isinstance(value, list):
-            return [walk(child, f"{path}.{index}", inherited) for index, child in enumerate(value)]
+            return [visit(child, f"{path}.{index}", inherited) for index, child in enumerate(value)]
         if not isinstance(value, str):
             return value
         matches = list(_TOKEN.finditer(value))
@@ -210,7 +271,19 @@ def render_numeric_references(content: str, facts: Sequence[NumericFact], *, sym
                 raise NumericReferenceError(path)
         return _TOKEN.sub(lambda match: catalog[match.group()].statement, value)
 
-    return json.dumps(walk(root, "", ids(root)), ensure_ascii=False)
+    def visit(value: JsonValue, path: str, inherited: set[str]) -> JsonValue:
+        """每个读者字段最多记一次错误，继续收集其他字段；有错时整份临时结果都会丢弃。"""
+        try:
+            return walk(value, path, inherited)
+        except NumericReferenceError as error:
+            if len(issues) < 99:
+                issues.append(error)
+            return None
+
+    rendered = visit(root, "", ids(root))
+    if issues:
+        raise NumericReferenceError(issues[0].path, issues[0].category, issues=issues)
+    return json.dumps(rendered, ensure_ascii=False)
 
 
 def historical_candle_facts(

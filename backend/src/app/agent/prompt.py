@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, cast
 
 from pydantic import JsonValue
 
+from app.agent.numeric_facts import select_numeric_facts
+
 if TYPE_CHECKING:
     from app.agent.model import ResearchModelRequest
 
@@ -21,9 +23,13 @@ _SYSTEM_PROMPT = """你是受限的中文市场研究格式化器。仅返回一
 不得自行新增专题或用市场证据代替专题证据。
 短期观点指数天至两周，长期观点指数周至数月；解释证据，不要给出日期绑定的价格预测。
 具体数值只能引用 numeric_facts 中提供的 token，token必须单独占一行（JSON字符串中使用换行转义）。
+日期、时刻、K线根数及时间周期中的数字也遵守引用规则；周期用小时级、短期、长期等定性名称。
 程序会将token渲染成包含字段标签、单位和UTC时段的完整事实语句，不是裸数字。
+statement仅供理解事实，输出只复制token；numeric_reference_example给出合法字符串片段。
+篇幅按渲染后字符串计数，每个token替换后计入其rendered_length；少量引用且避免重复。
 禁止自行输出阿拉伯数字、全角数字、中文报价或比例；不得给token另加开盘、最低等字段标签。
-时间周期用中文定性名称，币种名称可原样使用；没有可用事实时只解释证据缺口，不补造数值。
+时间周期用中文定性名称，币种名称可原样使用；没有可见token时使用非数量化解释，不补造数值。
+可见目录是引用预算，不是全部原始事实；目录筛选不等于证据缺失，仅在输入明确缺失时说明缺口。
 正文与专题解释都遵守此规则；事实语句仍须引用其对应 evidence_id。
 正文必须详实中文：市场概况、两个 thesis 与两组 drivers.detail 合计为 1100 至 2500 字符。
 优先控制在 1800 至 2200 字符。
@@ -111,14 +117,33 @@ def system_prompt() -> str:
 
 # 将结构、专题事实及证据规范序列化；专题投影剔除模型解释和事件正文。
 def research_user_message(request: ResearchModelRequest) -> str:
+    visible_facts = select_numeric_facts(request.numeric_facts)
     payload = {
         "symbol": request.symbol,
         "report_language": request.report_language,
         "horizon": request.horizon,
         "numeric_facts": [
-            {"token": fact.token, "statement": fact.statement, "evidence_id": str(fact.evidence_id)}
-            for fact in request.numeric_facts
+            {
+                "token": fact.token,
+                "statement": fact.statement,
+                "evidence_id": str(fact.evidence_id),
+                "rendered_length": len(fact.statement),
+            }
+            for fact in visible_facts
         ],
+        "numeric_reference_example": (
+            {
+                "market_overview": {
+                    "headline": "市场概况",
+                    "summary": "仅描述冻结范围，方向仍需复核。\n"
+                    + visible_facts[0].token
+                    + "\n这条事实不代表未来走势。",
+                    "evidence_ids": [str(visible_facts[0].evidence_id)],
+                }
+            }
+            if visible_facts
+            else None
+        ),
         "factor_analysis": (
             None
             if request.factor_analysis is None

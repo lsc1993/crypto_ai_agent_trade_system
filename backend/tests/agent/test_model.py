@@ -35,6 +35,57 @@ NEWS_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 @pytest.mark.asyncio
+async def test_numeric_retry_explains_literal_classes_without_echoing_candidate() -> None:
+    """真实诊断重复拒绝自由数字后，纠错要解释日期/根数等也必须引用，不能只给英文类别。"""
+    invalid = _proposal_payload()
+    overview = cast(dict[str, object], invalid["market_overview"])
+    overview["summary"] = str(overview["summary"]) + " private-rejected-marker 2026"
+    replies = iter((invalid, _proposal_payload()))
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json=_model_response(next(replies)))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        await model.generate(_request())
+    instruction = json.loads(sent[1].content)["messages"][-1]["content"]
+    assert all(word in instruction for word in ("日期", "时刻", "根数", "token", "statement"))
+    assert "目录筛选不等于证据缺失" in instruction
+    assert "private-rejected-marker" not in instruction
+
+
+@pytest.mark.asyncio
+async def test_numeric_rejection_reports_all_bad_fields_in_one_attempt() -> None:
+    """多段都有自由数字时一次反馈所有位置，避免固定三次额度被逐段修补耗尽。"""
+    payload = _proposal_payload()
+    cast(dict[str, object], payload["market_overview"])["summary"] = "不应直接引用2026。"
+    short = cast(dict[str, object], payload["short_term"])
+    cast(list[dict[str, object]], short["drivers"])[0]["detail"] = "不应直接引用123.45。"
+    cast(dict[str, object], payload["long_term"])["thesis"] = "不应直接引用12根。"
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=_model_response(payload))
+        )
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(_request())
+    assert error.value.validation_issue_count == 3
+    assert set(error.value.validation_field_paths) == {
+        "market_overview.summary",
+        "short_term.drivers.0.detail",
+        "long_term.thesis",
+    }
+    assert error.value.validation_error_categories == ("unbound_numeric_claim",)
+
+
+@pytest.mark.asyncio
 async def test_model_rejects_unrequested_factor_interpretation() -> None:
     """未请求专题时，合法市场证据ID也不能用于生成政策观点；离线重现稀疏案例缺陷。"""
     payload = _proposal_payload()
@@ -98,6 +149,41 @@ async def test_model_renders_frozen_fact_and_keeps_reference_in_prompt() -> None
     catalog = json.loads(posted["messages"][1]["content"])["numeric_facts"]
     assert catalog[0]["token"] == fact.token
     assert catalog[0]["statement"] == fact.statement
+    snippet = json.loads(posted["messages"][1]["content"])["numeric_reference_example"]
+    rendered = agent_model.render_numeric_references(json.dumps(snippet), (fact,), symbol="BTCUSDT")
+    assert fact.statement in json.loads(rendered)["market_overview"]["summary"]
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_reference_frozen_fact_omitted_from_visible_catalog() -> None:
+    """完整证据保留不等于允许引用未提供的菜单项；Prompt与渲染门禁使用同一选择规则。"""
+    from app.agent.numeric_facts import NumericFact, select_numeric_facts
+
+    facts = tuple(
+        NumericFact(
+            evidence_id=MARKET_EVIDENCE_ID,
+            label="观测价格",
+            value=Decimal(i),
+            unit="USDT",
+            observed_at=datetime(2026, 8, 10, 12, i, tzinfo=UTC),
+        )
+        for i in range(20)
+    )
+    selected = select_numeric_facts(facts)
+    hidden = next(f for f in facts if f not in selected)
+    payload = _proposal_payload()
+    cast(dict[str, object], payload["market_overview"])["summary"] = hidden.token
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=_model_response(payload))
+        )
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(_request().model_copy(update={"numeric_facts": facts}))
+    assert error.value.validation_error_categories == ("numeric_reference",)
 
 
 @pytest.mark.asyncio

@@ -211,3 +211,42 @@ def test_real_context_projection_uses_actual_field_names_and_reference_time():
     assert all("单项观测时刻未单独提供" in f.statement for f in values)
     assert all("合并上下文参考时刻=" in f.statement for f in values)
     assert all("【观察时刻=" not in f.statement for f in values)
+
+
+def test_visible_catalog_is_bounded_diverse_and_keeps_temporal_endpoints():
+    """重复K线字段不应淹没目录，筛选保留不同来源/字段并优先选同组首尾观测。"""
+    module = import_module("app.agent.numeric_facts")
+    values = tuple(
+        module.NumericFact(
+            evidence_id=EVIDENCE,
+            label="该根成交量",
+            value=Decimal(i),
+            unit="base",
+            observed_at=NOW - timedelta(minutes=40 - i),
+        )
+        for i in range(40)
+    )
+    other = module.NumericFact(
+        evidence_id=UUID(int=2),
+        label="快照价格",
+        value=Decimal("123.45"),
+        unit="USDT",
+        observed_at=NOW,
+    )
+    selected = module.select_numeric_facts((*values, other))
+    assert len(selected) == 16
+    assert values[0] in selected and values[-1] in selected and other in selected
+    assert selected == module.select_numeric_facts((*values, other))
+    assert all(fact in (*values, other) for fact in selected)
+
+
+def test_numeric_diagnostics_are_aggregated_but_bounded():
+    """拒绝整份候选，同时将诊断位置限制为八项，不能保存各字段原文。"""
+    module = import_module("app.agent.numeric_facts")
+    with pytest.raises(module.NumericReferenceError) as error:
+        module.render_numeric_references(
+            json.dumps({"limitations": ["private-marker 123"] * 12}), (), symbol="BTCUSDT"
+        )
+    assert error.value.issue_count == 12
+    assert len(error.value.field_paths) == 8
+    assert "private-marker" not in str(error.value)

@@ -75,6 +75,25 @@ def test_live_requires_explicit_limits_and_key(
     assert report["summary"]["actual_requests"] == 0
 
 
+def test_single_case_prepare_is_explicit_and_unknown_case_is_safe(
+    corpus: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """单案诊断保留整套语料指纹并标记选择范围，未知案例不回显任意输入。"""
+    module = evaluator()
+    suite = json.loads(corpus.read_bytes())
+    suite["cases"].append({"id": "another-case", "request_file": "request.json"})
+    corpus.write_text(json.dumps(suite), encoding="utf-8")
+    assert module.main(["--case", "baseline"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["selection_scope"] == "single_case"
+    assert report["selected_case_ids"] == ["baseline"]
+    assert len(report["cases"]) == 1
+    assert module.main(["--case", "private-unknown-marker"]) == 1
+    output = capsys.readouterr().out
+    assert json.loads(output)["error_code"] == "case_not_found"
+    assert "private-unknown-marker" not in output
+
+
 def live_args(module: Any, name: str = "run", *extra: str) -> list[str]:
     """所有测试显式提供额度；路径只指向测试专属结果目录。"""
     return [
@@ -194,6 +213,32 @@ def test_rejected_numeric_claim_retains_only_safe_attempt_diagnostics(
     assert item["validation_failures"][0]["categories"] == ["unbound_numeric_claim"]
     assert item["validation_failures"][0]["field_paths"] == ["market_overview.summary"]
     assert "private-numeric-marker" not in output and "76717.00" not in output
+
+
+@pytest.mark.parametrize(
+    "field, expected", [("outlook", "outlook"), ("private_unknown_key", "schema")]
+)
+def test_schema_diagnostics_keep_known_paths_and_redact_unknown_keys(
+    corpus: Path,
+    responses: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    field: str,
+    expected: str,
+) -> None:
+    """schema诊断必须保留已知契约字段，任意新键和错误枚举值仍不可回显。"""
+    module = evaluator()
+    response = json.loads(json.dumps(responses))
+    proposal = json.loads(response["choices"][0]["message"]["content"])
+    proposal[field] = "private-schema-value"
+    response["choices"][0]["message"]["content"] = json.dumps(proposal)
+    mock_http(monkeypatch, lambda request, number: httpx.Response(200, json=response))
+    assert module.main(live_args(module, "schema-path")) == 0
+    output = capsys.readouterr().out
+    report = json.loads(output)
+    assert report["cases"][0]["outcome"] == "rejected"
+    assert report["cases"][0]["validation_failures"][0]["field_paths"] == [expected]
+    assert "private-schema-value" not in output and "private_unknown_key" not in output
 
 
 def test_correction_attempts_count_as_actual_requests(

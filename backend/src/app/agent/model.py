@@ -34,7 +34,12 @@ from pydantic_core import ErrorDetails
 
 from app.agent.factors import apply_interpretations
 from app.agent.market_structure import MarketStructure
-from app.agent.numeric_facts import NumericFact, NumericReferenceError, render_numeric_references
+from app.agent.numeric_facts import (
+    NumericFact,
+    NumericReferenceError,
+    render_numeric_references,
+    select_numeric_facts,
+)
 from app.agent.prompt import research_user_message, system_prompt
 from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
@@ -393,16 +398,15 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         content = _normalize_json_object_content(_response_content(response))
         try:
             content = render_numeric_references(
-                content, request.numeric_facts, symbol=request.symbol
+                content, select_numeric_facts(request.numeric_facts), symbol=request.symbol
             )
         except NumericReferenceError as error:
-            path = error.path if _VALIDATION_FIELD_PATH.fullmatch(error.path) else "schema"
             raise ModelOutputError(
                 "model_invalid_response",
                 "模型数值事实引用不合法",
-                validation_issue_count=1,
-                validation_field_paths=(path,),
-                validation_error_categories=(error.category,),
+                validation_issue_count=error.issue_count,
+                validation_field_paths=error.field_paths,
+                validation_error_categories=error.categories,
             ) from None
         except (ValueError, TypeError):
             raise ModelOutputError(
@@ -470,12 +474,32 @@ def _format_retry_instruction(*, error: ModelOutputError | None) -> str:
     field_paths = ", ".join(error.validation_field_paths) or "未定位字段"
     categories = ", ".join(error.validation_error_categories) or "schema"
     narrative_length_instruction = _narrative_length_retry_instruction(error)
+    numeric_instruction = _numeric_reference_retry_instruction(error)
     return (
         f"{_FORMAT_RETRY_INSTRUCTION}\n"
         f"上一份候选的校验字段：{field_paths}。"
         f"校验类别：{categories}。"
         f"{narrative_length_instruction}"
+        f"{numeric_instruction}"
         "请仅修正这些格式问题，仍须完整返回全部 JSON。"
+    )
+
+
+def _numeric_reference_retry_instruction(error: ModelOutputError) -> str:
+    """按机器类别解释输出协议，不回显被拒正文；日期和根数同样属于未经绑定数字。"""
+    if not {"unbound_numeric_claim", "numeric_reference"}.intersection(
+        error.validation_error_categories
+    ):
+        return ""
+    return (
+        "本次需要修正数值引用：价格、成交量、百分比、日期、时刻、时间周期的数字及K线根数，"
+        "即使存在于证据中，也不能自行写入正文。请使用小时级、短期、长期等定性周期名称。"
+        "需要具体数值时，只复制 numeric_facts 的 token，独占一行，不附加句号、引号或字段标签；"
+        "不要照抄 statement，它是程序渲染结果说明而不是模型输出。"
+        "参考 numeric_reference_example 的字符串片段，并引用同一 evidence_id。"
+        "字段位置是有界摘要，请同时检查整份JSON的所有读者字符串，不只修补首个字段。"
+        "没有对应token时使用非数量化解释。目录筛选不等于证据缺失，"
+        "只有输入明确缺失证据时才说明数据缺口。"
     )
 
 

@@ -527,6 +527,10 @@ async def evaluate(
         )
         for index, (case, request, _) in enumerate(loaded):
             result: dict[str, Any] = report["cases"][index]
+            result["frozen_numeric_fact_count"] = len(request.numeric_facts)
+            result["provided_numeric_fact_count"] = len(
+                numeric_facts_module.select_numeric_facts(request.numeric_facts)
+            )
             if state.stop_code:
                 result["error_code"] = state.stop_code
                 continue
@@ -616,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.add_argument("--save-accepted-proposals", action="store_true")
         parser.add_argument("--model", choices=("deepseek-v4-flash", "deepseek-v4-pro"))
         parser.add_argument("--output", type=Path)
+        parser.add_argument("--case")
         for name in (
             "max-requests",
             "max-input-bytes",
@@ -665,6 +670,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise EvaluationStop("prices_invalid")
             prices = Prices(input_price, output_price)
         suite, loaded, corpus_hash, metadata_hashes = _load()
+        if args.case is not None:
+            loaded = [item for item in loaded if item[0].id == args.case]
+            if not loaded:
+                raise EvaluationStop("case_not_found")
+        # 保留整套冻结语料指纹，另明确实际选择；单案接受不得冒充四案质量通过。
+        report["selection_scope"] = "single_case" if args.case is not None else "full_suite"
+        report["selected_case_ids"] = [case.id for case, _, _ in loaded]
         if limits is not None and any(
             (4_000 if request.factor_analysis is None else 7_000) > limits.max_output_tokens
             for _, request, _ in loaded

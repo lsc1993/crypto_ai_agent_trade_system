@@ -35,6 +35,10 @@ uv run --locked --no-sync python -m scripts.evaluate_real_models --dry-run --out
 
 产物路径统一相对仓库根目录解析，仅允许 `.tmp/real-model-evaluation/` 内的新文件；拒绝覆盖与符号链接。准备模式不会因为环境中已有密钥而调用模型。
 
+单案例诊断可加 `--case baseline-history`；只允许当前固定suite已有ID。报告的 `selection_scope` 与 `selected_case_ids` 明确实际范围，语料指纹仍覆盖完整suite，单案接受不能冒充四案通过。建议先单案、最多三次请求读取 `validation_failures` 后定向修复。
+
+可见数值目录最多十六条，按来源与字段交错、同组首尾时点优先；完整冻结事实不删减。Prompt与渲染器使用同一目录，未提供token不可引用；每条提供 `rendered_length` 供篇幅预算，并给出同次输入的合法引用片段。live安全报告记录完整/可见事实条数，历史样本不回写。
+
 确定调用额度并由可信机制向当前进程注入 `REAL_MODEL_EVAL_API_KEY` 后，才可显式运行以下示例。不要把密钥放进命令行、样本、文档或 `VITE_*`，工具不自动读取 `.env`：
 
 ```powershell
