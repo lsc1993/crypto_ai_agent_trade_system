@@ -37,7 +37,7 @@ uv run --locked --no-sync python -m scripts.evaluate_real_models --dry-run --out
 
 单案例诊断可加 `--case baseline-history`；只允许当前固定suite已有ID。报告的 `selection_scope` 与 `selected_case_ids` 明确实际范围，语料指纹仍覆盖完整suite，单案接受不能冒充四案通过。建议先单案、最多三次请求读取 `validation_failures` 后定向修复。
 
-可见数值目录最多十六条，按来源与字段交错、同组首尾时点优先；完整冻结事实不删减。Prompt与渲染器使用同一目录，未提供token不可引用；每条提供 `rendered_length` 供篇幅预算，并给出同次输入的合法引用片段。live安全报告记录完整/可见事实条数，历史样本不回写。
+可见数值目录最多十六条，按来源与字段交错、同组首尾时点优先；完整冻结事实不删减。Prompt与渲染器使用同一目录，未提供fact_id不可引用；每条提供 `rendered_length` 供篇幅预算，并给出同次输入的合法引用片段。live安全报告记录完整/可见事实条数，历史样本不回写。
 
 确定调用额度并由可信机制向当前进程注入 `REAL_MODEL_EVAL_API_KEY` 后，才可显式运行以下示例。不要把密钥放进命令行、样本、文档或 `VITE_*`，工具不自动读取 `.env`：
 
@@ -48,3 +48,5 @@ uv run --locked --no-sync python -m scripts.evaluate_real_models --live --model 
 示例本身不构成付费运行授权：四案各最多三次格式尝试，共最多十二次真实HTTP请求；纠错也占额度。次数、输入字节、请求/总超时和输出token是明确执行限制，额度低于生产请求所需值会拒绝，不修改生产payload以迁就额度。该命令不属于默认full/CI。
 
 可显式传入 `--input-price-per-million` 与 `--output-price-per-million` 两个十进制单价计算费用估算；没有默认现价，不自动查询价格。缺少或非法usage标为未知，不能算零费用。缓存优惠、计价变化和供应商账单可能不同；金额不是硬费用门禁。需要实际金额上限时还须使用供应商账户侧配额，并确认当时价格；本工具不能代替账单控制。
+
+当前生产传输协议为 `structured-v1`：正文定性，根级 `fact_refs` 仅含目标段落与可见fact_id；总数最多十六条，同段最多三条，程序验证段落证据后追加完整事实并移除数组。旧内联token不再接受，既有报告与v1/v2输入不改。安全报告记录协议、独立渲染器、诊断分类器及引用schema指纹；拒绝诊断只含白名单类别与安全位置。本批仅离线回归，未新增真实模型接受率证据。

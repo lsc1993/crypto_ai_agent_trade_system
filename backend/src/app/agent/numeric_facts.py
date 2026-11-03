@@ -116,6 +116,11 @@ class NumericFact(BaseModel):
             scope += ";统计窗口=" + stamp(self.window_start) + "至" + stamp(self.window_end)
         return f"【{scope}；{self.label}={format(self.value, 'f')} {_UNITS[self.unit]}】"
 
+    @property
+    def reference_id(self) -> str:
+        """独立引用数组使用不带正文标记的标识；保留旧token用于冻结样本回归。"""
+        return self.token[7:-2]
+
 
 class NumericReferenceError(ValueError):
     """只携带安全类别和契约字段位置，不携带模型原文或事实数值。"""
@@ -126,6 +131,8 @@ class NumericReferenceError(ValueError):
         category: str = "numeric_reference",
         *,
         issues: Sequence[NumericReferenceError] | None = None,
+        literal_kind: str | None = None,
+        schema_kinds: tuple[str, ...] = (),
     ) -> None:
         # 未知JSON键可能包含模型任意内容；只允许契约字段进入诊断和纠错提示。
         fields = {
@@ -136,6 +143,9 @@ class NumericReferenceError(ValueError):
             "category",
             "direction",
             "topic",
+            "fact_refs",
+            "fact_id",
+            "target",
             "market_overview",
             "headline",
             "summary",
@@ -168,10 +178,18 @@ class NumericReferenceError(ValueError):
             else "schema"
         )
         self.category = category
+        self.literal_kinds = (literal_kind,) if literal_kind else ()
+        self.schema_kinds = schema_kinds
         collected = tuple(issues[:99]) if issues else (self,)
         self.issue_count = len(collected)
         self.field_paths = tuple(dict.fromkeys(issue.path for issue in collected))[:8]
         self.categories = tuple(sorted({issue.category for issue in collected}))
+        self.literal_kinds = tuple(
+            sorted({kind for issue in collected for kind in issue.literal_kinds})
+        )
+        self.schema_kinds = tuple(
+            sorted({kind for issue in collected for kind in issue.schema_kinds})
+        )
         super().__init__(category)
 
 
@@ -257,7 +275,21 @@ def render_numeric_references(content: str, facts: Sequence[NumericFact], *, sym
             character.isnumeric() and character not in "零〇一二三四五六七八九十百千万亿两"
             for character in residual
         ) or _CHINESE_QUANTITY.search(residual):
-            raise NumericReferenceError(path, "unbound_numeric_claim")
+            if re.search(
+                r"\d{4}[-/年]\d|\d{1,2}[:：]\d{2}|\d+\s*(?:小时|分钟|年|月|日|天)", residual
+            ):
+                kind = "date_time"
+            elif re.search(r"\d+[.,]\d+", residual):
+                kind = "decimal"
+            elif any(c.isdecimal() for c in residual):
+                kind = "integer"
+            elif any(
+                c.isnumeric() and c not in "零〇一二三四五六七八九十百千万亿两" for c in residual
+            ):
+                kind = "numeric_symbol"
+            else:
+                kind = "chinese_quantity"
+            raise NumericReferenceError(path, "unbound_numeric_claim", literal_kind=kind)
         for match in matches:
             token = match.group()
             fact = catalog.get(token)

@@ -32,12 +32,13 @@ from pydantic import (
 )
 from pydantic_core import ErrorDetails
 
+from app.agent.fact_references import render_structured_fact_references
 from app.agent.factors import apply_interpretations
 from app.agent.market_structure import MarketStructure
+from app.agent.model_diagnostics import schema_error_kinds
 from app.agent.numeric_facts import (
     NumericFact,
     NumericReferenceError,
-    render_numeric_references,
     select_numeric_facts,
 )
 from app.agent.prompt import research_user_message, system_prompt
@@ -196,6 +197,8 @@ class ModelOutputError(RuntimeError):
         validation_error_categories: tuple[str, ...] = (),
         validation_narrative_length: int | None = None,
         format_attempt_count: int = 0,
+        validation_numeric_kinds: tuple[str, ...] = (),
+        validation_schema_kinds: tuple[str, ...] = (),
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -204,6 +207,8 @@ class ModelOutputError(RuntimeError):
         self.validation_error_categories = validation_error_categories
         self.validation_narrative_length = validation_narrative_length
         self.format_attempt_count = format_attempt_count
+        self.validation_numeric_kinds = validation_numeric_kinds
+        self.validation_schema_kinds = validation_schema_kinds
 
 
 # 模型实现只返回候选研究结构；它不能扩展证据、修改确定性指标或执行交易。
@@ -397,7 +402,7 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
         # 引用渲染后才做全文长度/交易措辞验证，持久化的是确定性语句而非模型占位符。
         content = _normalize_json_object_content(_response_content(response))
         try:
-            content = render_numeric_references(
+            content = render_structured_fact_references(
                 content, select_numeric_facts(request.numeric_facts), symbol=request.symbol
             )
         except NumericReferenceError as error:
@@ -407,12 +412,26 @@ class DeepSeekResearchLanguageModel(ResearchLanguageModel):
                 validation_issue_count=error.issue_count,
                 validation_field_paths=error.field_paths,
                 validation_error_categories=error.categories,
+                validation_numeric_kinds=error.literal_kinds,
+                validation_schema_kinds=error.schema_kinds,
             ) from None
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as error:
             raise ModelOutputError(
-                "model_invalid_response", "DeepSeek 返回了无效研究 JSON"
+                "model_invalid_response",
+                "DeepSeek 返回了无效研究 JSON",
+                validation_issue_count=1,
+                validation_field_paths=("schema",),
+                validation_error_categories=("schema",),
+                validation_schema_kinds=(
+                    "json" if isinstance(error, json.JSONDecodeError) else "wrong_type",
+                ),
             ) from None
-        content = _compact_overlong_narrative_content(content)
+        content = _compact_overlong_narrative_content(
+            content,
+            protected_statements=tuple(
+                fact.statement for fact in select_numeric_facts(request.numeric_facts)
+            ),
+        )
         try:
             proposal = AgentAnalysisProposal.model_validate_json(content)
         except (ValidationError, ValueError, json.JSONDecodeError) as error:
@@ -487,18 +506,24 @@ def _format_retry_instruction(*, error: ModelOutputError | None) -> str:
 
 def _numeric_reference_retry_instruction(error: ModelOutputError) -> str:
     """按机器类别解释输出协议，不回显被拒正文；日期和根数同样属于未经绑定数字。"""
-    if not {"unbound_numeric_claim", "numeric_reference"}.intersection(
-        error.validation_error_categories
-    ):
+    if not {
+        "unbound_numeric_claim",
+        "numeric_reference",
+        "fact_reference_schema",
+        "unknown_fact_reference",
+        "unknown_fact_target",
+        "fact_evidence_mismatch",
+        "duplicate_or_excess_fact_reference",
+    }.intersection(error.validation_error_categories):
         return ""
     return (
         "本次需要修正数值引用：价格、成交量、百分比、日期、时刻、时间周期的数字及K线根数，"
         "即使存在于证据中，也不能自行写入正文。请使用小时级、短期、长期等定性周期名称。"
-        "需要具体数值时，只复制 numeric_facts 的 token，独占一行，不附加句号、引号或字段标签；"
+        "需要具体数值时，在根级 fact_refs 数组填写target与fact_id；正文不写token或数值。"
         "不要照抄 statement，它是程序渲染结果说明而不是模型输出。"
-        "参考 numeric_reference_example 的字符串片段，并引用同一 evidence_id。"
+        "参考 numeric_reference_example 的独立引用字段，并在目标段落引用同一 evidence_id。"
         "字段位置是有界摘要，请同时检查整份JSON的所有读者字符串，不只修补首个字段。"
-        "没有对应token时使用非数量化解释。目录筛选不等于证据缺失，"
+        "没有对应fact_id时使用非数量化解释。目录筛选不等于证据缺失，"
         "只有输入明确缺失证据时才说明数据缺口。"
     )
 
@@ -537,6 +562,7 @@ def _invalid_model_response_error(error: Exception) -> ModelOutputError:
             str(issue["msg"]) for issue in issues
         ),
         validation_narrative_length=_narrative_length_from_validation_error(error),
+        validation_schema_kinds=schema_error_kinds(str(issue["type"]) for issue in issues),
     )
 
 
@@ -552,7 +578,7 @@ def _validation_field_paths(issues: Iterable[ErrorDetails]) -> tuple[str, ...]:
         location = issue["loc"]
         candidate = ".".join(str(part) for part in location)
         # 不符合有界路径格式的未知键统一退回类别名称，避免任意文本透出。
-        safe_path = candidate if _VALIDATION_FIELD_PATH.fullmatch(candidate) else "schema"
+        safe_path = NumericReferenceError(candidate).path
         if safe_path not in paths:
             paths.append(safe_path)
         if len(paths) == _MAX_VALIDATION_FIELD_PATHS:
@@ -613,7 +639,9 @@ def _object_mapping(value: object) -> Mapping[str, object] | None:
 
 
 # 只压缩可解析的正文，按章节最低长度分配删减预算；无法保留完整句子则返回原文。
-def _compact_overlong_narrative_content(content: str) -> str:
+def _compact_overlong_narrative_content(
+    content: str, *, protected_statements: tuple[str, ...] = ()
+) -> str:
     """Deterministically shorten only a complete, otherwise parseable model narrative."""
     try:
         payload = json.loads(content)
@@ -653,6 +681,7 @@ def _compact_overlong_narrative_content(content: str) -> str:
         truncated = _truncate_research_text(
             value,
             maximum_length=len(value) - reduction,
+            protected_statements=protected_statements,
         )
         # 不能找到完整句边界就放弃压缩，防止截断金额、证据条件或句义。
         if truncated is None:
@@ -710,8 +739,23 @@ def _truncate_research_text(
     value: str,
     *,
     maximum_length: int,
+    protected_statements: tuple[str, ...] = (),
 ) -> str | None:
     """Return a whole sentence within the requested bound, never a character slice."""
+    # 事实由程序追加在段尾；先为完整事实尾部预留预算，再仅裁剪定性前文。
+    # 不能容纳尾部时交给原长度门禁拒绝，绝不静默丢弃用户明确选择的事实。
+    # 只匹配本次冻结目录中真实渲染的完整语句，普通【定性标题】不占事实预算。
+    fact_start = min(
+        (index for statement in protected_statements if (index := value.find(statement)) >= 0),
+        default=-1,
+    )
+    if fact_start >= 0:
+        suffix = value[fact_start:]
+        prefix_budget = maximum_length - len(suffix) - 1
+        if prefix_budget <= 0:
+            return None
+        prefix = _truncate_research_text(value[:fact_start].rstrip(), maximum_length=prefix_budget)
+        return None if prefix is None else f"{prefix}\n{suffix}"
     candidate = value[:maximum_length].rstrip()
     # 程序渲染的【事实】内部也有分号，不能把时刻或窗口之后的分号当成句尾。
     # 若预算落在事实内部，只能回退至前一个外部完整句；调用方再决定是否保留原文。

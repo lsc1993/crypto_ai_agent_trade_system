@@ -35,6 +35,75 @@ NEWS_EVIDENCE_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text, kind",
+    [
+        ("日期2026-10-30", "date_time"),
+        ("价格123.45", "decimal"),
+        ("共12根", "integer"),
+        ("价格七万", "chinese_quantity"),
+        ("比例½", "numeric_symbol"),
+    ],
+)
+async def test_numeric_diagnostics_report_literal_kind_without_value(text: str, kind: str) -> None:
+    """诊断仅分类字面量形态，不保存数值，也不把小数直接猜测成价格或金额。"""
+    payload = _proposal_payload()
+    cast(dict[str, object], payload["market_overview"])["summary"] = text
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=_model_response(payload))
+        )
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(_request())
+    assert error.value.validation_numeric_kinds == (kind,)
+    assert text not in str(error.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation, kind",
+    [
+        ("enum", "enum"),
+        ("missing", "missing_field"),
+        ("extra", "extra_field"),
+        ("type", "wrong_type"),
+        ("json", "json"),
+    ],
+)
+async def test_schema_diagnostics_report_safe_error_kind(mutation: str, kind: str) -> None:
+    """枚举、缺项、多余项、类型和JSON语法分别标记，不回显错误值或未知键。"""
+    payload = _proposal_payload()
+    if mutation == "enum":
+        payload["outlook"] = "private-value"
+    elif mutation == "missing":
+        payload.pop("confidence")
+    elif mutation == "extra":
+        payload["private_unknown_key"] = "private-value"
+    elif mutation == "type":
+        payload["market_overview"] = []
+    response = (
+        {"choices": [{"message": {"content": "{invalid"}}]}
+        if mutation == "json"
+        else _model_response(payload)
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response))
+    ) as client:
+        model = DeepSeekResearchLanguageModel(
+            client=client, api_key=SecretStr("offline"), model="deepseek-v4-flash"
+        )
+        with pytest.raises(ModelOutputError) as error:
+            await model.generate(_request())
+    assert kind in error.value.validation_schema_kinds
+    assert "private-value" not in str(error.value)
+    assert "private_unknown_key" not in str(error.value.validation_field_paths)
+
+
+@pytest.mark.asyncio
 async def test_numeric_retry_explains_literal_classes_without_echoing_candidate() -> None:
     """真实诊断重复拒绝自由数字后，纠错要解释日期/根数等也必须引用，不能只给英文类别。"""
     invalid = _proposal_payload()
@@ -118,7 +187,7 @@ async def test_model_rejects_unrequested_factor_interpretation() -> None:
 
 @pytest.mark.asyncio
 async def test_model_renders_frozen_fact_and_keeps_reference_in_prompt() -> None:
-    """完整适配器输出含程序渲染的数值及范围，模型仅发送事实token且不能自行改价。"""
+    """完整适配器接收独立引用，最终仍是兼容旧报告的程序渲染字符串。"""
     from app.agent.numeric_facts import NumericFact
 
     fact = NumericFact(
@@ -130,8 +199,7 @@ async def test_model_renders_frozen_fact_and_keeps_reference_in_prompt() -> None
     )
     request = _request().model_copy(update={"numeric_facts": (fact,)})
     payload = _proposal_payload()
-    overview = cast(dict[str, object], payload["market_overview"])
-    overview["summary"] = fact.token + "\n" + str(overview["summary"])
+    payload["fact_refs"] = [{"target": "market_overview.summary", "fact_id": fact.reference_id}]
     sent: list[httpx.Request] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -147,10 +215,12 @@ async def test_model_renders_frozen_fact_and_keeps_reference_in_prompt() -> None
     assert fact.token not in proposal.market_overview.summary
     posted = json.loads(sent[0].content)
     catalog = json.loads(posted["messages"][1]["content"])["numeric_facts"]
-    assert catalog[0]["token"] == fact.token
+    assert catalog[0]["fact_id"] == fact.reference_id
     assert catalog[0]["statement"] == fact.statement
     snippet = json.loads(posted["messages"][1]["content"])["numeric_reference_example"]
-    rendered = agent_model.render_numeric_references(json.dumps(snippet), (fact,), symbol="BTCUSDT")
+    rendered = agent_model.render_structured_fact_references(
+        json.dumps(snippet), (fact,), symbol="BTCUSDT"
+    )
     assert fact.statement in json.loads(rendered)["market_overview"]["summary"]
 
 
@@ -172,7 +242,7 @@ async def test_model_cannot_reference_frozen_fact_omitted_from_visible_catalog()
     selected = select_numeric_facts(facts)
     hidden = next(f for f in facts if f not in selected)
     payload = _proposal_payload()
-    cast(dict[str, object], payload["market_overview"])["summary"] = hidden.token
+    payload["fact_refs"] = [{"target": "market_overview.summary", "fact_id": hidden.reference_id}]
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(200, json=_model_response(payload))
@@ -183,7 +253,7 @@ async def test_model_cannot_reference_frozen_fact_omitted_from_visible_catalog()
         )
         with pytest.raises(ModelOutputError) as error:
             await model.generate(_request().model_copy(update={"numeric_facts": facts}))
-    assert error.value.validation_error_categories == ("numeric_reference",)
+    assert error.value.validation_error_categories == ("unknown_fact_reference",)
 
 
 @pytest.mark.asyncio
@@ -202,7 +272,8 @@ async def test_compaction_keeps_rendered_fact_atomic() -> None:
     )
     payload = _proposal_payload()
     overview = cast(dict[str, object], payload["market_overview"])
-    overview["summary"] = "研" * 283 + "。\n" + fact.token + "\n" + "补充说明。" * 90
+    overview["summary"] = "研" * 283 + "。\n" + "补充说明。" * 90
+    payload["fact_refs"] = [{"target": "market_overview.summary", "fact_id": fact.reference_id}]
     for name in ("short_term", "long_term"):
         section = cast(dict[str, object], payload[name])
         section["thesis"] = "中性研究。" * 130
@@ -217,7 +288,7 @@ async def test_compaction_keeps_rendered_fact_atomic() -> None:
         )
         proposal = await model.generate(_request().model_copy(update={"numeric_facts": (fact,)}))
     summary = proposal.market_overview.summary
-    assert "【" not in summary or fact.statement in summary
+    assert fact.statement in summary
     assert summary.count("【") == summary.count("】")
 
 
@@ -700,8 +771,17 @@ async def test_deepseek_model_rejects_an_undersized_dual_horizon_narrative() -> 
 
 # 超长且原本合法的正文可按完整句子压缩，压缩后仍须通过相同长度与契约校验。
 @pytest.mark.asyncio
-async def test_deepseek_model_compacts_an_overlong_valid_narrative_before_validation() -> None:
+@pytest.mark.parametrize("qualitative_brackets", [False, True])
+async def test_deepseek_model_compacts_an_overlong_valid_narrative_before_validation(
+    qualitative_brackets: bool,
+) -> None:
     payload = _oversized_proposal_payload()
+    if qualitative_brackets:
+        # 普通定性标题不是程序事实，不能阻止原本合法的完整句压缩。
+        driver = cast(
+            list[dict[str, object]], cast(dict[str, object], payload["short_term"])["drivers"]
+        )[0]
+        driver["detail"] = "【证据评估】" + str(driver["detail"])
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -926,7 +1006,7 @@ async def test_deepseek_model_logs_safe_validation_summary_after_final_invalid_r
         "market_overview",
         "short_term",
         "long_term",
-        "unexpected",
+        "schema",
     }
     assert rejected["validation_error_categories"] == ("schema",)
     # 异常字段本身可以作为路径统计，字段内容和测试密钥必须始终排除。

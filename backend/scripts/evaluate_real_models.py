@@ -19,7 +19,9 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from structlog.testing import capture_logs
 
+from app.agent import fact_references as fact_references_module
 from app.agent import model as model_module
+from app.agent import model_diagnostics as diagnostics_module
 from app.agent import numeric_facts as numeric_facts_module
 from app.agent import prompt as prompt_module
 from app.agent.model import (
@@ -412,6 +414,11 @@ def _safe_validation_log(entry: Mapping[str, Any]) -> dict[str, Any]:
         "narrative_length",
         "numeric_reference",
         "unbound_numeric_claim",
+        "fact_reference_schema",
+        "unknown_fact_reference",
+        "unknown_fact_target",
+        "fact_evidence_mismatch",
+        "duplicate_or_excess_fact_reference",
     }
     paths = entry.get("validation_field_paths", ())
     categories = entry.get("validation_error_categories", ())
@@ -436,11 +443,39 @@ def _safe_validation_log(entry: Mapping[str, Any]) -> dict[str, Any]:
     )
     attempt = entry.get("attempt")
     count = entry.get("validation_issue_count")
+
+    def fixed_kinds(name: str, choices: set[str]) -> list[str]:
+        """只允许固定枚举，不转发原始框架消息、输入值或任意字符串。"""
+        values = entry.get(name, ())
+        if not isinstance(values, (list, tuple)):
+            return []
+        return [
+            v
+            for v in cast(list[object] | tuple[object, ...], values)[:8]
+            if isinstance(v, str) and v in choices
+        ]
+
     return {
         "attempt": min(3, max(1, attempt)) if type(attempt) is int else 1,
         "issue_count": min(99, max(0, count)) if type(count) is int else 0,
         "field_paths": safe_paths,
         "categories": safe_categories,
+        "numeric_kinds": fixed_kinds(
+            "validation_numeric_kinds",
+            {"date_time", "decimal", "integer", "chinese_quantity", "numeric_symbol"},
+        ),
+        "schema_kinds": fixed_kinds(
+            "validation_schema_kinds",
+            {
+                "enum",
+                "missing_field",
+                "extra_field",
+                "wrong_type",
+                "length",
+                "json",
+                "value_constraint",
+            },
+        ),
     }
 
 
@@ -470,6 +505,18 @@ async def evaluate(
         "adapter_sha256": hashlib.sha256(Path(model_module.__file__).read_bytes()).hexdigest(),
         "numeric_renderer_sha256": hashlib.sha256(
             Path(numeric_facts_module.__file__).read_bytes()
+        ).hexdigest(),
+        "fact_reference_protocol": "structured-v1",
+        "fact_reference_renderer_sha256": hashlib.sha256(
+            Path(fact_references_module.__file__).read_bytes()
+        ).hexdigest(),
+        "schema_diagnostics_sha256": hashlib.sha256(
+            Path(diagnostics_module.__file__).read_bytes()
+        ).hexdigest(),
+        "fact_reference_schema_sha256": hashlib.sha256(
+            json.dumps(
+                fact_references_module.FactReference.model_json_schema(), sort_keys=True
+            ).encode()
         ).hexdigest(),
         "contract_sha256": hashlib.sha256(
             json.dumps(AgentAnalysisProposal.model_json_schema(), sort_keys=True).encode("utf-8")
@@ -518,6 +565,8 @@ async def evaluate(
                         "validation_issue_count": error.validation_issue_count,
                         "validation_field_paths": error.validation_field_paths,
                         "validation_error_categories": error.validation_error_categories,
+                        "validation_numeric_kinds": error.validation_numeric_kinds,
+                        "validation_schema_kinds": error.validation_schema_kinds,
                     }
                 )
             )

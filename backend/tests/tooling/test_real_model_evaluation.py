@@ -211,6 +211,7 @@ def test_rejected_numeric_claim_retains_only_safe_attempt_diagnostics(
     assert item["outcome"] == "rejected"
     assert len(item["validation_failures"]) == 3
     assert item["validation_failures"][0]["categories"] == ["unbound_numeric_claim"]
+    assert item["validation_failures"][0]["numeric_kinds"] == ["decimal"]
     assert item["validation_failures"][0]["field_paths"] == ["market_overview.summary"]
     assert "private-numeric-marker" not in output and "76717.00" not in output
 
@@ -238,6 +239,9 @@ def test_schema_diagnostics_keep_known_paths_and_redact_unknown_keys(
     report = json.loads(output)
     assert report["cases"][0]["outcome"] == "rejected"
     assert report["cases"][0]["validation_failures"][0]["field_paths"] == [expected]
+    assert report["cases"][0]["validation_failures"][0]["schema_kinds"] == [
+        "enum" if field == "outlook" else "extra_field"
+    ]
     assert "private-schema-value" not in output and "private_unknown_key" not in output
 
 

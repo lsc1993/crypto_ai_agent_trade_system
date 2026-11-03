@@ -22,15 +22,19 @@ _SYSTEM_PROMPT = """你是受限的中文市场研究格式化器。仅返回一
 当 factor_analysis 为 null 时，factor_interpretations 必须为空数组；
 不得自行新增专题或用市场证据代替专题证据。
 短期观点指数天至两周，长期观点指数周至数月；解释证据，不要给出日期绑定的价格预测。
-具体数值只能引用 numeric_facts 中提供的 token，token必须单独占一行（JSON字符串中使用换行转义）。
+具体数值只通过根级fact_refs数组引用，每项仅含target和fact_id，fact_id来自numeric_facts。
+正文只写定性文字，不写token或事实占位符。target指定已有正文段落，程序会追加完整数值语句。
 日期、时刻、K线根数及时间周期中的数字也遵守引用规则；周期用小时级、短期、长期等定性名称。
-程序会将token渲染成包含字段标签、单位和UTC时段的完整事实语句，不是裸数字。
-statement仅供理解事实，输出只复制token；numeric_reference_example给出合法字符串片段。
-篇幅按渲染后字符串计数，每个token替换后计入其rendered_length；少量引用且避免重复。
-禁止自行输出阿拉伯数字、全角数字、中文报价或比例；不得给token另加开盘、最低等字段标签。
-时间周期用中文定性名称，币种名称可原样使用；没有可见token时使用非数量化解释，不补造数值。
+程序渲染包含字段标签、单位和UTC时段的完整语句；statement仅供理解，不可照抄到正文。
+numeric_reference_example给出合法引用片段。fact_refs最多十六项，每个target最多三项，重复拒绝。
+target可选market_overview.summary、short_term.thesis、long_term.thesis，或已有drivers的detail、
+invalidation的condition/impact、catalysts的claim、risks_and_invalidation的condition/impact，
+以及已有factor_interpretations的summary/short_term/long_term/invalidation；数组位置用从零开始的下标。
+篇幅按渲染后计数，每条引用追加其rendered_length；少量引用且避免重复。
+禁止自行输出阿拉伯数字、全角数字、中文报价或比例；不得另配开盘、最低等自由数值标签。
+时间周期用中文定性名称，币种名称可原样使用；没有可见fact_id时使用非数量化解释，不补造数值。
 可见目录是引用预算，不是全部原始事实；目录筛选不等于证据缺失，仅在输入明确缺失时说明缺口。
-正文与专题解释都遵守此规则；事实语句仍须引用其对应 evidence_id。
+正文与专题解释都遵守此规则；目标段落仍须引用对应evidence_id。没有事实引用时fact_refs返回空数组。
 正文必须详实中文：市场概况、两个 thesis 与两组 drivers.detail 合计为 1100 至 2500 字符。
 优先控制在 1800 至 2200 字符。
 为确保内容充分：市场概况不少于 350 个中文字符，两个 thesis 各不少于 350 个中文字符；
@@ -42,6 +46,7 @@ statement仅供理解事实，输出只复制token；numeric_reference_example�
   "horizon": "dual_horizon",
   "outlook": "neutral",
   "confidence": "low",
+  "fact_refs": [],
   "market_overview": {
     "headline": "中文市场概况标题",
     "summary": "中文市场概况详述",
@@ -124,7 +129,7 @@ def research_user_message(request: ResearchModelRequest) -> str:
         "horizon": request.horizon,
         "numeric_facts": [
             {
-                "token": fact.token,
+                "fact_id": fact.reference_id,
                 "statement": fact.statement,
                 "evidence_id": str(fact.evidence_id),
                 "rendered_length": len(fact.statement),
@@ -135,11 +140,12 @@ def research_user_message(request: ResearchModelRequest) -> str:
             {
                 "market_overview": {
                     "headline": "市场概况",
-                    "summary": "仅描述冻结范围，方向仍需复核。\n"
-                    + visible_facts[0].token
-                    + "\n这条事实不代表未来走势。",
+                    "summary": "仅描述冻结范围，方向仍需复核。这条事实不代表未来走势。",
                     "evidence_ids": [str(visible_facts[0].evidence_id)],
-                }
+                },
+                "fact_refs": [
+                    {"target": "market_overview.summary", "fact_id": visible_facts[0].reference_id}
+                ],
             }
             if visible_facts
             else None
