@@ -27,3 +27,9 @@
 根目录统一 `scripts/verify.py full` 入口通过全部22项检查：后端982项、零跳过，迁移链头、架构与离线评估通过，前端lint/typecheck/test/build通过。专用受限角色、随机loopback端口和tmpfs PostgreSQL仅供本次测试；全部非系统临时schema为零，所属容器已回收。结果位于本地忽略产物 `.tmp/quality/structured-fact-refs-full.json`。
 
 离线prepare确认actual_requests=0及新协议指纹；19份版本化评估JSON按Git换行规范比较均未变。文档相对链接与diff空白检查通过。未重跑浏览器、完整Compose运行、真实公开源或付费模型；真实基线/具名人工评分仍未验收。
+
+## 后续真实验证
+
+2026-11-03 独立引用协议真实单案验证（代码基线 `281d4d5`）：经用户要求，仅用当前flash运行 `baseline-history`，上限三次请求，实际三次（含两次格式纠错），耗时48.110秒，输入12745、输出6795 token，usage完整；未提供单价，不估算账单。案例被拒绝，接受0、错误0、额度阻塞0。前两次为 `unbound_numeric_claim`，安全数字类别均为 `numeric_symbol`（分别六处和五处）；第三次在 `fact_refs.3` 触发 `duplicate_or_excess_fact_reference`，即重复引用或同一目标超过三条，不能凭该聚合类别区分两者。拒绝原文未保存，不能推断具体符号或事实值。已在三次上限停止，不自动追加付费请求；本地复核产物无已接受提案，真实基线仍未通过，具名人工质量评分仍未完成。新协议版本指纹与安全诊断留在忽略的本地产物；不能将运行completed或脚本退出0误称为案例通过。
+
+本次本地安全报告：`.tmp/real-model-evaluation/structured-v1-baseline-20261103T133216Z.json`，该路径为忽略产物，不纳入共享提交。
