@@ -228,6 +228,31 @@ async def test_degraded_detail_exposes_only_sanitized_validation_failure() -> No
 
 
 @pytest.mark.asyncio
+async def test_degraded_detail_exposes_fact_reference_failure_category() -> None:
+    """结构化事实引用失败也可能成为最终尝试；API 不能把它过滤成未知类别或拒绝整份降级报告。"""
+    report = _report().model_copy(
+        update={
+            "status": AnalysisReportStatus.DEGRADED,
+            "validation_failure": ModelValidationFailure(
+                attempt_count=3,
+                issue_count=1,
+                field_paths=("fact_refs.11",),
+                error_categories=("fact_evidence_mismatch",),
+            ),
+        }
+    )
+    app = create_app(
+        analysis_report_repository=ReportReader(report),  # type: ignore[arg-type]
+        agent_research_service=FakeAgentService(report),
+    )
+
+    response = await _request(app, "GET", f"/api/v1/analysis-runs/{REPORT_ID}")
+
+    assert response.status_code == 200
+    assert response.json()["validationFailure"]["errorCategories"] == ["fact_evidence_mismatch"]
+
+
+@pytest.mark.asyncio
 async def test_manual_report_returns_dual_horizon_chinese_narrative_and_partial_coverage() -> None:
     report = _dual_horizon_report()
     service = FakeAgentService(report)

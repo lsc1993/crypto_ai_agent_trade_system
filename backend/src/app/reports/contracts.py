@@ -45,6 +45,18 @@ _VALIDATION_FAILURE_CATEGORIES = frozenset(
         "text_empty",
         "text_length",
         "trading_instruction",
+        # 结构化事实引用属于同一条格式纠错链；最后一次尝试也可能停在这些类别，
+        # 因此降级摘要在保存和重读时都必须接受它们，不能只允许早期文本/结构类别。
+        "numeric_reference",
+        "unbound_numeric_claim",
+        "fact_reference_schema",
+        "unknown_fact_reference",
+        "unknown_fact_target",
+        "fact_evidence_mismatch",
+        "duplicate_fact_reference",
+        "excess_fact_reference",
+        "duplicate_or_excess_fact_reference",
+        "model_output_truncated",
     }
 )
 # 主报告契约拒绝具体操作措辞；技术计划术语使用独立版本化校验，不能混用。

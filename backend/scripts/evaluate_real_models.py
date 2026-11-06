@@ -418,7 +418,10 @@ def _safe_validation_log(entry: Mapping[str, Any]) -> dict[str, Any]:
         "unknown_fact_reference",
         "unknown_fact_target",
         "fact_evidence_mismatch",
+        "duplicate_fact_reference",
+        "excess_fact_reference",
         "duplicate_or_excess_fact_reference",
+        "model_output_truncated",
     }
     paths = entry.get("validation_field_paths", ())
     categories = entry.get("validation_error_categories", ())
@@ -474,6 +477,7 @@ def _safe_validation_log(entry: Mapping[str, Any]) -> dict[str, Any]:
                 "length",
                 "json",
                 "value_constraint",
+                "truncated",
             },
         ),
     }

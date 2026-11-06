@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -133,6 +134,7 @@ class NumericReferenceError(ValueError):
         issues: Sequence[NumericReferenceError] | None = None,
         literal_kind: str | None = None,
         schema_kinds: tuple[str, ...] = (),
+        hint: str | None = None,
     ) -> None:
         # 未知JSON键可能包含模型任意内容；只允许契约字段进入诊断和纠错提示。
         fields = {
@@ -178,6 +180,8 @@ class NumericReferenceError(ValueError):
             else "schema"
         )
         self.category = category
+        # 纠错提示只接受服务端构造的有界文本；不在这里拼接模型原文或事实数值。
+        self.hint = _bounded_hint(hint)
         self.literal_kinds = (literal_kind,) if literal_kind else ()
         self.schema_kinds = schema_kinds
         collected = tuple(issues[:99]) if issues else (self,)
@@ -190,7 +194,18 @@ class NumericReferenceError(ValueError):
         self.schema_kinds = tuple(
             sorted({kind for issue in collected for kind in issue.schema_kinds})
         )
+        self.hints = tuple(
+            dict.fromkeys(issue.hint for issue in collected if issue.hint is not None)
+        )[:8]
         super().__init__(category)
+
+
+def _bounded_hint(value: str | None) -> str | None:
+    """纠错提示只保留有界单行文本；调用方只能传入服务端构造的安全说明。"""
+    if value is None:
+        return None
+    normalized = " ".join(value.split())
+    return normalized[:300] or None
 
 
 def select_numeric_facts(facts: Sequence[NumericFact]) -> tuple[NumericFact, ...]:
@@ -235,6 +250,28 @@ def select_numeric_facts(facts: Sequence[NumericFact]) -> tuple[NumericFact, ...
     return tuple(selected)
 
 
+def _is_numeric_claim_symbol(character: str) -> bool:
+    """圈号等纯枚举标记不是数量；其余非十进制数字符号仍按数值符号拒绝。"""
+    if not character.isnumeric():
+        return False
+    if character in "零〇一二三四五六七八九十百千万亿两":
+        return False
+    if "CIRCLED" in unicodedata.name(character, ""):
+        return False
+    return True
+
+
+def contains_unbound_numeric_claim(value: str, *, symbol: str) -> bool:
+    """只回答是否含自由数值，不返回原文；供句子级部分恢复判断。"""
+    residual = _TOKEN.sub("", value).replace(symbol, "")
+    if "[[" in residual or "]]" in residual:
+        return True
+    return (
+        any(_is_numeric_claim_symbol(character) for character in residual)
+        or _CHINESE_QUANTITY.search(residual) is not None
+    )
+
+
 def render_numeric_references(content: str, facts: Sequence[NumericFact], *, symbol: str) -> str:
     """在压缩与提案构造前拒绝自由数值，检查事实引用后渲染；未知/跨证据引用不修补。"""
     root = cast(JsonValue, json.loads(content))
@@ -271,10 +308,9 @@ def render_numeric_references(content: str, facts: Sequence[NumericFact], *, sym
         residual = _TOKEN.sub("", value).replace(symbol, "")
         if "[[" in residual or "]]" in residual:
             raise NumericReferenceError(path)
-        if any(
-            character.isnumeric() and character not in "零〇一二三四五六七八九十百千万亿两"
-            for character in residual
-        ) or _CHINESE_QUANTITY.search(residual):
+        if any(_is_numeric_claim_symbol(character) for character in residual) or (
+            _CHINESE_QUANTITY.search(residual)
+        ):
             if re.search(
                 r"\d{4}[-/年]\d|\d{1,2}[:：]\d{2}|\d+\s*(?:小时|分钟|年|月|日|天)", residual
             ):
@@ -283,9 +319,7 @@ def render_numeric_references(content: str, facts: Sequence[NumericFact], *, sym
                 kind = "decimal"
             elif any(c.isdecimal() for c in residual):
                 kind = "integer"
-            elif any(
-                c.isnumeric() and c not in "零〇一二三四五六七八九十百千万亿两" for c in residual
-            ):
+            elif any(_is_numeric_claim_symbol(c) for c in residual):
                 kind = "numeric_symbol"
             else:
                 kind = "chinese_quantity"

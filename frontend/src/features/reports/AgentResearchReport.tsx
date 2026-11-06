@@ -64,6 +64,18 @@ const validationCategoryLabels = {
   text_empty: "必填文本",
   text_length: "单项文本长度",
   trading_instruction: "交易指令限制",
+  // 结构化事实引用的诊断类别同样可能成为最后一次尝试的终态，必须给出稳定中文标签，
+  // 不能依赖未知键回退或让 Zod 拒绝整份降级报告。
+  numeric_reference: "数值引用",
+  unbound_numeric_claim: "自由数值",
+  fact_reference_schema: "事实引用结构",
+  unknown_fact_reference: "未知事实引用",
+  unknown_fact_target: "未知引用段落",
+  fact_evidence_mismatch: "事实与段落证据不匹配",
+  duplicate_fact_reference: "重复事实引用",
+  excess_fact_reference: "单段事实引用超额",
+  duplicate_or_excess_fact_reference: "重复或超额事实引用",
+  model_output_truncated: "输出长度截断",
 } as const;
 
 const statusLabels = {
@@ -240,7 +252,8 @@ export function DegradedAgentResearchReport({
             <div>
               <dt>格式校验摘要</dt>
               <dd>
-                已尝试 {report.validationFailure.attemptCount} 次 · 发现 {report.validationFailure.issueCount} 项问题
+                已尝试 {report.validationFailure.attemptCount} 次 · 最后一次尝试发现{" "}
+                {report.validationFailure.issueCount} 项问题
                 {report.validationFailure.fieldPaths.length === 0 ? "" : ` · 字段：${report.validationFailure.fieldPaths.join("、")}`}
                 {report.validationFailure.errorCategories.length === 0 ? "" : ` · 类别：${report.validationFailure.errorCategories.map((category) => validationCategoryLabels[category]).join("、")}`}
               </dd>

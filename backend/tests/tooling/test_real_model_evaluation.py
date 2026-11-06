@@ -201,7 +201,8 @@ def test_rejected_numeric_claim_retains_only_safe_attempt_diagnostics(
     )
     response = json.loads(json.dumps(responses))
     proposal = json.loads(response["choices"][0]["message"]["content"])
-    proposal["market_overview"]["summary"] += " private-numeric-marker 76717.00"
+    # 标题不是可省略段落；这样才能验证拒绝诊断，而不是被部分恢复成 accepted。
+    proposal["market_overview"]["headline"] += " private-numeric-marker 76717.00"
     response["choices"][0]["message"]["content"] = json.dumps(proposal)
     mock_http(monkeypatch, lambda request, number: httpx.Response(200, json=response))
     assert module.main(live_args(module, "numeric-rejected")) == 0
@@ -212,7 +213,7 @@ def test_rejected_numeric_claim_retains_only_safe_attempt_diagnostics(
     assert len(item["validation_failures"]) == 3
     assert item["validation_failures"][0]["categories"] == ["unbound_numeric_claim"]
     assert item["validation_failures"][0]["numeric_kinds"] == ["decimal"]
-    assert item["validation_failures"][0]["field_paths"] == ["market_overview.summary"]
+    assert item["validation_failures"][0]["field_paths"] == ["market_overview.headline"]
     assert "private-numeric-marker" not in output and "76717.00" not in output
 
 

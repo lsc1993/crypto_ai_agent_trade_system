@@ -282,7 +282,19 @@ class DegradedNoCutoffApi extends ControlledReportDetailApi {
   }
 }
 
+type ValidationFailureCategory = NonNullable<
+  AnalysisReport["validationFailure"]
+>["errorCategories"][number];
+
 class AgentReportDetailApi extends ControlledReportDetailApi {
+  constructor(
+    private readonly errorCategories: ValidationFailureCategory[] = [
+      "trading_instruction",
+    ],
+  ) {
+    super();
+  }
+
   override getReport(): Promise<AnalysisReport> {
     const topicBase = {
       windowStart: null, windowEnd: "2026-09-06T12:00:00Z", observedAt: null,
@@ -298,7 +310,7 @@ class AgentReportDetailApi extends ControlledReportDetailApi {
           attemptCount: 3,
           issueCount: 2,
           fieldPaths: ["short_term.thesis"],
-          errorCategories: ["trading_instruction"],
+          errorCategories: this.errorCategories,
         },
         agentAnalysis: {
           horizon: "1_to_3_days",
@@ -941,6 +953,7 @@ describe("ReportDetailPage", () => {
     expect(report).toHaveTextContent("本次 AI 详尽报告未生成");
     expect(report).toHaveTextContent("模型输出未通过格式校验");
     expect(report).toHaveTextContent("已尝试 3 次");
+    expect(report).toHaveTextContent("最后一次尝试发现 2 项问题");
     expect(report).toHaveTextContent("short_term.thesis");
     expect(report).toHaveTextContent("交易指令限制");
     const etf = within(report).getByRole("region", { name: "美国现货 ETF 资金流向" });
@@ -965,6 +978,23 @@ describe("ReportDetailPage", () => {
     expect(
       screen.queryByText("用于界面和 API 契约验证的确定性 Mock 报告。"),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders structured fact-reference failure categories in the degraded shell", async () => {
+    renderReportDetail(
+      new AgentReportDetailApi([
+        "fact_evidence_mismatch",
+        "excess_fact_reference",
+        "model_output_truncated",
+      ]),
+    );
+
+    const report = await screen.findByRole("article", {
+      name: "Agent 降级研究报告",
+    });
+    expect(report).toHaveTextContent("事实与段落证据不匹配");
+    expect(report).toHaveTextContent("单段事实引用超额");
+    expect(report).toHaveTextContent("输出长度截断");
   });
 
   it("renders a Chinese conclusion-first dual-horizon report with evidence-linked views", async () => {

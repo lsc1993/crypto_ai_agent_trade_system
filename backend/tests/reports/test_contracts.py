@@ -21,6 +21,7 @@ from app.reports.contracts import (
     AnalysisReportStatus,
     Catalyst,
     MarketOutlook,
+    ModelValidationFailure,
     RiskAndInvalidation,
     report_payload_sha256,
     validate_research_display_text,
@@ -118,6 +119,33 @@ def test_creation_accepts_a_matching_immutable_completed_report() -> None:
     )
     with pytest.raises(ValidationError):
         creation.report.title = "不可修改的标题"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "category",
+    (
+        "unbound_numeric_claim",
+        "numeric_reference",
+        "fact_reference_schema",
+        "unknown_fact_reference",
+        "unknown_fact_target",
+        "fact_evidence_mismatch",
+        "duplicate_fact_reference",
+        "excess_fact_reference",
+        "duplicate_or_excess_fact_reference",
+        "model_output_truncated",
+    ),
+)
+def test_validation_failure_accepts_fact_reference_categories(category: str) -> None:
+    """最终尝试可能停在任何 fact_refs 类别；降级摘要必须能保存并返回这些安全类别。"""
+    failure = ModelValidationFailure(
+        attempt_count=3,
+        issue_count=1,
+        field_paths=("fact_refs.11",),
+        error_categories=(category,),
+    )
+
+    assert failure.error_categories == (category,)
 
 
 def test_agent_creation_json_round_trip_preserves_referenced_evidence_ids() -> None:
