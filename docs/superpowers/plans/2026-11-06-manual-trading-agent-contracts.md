@@ -1,6 +1,6 @@
 # 实盘手动计划 Agent：实施契约清单
 
-- 版本：1.0；日期：2026-11-06；状态：开发计划的接口约定，尚未实现。
+- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定，尚未实现。
 - 主计划：[实施任务与验证](2026-11-06-manual-trading-agent-implementation.md)。
 - 依据：[需求 v2.0](../specs/2026-11-06-manual-trading-agent-requirements.md)、[架构 v2.0](../specs/2026-11-06-manual-trading-agent-design.md)。
 
@@ -31,7 +31,7 @@
 | --- | --- |
 | `StrategyVersion`，`research/strategies/contracts.py` | `ref: VersionRef`、稳定 `strategy_id`、名称/方法文本、`kind: single/composite`、组成版本/角色/参数、组合及冲突规则引用、参数 Schema、支持范围/周期/预热、`evaluator_id`、能力集合、发布时间与停用状态 |
 | `PriceCandidate`，同上 | 候选稳定指纹、所选包/组成/参数/评估器版本、证据引用、方向、入场带/触发/止损/目标、有效期和适用条件；`price_rounding: strict/conservative_one_tick`；价格 Decimal，不能内含资金、数量或 TradeIntent |
-| `StrategyEvaluation`，同上 | 适用性、确定性事实、`candidates: tuple[PriceCandidate, ...]`、有限原因码；无评估器和无候选分开 |
+| `StrategyEvaluation`，同上 | `strategy_ref: VersionRef`、参数/评估器及证据指纹、适用性、确定性事实、`candidates: tuple[PriceCandidate, ...]`、有限原因码；即使无候选也保留所选版本绑定，无评估器和无候选分开 |
 | `KnowledgeVersion`，`research/knowledge/contracts.py` | 文档/版本/来源、原文指纹、适用范围、权限、首次导入/可证明可得时间、用户声明发布时间、状态；版本正文不可变 |
 | `KnowledgeQuery / KnowledgeHit`，同上 | 查询文本、范围/截至/权限过滤；命中文档/版本/块、原文片段、来源/时间/指纹和整数分数 |
 
@@ -150,6 +150,8 @@ LangGraph 每片段 namespace 为 `ir:<run_id>:<revision>:<segment_id>`。人工
 
 `agent/interactive/model_port.py` 定义 `ModelDecision = ToolBatch | ControlProposal | FinalAnalysis`，模型端口 `async decide(context: ModelContext) -> ModelDecision`。ToolBatch 包含 `calls: tuple[ToolRequest, ...]`、安全摘要，最多 4 项，逐一串行守卫，不因此增加并发；未执行项返回明确 not_executed 观察。ControlProposal 从 agent_runs/decisions.py 导入，字段为类型化动作类别、差异、材料引用和安全原因。FinalAnalysis 包含 `market_blocks: tuple[ClaimBlock, ...]`、`decision_blocks`、`selected_candidate_id: str | None`、`plan_ref: ArtifactRef | None`、`no_plan_reasons: tuple[str, ...]`、限制与安全摘要；ClaimBlock 在同文件定义为定性 text、evidence_ids、fact_refs（目标角色+事实 id），价格/数值只引用程序事实。控制提案与最终分析均不直接批准权限或提交业务。模型配置记录 requested/returned model、Prompt/Schema/工具指纹，不暗中切换供应商。
 
+T11 在同一 model_port.py 定义 `AnalysisArtifactStager(Protocol)`：`async validate_and_stage(context: ExecutionContext, analysis: FinalAnalysis) -> tuple[ArtifactRef, ...]`。GraphDependencies 只消费此协议，T14 的 ArtifactService 才提供生产实现；T11 测试不导入尚不存在的 reports/interactive.py 或实际规划服务。替身用于证明图路由与提交边界，不代表生产产物校验已交付。
+
 预计新增顶层生产依赖为 `mcp==2.3.0`（不加 cli/rich extras）与适配器直接使用的 `httpx2>=2.10.0,<3`，锁定完整传递依赖；2026-11-06 官方元数据列出 Python >=3.10、httpx2、mcp-types 等。本地已有 Python 3.12、Pydantic 2.13.4，静态版本范围可相容，实际锁定/类型/运行兼容必须在 T10 验证；本轮未安装或做依赖求解，不宣称依赖已验收。httpx2 只限 MCP 适配器，现有 httpx 0.28.1 继续服务公开源和模型；不升级 LangGraph 1.2.10、checkpoint-postgres 3.1.2 或 langchain-core 1.5.3。
 
 核心装配提供同进程的只读 MCPServer，挂载 `/internal/agent-mcp/mcp`，只公开 read_strategy_definition。它由固定 loopback HTTP 客户端访问，使用进程启动时产生的内部凭据；浏览器不获该值。生产仍是同一 API 进程，无新增 Compose 服务；测试必须真实 TCP 调用，内存 transport 只能作单元测试。外部服务不默认登记，不支持 stdio、自选 URL/命令、sampling、roots、动态 elicitation 或远端自扩权。
@@ -219,7 +221,7 @@ Readiness 固定为 draft/needs_inputs/blocked/ready_for_review/ready_for_manual
 `domain/agent-common.ts` 单独持有 VersionRef/ArtifactRef/ProductKey/CommandMeta/PageQuery 及新 page Schema，其他新领域单向引用它；不让 agent-run.ts 与 manual-plan.ts 互相导入运行时 Zod Schema。已有 DecimalString/decimal.js 规则继续复用。StrategyVersion/KnowledgeVersion/PlanningProfileSnapshot 等按各自 domain 文件导出，AgentCapabilities/AgentSession/安全 InteractiveArtifact 放 agent-run.ts。
 
 ```ts
-interface AgentWorkbenchApi {
+interface AgentCatalogApi {
   getAgentCapabilities(): Promise<AgentCapabilities>;
   createAgentSession(): Promise<AgentSession>;
   listStrategies(query: PageQuery): Promise<Page<StrategyVersion>>;
@@ -236,6 +238,9 @@ interface AgentWorkbenchApi {
   getPlanningRiskPolicy(): Promise<PlanningRiskPolicy | null>;
   createPlanningProfile(input: PlanningProfileInput & CommandMeta): Promise<PlanningProfileSnapshot>;
   createPlanningRiskPolicy(input: PlanningRiskPolicyInput & CommandMeta): Promise<PlanningRiskPolicy>;
+}
+
+interface AgentRunApi {
   startAgentRun(input: StartAgentRun): Promise<AgentRun>;
   getAgentRun(id: string): Promise<AgentRun>;
   listAgentRuns(query: PageQuery): Promise<Page<AgentRun>>;
@@ -253,7 +258,11 @@ interface AgentWorkbenchApi {
   listExecutionFeedback(id: string, query: PageQuery): Promise<Page<ExecutionFeedback>>;
   resolvePlanCommitment(id: string, input: CommitmentResolution & CommandMeta): Promise<PlanningFeedbackReceipt>;
 }
+
+interface AgentWorkbenchApi extends AgentCatalogApi, AgentRunApi {}
 ```
+
+T15 只将 AgentCatalogApi 并入 WorkbenchApi；T16 三个适配器补齐 AgentRunApi 后再并入 AgentWorkbenchApi。不得为了让 T15 编译而返回假任务、空计划或“尚未实现但成功”的占位结果。
 
 AgentCapabilities 只含 enabled、modelAvailable、mcpAvailable、planningProducts、monitoring=false、有限不可用原因；AgentSession 只含 csrfToken/expiresAt。RecordedUserMessage 在 agent-run.ts 定义为 UserMessage 加 seq/createdAt/recorded-applied 状态，受限重读不把原文塞入 SSE；结构化财务表单仍不写聊天。StrategyDraftInput 与 KnowledgeImportInput 自带 requestId；其余 CommandMeta 的 expectedVersion 对应 draft/task/plan 的 stateVersion，规划写入对应当前 pool generation。PlanningFeedbackReceipt 特意区别于人机交互 FeedbackReceipt，防止把“已报告成交”混同“审核反馈已应用”。InteractiveArtifact 仅市场报告/决策安全内容或 plan_ref，绝不携完整财务计划。缺少会话时 Http 实现先同源创建会话；写请求由统一新客户端注入 CSRF，重放 POST 复用原 requestId，不用会话刷新重发未知副作用请求。
 

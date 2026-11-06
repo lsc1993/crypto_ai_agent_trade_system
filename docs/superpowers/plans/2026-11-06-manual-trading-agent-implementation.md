@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+跨模型执行时，若客户端没有上述技能，按[跨模型交接说明](2026-11-06-manual-trading-agent-handoff.md)执行等效的逐任务、测试、审查与记录流程，无需安装个人技能或插件。工程约束以仓库 AGENTS.md 和本文档组为准。
+
 **Goal:** 交付完整 AI Agent 工作台，以用户选择的策略包和公开证据辅助决策，经本地确定性计算、风险核验及用户审核后，生成用户可自行在交易所手动实施的交易计划。
 
 **Architecture:** 沿用模块化单体、FastAPI/React/PostgreSQL。LangGraph 承担唯一模型与工具循环，持久业务任务以执行片段管理等待和恢复，`governance/` 只负责准入与审计。策略/知识、工具守卫、预算与本地规划服务通过显式协议协作，完整财务值不进入外部模型。
@@ -12,7 +14,7 @@
 
 ## Global Constraints
 
-- 版本 1.0；2026-11-06；状态为实施计划审阅稿，所有复选框未执行；本次成文不授权部署、业务库迁移、真实模型付费调用或系统交易。
+- 版本 1.1；2026-11-06；状态为实施计划审阅稿，所有复选框未执行；本次成文不授权部署、业务库迁移、真实模型付费调用或系统交易。
 - 本期用户审核后自行操作交易所；不保存交易凭证、不访问私有账户、不创建/签名/发送/撤改真实订单、不调用模拟订单服务，不生成 TradeIntent。
 - 手动规划是核心交付；MACD、三重过滤及用户未来具体组合算法本期不实现；至少已有规则适配闭环，测试组合不冒充生产策略。
 - 现有固定综合/技术研究与报告保留；历史报告、策略/知识版本、证据及审计不可覆盖；新 AGENTS 规则随对应实现落地，本文不覆盖当前规范。
@@ -54,7 +56,7 @@
 | D4-U | T14–T16 | 受限 API、三种适配器、完整前端工作流 |
 | D5 | T17–T19 | 故障/浏览器、评估及规则诊断、交付验证与回退说明 |
 
-主依赖：T00 → T01/T02/T03；T04 依赖前三者；T05/T06 依赖 T04，T07 依赖 T05/T06；T08/T09 依赖 T01/T02/T04/T05/T07；T10 依赖 T09；T11 依赖 T07–T10；T12 依赖 T01/T03，可在其协议稳定后提前；T13 依赖 T04/T06/T07/T12；T14 依赖 T11/T13；T15/T16 依赖 T14；T17–T19 汇总。没有 T12/T13 的实现与拒绝测试，build_manual_trade_plan 不登记为可用工具。
+主依赖：T00 → T01 → T02 → T03（公共类型先落地，D1 迁移链串行接续）；T04 依赖前三者；T05 依赖 T04，T06 依赖 T04/T05（使用 C4 纯类型），T07 依赖 T05/T06；T08/T09 依赖 T01/T02/T04/T05/T07；T10 依赖 T09；T11 依赖 T07–T10；T12 依赖 T01/T03，可在其协议稳定后提前；T13 依赖 T04/T06/T07/T12；T14 依赖 T11/T13；T15 依赖 T14，T16 依赖 T14/T15；T17–T19 汇总。D1 纯算法/组件可以在公共类型稳定后分开准备，但不得在缺少前序迁移时宣称 SQL 验证通过。没有 T12/T13 的实现与拒绝测试，build_manual_trade_plan 不登记为可用工具。
 
 ## 2. 文件职责与变更影响
 
@@ -289,7 +291,7 @@
 
 **Files:** Create `backend/src/app/agent/interactive/model_port.py`、`deepseek.py`、`prompt.py`、`graph.py`、`state.py`；Test `backend/tests/agent/interactive/test_deepseek.py`、`test_graph.py`、`test_graph_segments.py`；Modify `agent/interactive/worker.py`（注入 SegmentRunner 实现）、后端规范、维护指南与运行边界的新模式说明。
 
-**Interfaces:** C6 ModelDecision/ModelContext/decide；`build_interactive_graph(dependencies: GraphDependencies) -> SegmentRunner` 在 graph.py 定义，GraphDependencies（同文件）显式注入模型、上下文、工具、证据、交互和产物端口，无数据库/执行服务。最终业务提交仍归 coordinator。
+**Interfaces:** C6 ModelDecision/ModelContext/decide 及本任务定义的 AnalysisArtifactStager 协议；`build_interactive_graph(dependencies: GraphDependencies) -> SegmentRunner` 在 graph.py 定义，GraphDependencies（同文件）显式注入模型、上下文、工具、证据、交互和产物端口，无数据库/执行服务。产物只依赖协议，测试注入替身，不提前导入 T14 的具体 ArtifactService；最终业务提交仍归 coordinator。
 
 - [ ] **Step 1：写真实请求 Schema、工具观察后再次判断、主动澄清/审核、预算终止与模型失败测试。**
   ```python
@@ -365,7 +367,7 @@
 
 **Files:** Create `frontend/src/domain/agent-common.ts`、`agent-run.ts`、`agent-strategy.ts`、`knowledge.ts`、`manual-plan.ts`；`frontend/src/shared/api/agent-workbench-contract.ts`、`agent-http-api.ts`、`agent-mock-api.ts`、`agent-api.test.ts`；`frontend/src/features/agent-strategies/StrategyPoolPage.tsx`、`StrategyPoolPage.test.tsx`；`frontend/src/features/research-knowledge/KnowledgePage.tsx`、`KnowledgePage.test.tsx`；`frontend/src/features/planning/PlanningProfilePage.tsx`、`PlanningProfilePage.test.tsx`。Modify `shared/api/workbench-api.ts`、`http-workbench-api.ts`、`mock-workbench-api.ts`、`hybrid-workbench-api.ts`、`app/router.tsx`、`components/layout/Sidebar.tsx`、`frontend/vite.config.ts`（同源开发与 preview proxy）。
 
-**Interfaces:** `WorkbenchApi` 扩展 `AgentWorkbenchApi`（定义于 agent-workbench-contract.ts）；实现契约 C8.1 中从 getAgentCapabilities 到 createPlanningRiskPolicy 的全部方法，包含策略草稿编辑/发布/停用与知识发布/归档；任务/计划方法到 T16。精确签名见 C8.1、HTTP 映射见 C8；页面不直接 fetch。
+**Interfaces:** 本任务 `WorkbenchApi` 只扩展 C8.1 的 `AgentCatalogApi`，HTTP/Mock/Hybrid 同批实现全部目录/知识/资料方法。`AgentRunApi` 可声明但尚不并入 WorkbenchApi，不要求为 T16 写空实现。T16 完成后才扩展完整 AgentWorkbenchApi。精确签名见 C8.1、HTTP 映射见 C8；页面不直接 fetch。
 
 - [ ] **Step 1：先补 Zod/HTTP/Mock/Hybrid 和页面测试。**
   ```ts
@@ -383,7 +385,7 @@
 
 **Files:** Create `frontend/src/features/agent-runs/AgentRunPage.tsx`、`AgentRunPage.test.tsx`、`useAgentRunEvents.ts`、`agent-run-events.test.ts`、`AgentRunTimeline.tsx`、`HumanReviewPanel.tsx`、`agent-runs.css`；`frontend/src/features/manual-plans/ManualPlanPage.tsx`、`ManualPlanPage.test.tsx`、`ManualExecutionFeedbackForm.tsx`、`ManualExecutionFeedbackForm.test.tsx`、`manual-plans.css`；Create `frontend/src/shared/api/agent-run-api.test.ts`；Modify T15 API 契约/适配器及 `app/router.tsx`。
 
-**Interfaces:** 实现 C8.1 从 startAgentRun 至 resolvePlanCommitment 的全部精确签名，完成 T15 声明的任务/计划方法；用户已记录反馈与已应用反馈分别显示，PlanningFeedbackReceipt 不冒充交互反馈已应用。
+**Interfaces:** 本任务将 `WorkbenchApi` 扩展为 C8.1 的 `AgentWorkbenchApi`，三个适配器同批补齐 AgentRunApi 的全部方法，确保每批可单独通过 typecheck。用户已记录反馈与已应用反馈分别显示，PlanningFeedbackReceipt 不冒充交互反馈已应用。
 
 - [ ] **Step 1：写发起/等待/刷新/批拒/修改、旧材料并发冲突、SSE 重连与可实施时效测试。**
   ```ts
@@ -579,6 +581,6 @@ backend/tests/market/test_research_symbols.py
 
 正式报告分开给出：软件/计算与权限、SQL/故障/浏览器、MCP 协议、真实模型量表、当前产品规则、策略收益与用户自报表现。前四者的部分成功不能证明后两者；没有用户策略算法或实盘反馈时准确写尚无收益证据。不得为了宣布完成降低固定量表、隐藏拒绝样本或要求用户实际下单作为测试。
 
-本计划推荐按任务实现并独立审查关键提交，尤其 T05/T07/T12/T13/T14 的账本、事务、资金与隐私边界。实际执行方式由用户选择后按对应技能启动；当前只交付文档。无需再次确认“手动还是自动”、策略算法范围、默认审核或可选监控这些已对齐的目标。
+本计划推荐按任务实现并独立审查关键提交，尤其 T05/T07/T12/T13/T14 的账本、事务、资金与隐私边界。用户可以交给其他模型/客户端执行，入口为[跨模型交接说明](2026-11-06-manual-trading-agent-handoff.md)；具备技能时可复用，否则执行等效工程流程。当前只交付文档，无需再次确认“手动还是自动”、策略算法范围、默认审核或可选监控这些已对齐的目标。
 
 本轮文档检查结果在最终回复中报告；上文任务复选框和未来验证证据保持未完成。计划批准也不等同于实际用户资金参数已设定、业务开关已启用、真实模型额度获批或代码功能已验收。
