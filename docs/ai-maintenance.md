@@ -48,7 +48,7 @@
 
 数值检查按读者字段汇总有界错误，最多记录九十九个问题及八个去重位置，一次纠错提示检查全文。任一错误都使整份临时结果丢弃；临时空值只是诊断遍历内部占位，不得保存或作为部分合格候选返回。诊断不保留各字段原文。
 
-正文长度校验与 Prompt 的目标长度有不同用途；当前校验区间为 1100–2500 字符。超长候选先尝试按完整句子压缩，再通过同一验证链。修改此逻辑时不能截断价格、数字或句子，也不能跳过证据和交易语言校验。实际限制以 `model.py` 为准，修改常量时同步更新本段与测试。
+正文长度校验与 Prompt 的目标长度有不同用途；当前校验区间为 1100–2500 字符。超长候选先按完整句/完整分句压缩，headline 也进入压缩候选；压缩到不超过 2500 即可接受，不要求一定达到 2200 目标。仍超长时按整条程序事实省略并在既有限制中记录数量；标题无句末标点时允许字符级限长。修改此逻辑时不能截断事实语句、价格、证据条件或交易语言校验，也不能通过省略绕过证据和引用门禁。实际限制以 `model.py` 为准，修改常量时同步更新本段与测试。
 
 排障先看报告的 `validationFailure`（尝试次数、问题数、字段路径、错误类别），再按运行标识关联安全日志。相关事件包括 `agent_research_started/completed/failed`、`agent_model_response_rejected`、`agent_model_format_retry_started/completed` 和 `agent_model_narrative_compacted`。只记录白名单元数据，不输出完整 Prompt、模型原文、新闻全文、证据载荷或密钥。
 
@@ -81,6 +81,8 @@ uv run pytest tests/agent tests/harness tests/security
 
 第二阶段另有[研究服务流程评估](../backend/evaluation/flows/README.md)：通过实际综合研究服务、技术 v2 两阶段适配器及证据门控，验证不足时不调模型、成功或降级后按合同保存和重读。其内存仓储证明范围与[真实数据库历史回归](../backend/tests/persistence/test_research_flow_evaluation_history.py)分开；后者使用受限测试库、实际 Harness 审计与新仓储读取技术 v2 降级报告。两类评估均不代表真实模型质量或数值事实准确性。
 
-当前传输协议为 `structured-v1`，不改变持久化与HTTP报告契约。数组最多十六项，同段最多三项；重复、越界、非规范索引、未知/跨证据绑定与旧内联token均拒绝。压缩先为已选事实尾部预留预算，只裁剪定性完整句；无法容纳则按原长度门禁拒绝，不能静默删掉事实。缺少数组的纯定性提案兼容为空；历史报告不重新校验。方案见[独立引用协议](superpowers/plans/2026-11-03-structured-fact-refs.md)。
+当前传输协议为 `structured-v1`，不改变持久化与HTTP报告契约。数组最多十六项，同段最多五条；target只允许带evidence_ids的叶子段落，thesis不接受fact_refs。重复引用与单段超额分别诊断；重复、越界、非规范索引、未知/跨证据绑定与旧内联token均拒绝，一个段落可列多个evidence_id，输入提供多证据与叶子目标示例。压缩先为已选事实尾部预留预算，只裁剪定性完整句；无法容纳则按原长度门禁拒绝，不能静默删掉事实。缺少数组的纯定性提案兼容为空；历史报告不重新校验。方案见[独立引用协议](superpowers/plans/2026-11-03-structured-fact-refs.md)。
 
-安全诊断仅记录固定数值类别（日期时间、小数、整数、中文数量、其他数字符号）及schema类别（枚举、缺字段、多余字段、类型、长度、JSON、其他约束）。未知键折叠为schema，不记录拒绝原文、数值或任意错误消息。
+可定位的单条事实引用失败（未知/跨证据/重复/超额）在最终提案中部分恢复：丢弃失败项、保留定性正文，并把省略数量作为既有 `limitations` 写入；根形状错误仍整份拒绝。正文自由数字按完整句替换为固定省略句，不展示未验证数字；只改叙述性字段，标题、枚举、标签和 timing 仍拒绝，无法保留中文内容或最终正文长度不足时回退整份降级。部分恢复不改变报告状态或新增持久化字段，详细安全路径只进入日志。圈号等纯枚举符号不按数量处理；中文数量、分数/上标等符号数字仍按自由数字省略。未绑定数字不会因部分事实过滤而被接受或静默删除。
+
+安全诊断仅记录固定数值类别（日期时间、小数、整数、中文数量、其他数字符号）及schema类别（枚举、缺字段、多余字段、类型、长度、JSON、其他约束、截断）。未知键折叠为schema，不记录拒绝原文、数值或任意错误消息。数值/事实引用类别（`unbound_numeric_claim`、`numeric_reference`、`fact_reference_schema`、`unknown_fact_reference`、`unknown_fact_target`、`fact_evidence_mismatch`、`duplicate_fact_reference`、`excess_fact_reference`、历史`duplicate_or_excess_fact_reference`、`model_output_truncated`）同样可能成为最后一次尝试的终态，必须同时加入后端降级摘要白名单和前端 schema/中文标签；否则报告会在保存或解码阶段失败。纠错提示只追加服务端构造的字段路径、事实标签与 evidence UUID，不回显模型正文。
