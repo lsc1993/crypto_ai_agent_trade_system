@@ -10,7 +10,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from scripts import http_e2e_server as server
+import scripts.http_e2e_server as server
 from scripts.check_test_database import DatabaseGuardError
 
 

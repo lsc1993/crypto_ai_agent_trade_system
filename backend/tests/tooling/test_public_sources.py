@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from scripts import check_public_sources as diagnostics
+import scripts.check_public_sources as diagnostics
 
 NOW = datetime(2026, 11, 2, 12, tzinfo=UTC)
 
