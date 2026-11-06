@@ -32,7 +32,7 @@ async def check_public_market() -> None:
 
     for summary in summaries:
         print(
-            f"{summary.symbol.value}: price={summary.price}, "
+            f"{summary.symbol}: price={summary.price}, "
             f"source={summary.freshness.source}, "
             f"observed_at={summary.freshness.observed_at.isoformat()}, "
             f"fetched_at={summary.freshness.fetched_at.isoformat()}"
