@@ -21,7 +21,7 @@
 - [根目录规范](../../../AGENTS.md)、[后端规范](../../../backend/AGENTS.md)、[前端规范](../../../frontend/AGENTS.md)。
 - [AI 维护指南](../../ai-maintenance.md)、[运行边界](../../operational-boundaries.md)、[技术交易计划书](../../technical-trading-plan.md)。
 - [现有固定图](../../../backend/src/app/agent/graph.py)、[综合服务](../../../backend/src/app/agent/service.py)、[技术 worker](../../../backend/src/app/agent/technical/worker.py)。
-- [Harness 契约](../../../backend/src/app/harness/contracts.py)、[运行时](../../../backend/src/app/harness/runtime.py)、[审计](../../../backend/src/app/harness/audit.py)。
+- [Harness 契约](../../../backend/src/app/governance/contracts.py)、[运行时](../../../backend/src/app/governance/runtime.py)、[审计](../../../backend/src/app/governance/audit.py)。
 - [技术任务仓储](../../../backend/src/app/infrastructure/persistence/technical_run_repository.py)、[技术方法](../../../backend/src/app/agent/technical/methods.py)、[技术计算](../../../backend/src/app/agent/technical/engine.py)。
 
 当前技术队列只按币种合并活跃请求，模型适配器拒绝工具调用，Harness 审计使用固定四阶段，综合图大载荷保留在请求对象。新设计分别处理这些约束，不把 checkpoint 或旧任务恢复等同于新交互任务已经可恢复。
@@ -68,7 +68,7 @@
 
 ### 命名迁移与规划域
 
-现有代码仍是 `app/harness/`；本文目标治理内核采用前轮建议的 `app/governance/`，不表示已经移动。首个基础批次独立迁移导入、类型命名、装配、测试、AST 门禁和 AGENTS 路径；历史 harness_* 表名、事件值和已保存记录保留，不改写旧迁移。
+现有代码仍是 `app/harness/`；本文目标治理内核采用前轮建议的 `app/governance/`，不表示已经移动。首个基础批次独立迁移导入、类型命名、装配、测试、AST 门禁和 AGENTS 路径；历史 harness_* 表名、事件值和已保存记录保留，不改写旧迁移。（实施状态：T00 已于 2026-11-07 完成该迁移，详见[开发进度](../execution/2026-11-06-manual-agent-progress.md)；本段保留设计时描述。）
 
 任务应用层目标为 `app/agent_runs/`，避免把整个任务生命周期误解为仅生成研究报告。它通过规划端口协作 `app/trade_planning/`。模型和研究工具可请求规划，但只传合法候选、规划资料引用及目标，不能指定最终数量或绕过核验；规划计算与审核状态由服务端控制。
 
