@@ -2,14 +2,14 @@
 
 - 记录日期：2026-11-07
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地，但正式审查尚未通过；本轮即使 full 已通过，也按审查指令保持 `implemented`，不自行标记 `verified` 或 `approved`。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`，未合并本轮改动） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；本轮以 fast-forward 合并 T00） |
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t00` |
 | 分支 | `task/manual-agent-t00` |
 | base | `4847ebcfc4d7530bae3f94c753c945507f5b8879`（`main`，T00 开始时工作区干净） |
@@ -24,15 +24,15 @@
 | 任务 | T00；后端 `app/harness/` → `app/governance/`，公共类型改为 Governance/Governed 命名 |
 | FR/AC/HN | AC-18；HN-01、HN-12（门禁仍拒绝交易/外部 IO/空扫描）；支撑 FR-03/FR-12 的治理内核路径，不宣称新增业务能力 |
 | 时间 | 2026-11-07；初始实现 `63b1202`，复审修复 `f870de1` |
-| 任务状态 | `implemented`（按审查指令保持；full 与数据库回归已通过，正式复审未完成） |
-| review_status | `awaiting_review`（复审） |
-| reviewed_tip | `63b1202`（上一轮获“暂不放行”，非通过） |
+| 任务状态 | `verified`（实现、full、数据库回归及复审均完成） |
+| review_status | `approved` |
+| reviewed_tip | `f870de1`（用户于 2026-11-07 传回原审查助手正式通过结论） |
 | 改动 | 7 个治理模块迁移；4 个测试迁移；24 个导入/装配/安全测试文件更新；3 份 AGENTS、3 份运行/维护/状态文档同步；契约/实施计划/设计的当前实施状态注记；新增治理门禁、序列化兼容及拒绝日志兼容测试 |
 | 公共接口 | 仅 Python 导入路径和公共类型名改变；HTTP 错误码、审计表/事件值、`HarnessAudit*` 类型、`harness_*` 日志事件名与拒绝日志 `error_type` 值保持不变 |
 | 依赖/迁移 | 无新增依赖；无 schema 变更；迁移 head 仍为 `0018_technical_report_runs` |
 | 验证 | 治理/安全聚焦 114 passed；架构门禁 35 文件 0 findings；quick 全绿（后端 918 passed，前端 332 passed）；带专用测试库 full 全绿（后端 1017 passed）；旧报告/审计 SQL 聚焦回归 34 passed |
 | 未验证 | 浏览器 e2e/http-e2e、真实模型质量、产品规则/收益 |
-| 遗留 | 等待原审查助手复审 `f870de1`；复审通过前不进入 T01，不自行升级 `verified` |
+| 遗留 | T00 已通过正式复审并放行；不自动进入 T01，等待用户指定下一审查单元 |
 
 ### T00 测试证据
 
@@ -60,6 +60,6 @@
 
 ## 后续接续规则
 
-1. 等待用户把 `docs/superpowers/reviews/manual-agent/T00-review-request.md` 的复审材料转交原审查助手。
-2. 收到意见后先核对/复现，再逐条修复并补回归；有新提交时更新本文件的 implementation tip、验证结果和 `review_status`。
-3. 只有正式审查通过且本轮必需验证完成后，才把 T00 标记为放行并进入 T01；本轮不自行标记 `verified` 或 `approved`。
+1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，本轮以 fast-forward 方式合并到 `main`。
+2. 下一审查单元（T01）须由用户明确指定后开始；不得因 T00 通过而自动推进。
+3. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
