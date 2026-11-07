@@ -52,6 +52,8 @@
 
 2026-11-07 T00 治理内核命名迁移：后端 `app/harness/` 迁至 `app/governance/`，`HarnessRuntime`/`HarnessPolicy`/`HarnessCapability`/`HarnessRunKind`/`HarnessRunRequest`/`HarnessPolicyViolation`/`HarnessWorkflow` 及两个 `Harnessed*` 服务分别改为 `Governance*`/`Governed*` 命名；测试迁至 `tests/governance/`，导入、装配、AST 安全门禁与当前规范同步更新。`HarnessAudit*` 存储类型、表/审计事件值、`harness_*` 错误码、日志事件名及拒绝日志 `error_type` 保持历史值，以兼容既有观测与审计读取。复审阶段已在专用测试库通过 full（后端 1017 passed），并完成旧报告/审计读取 SQL 回归 34 passed；开发状态保持 `implemented`，等待原审查助手复审，不自行标记 `verified`。
 
+2026-11-07 原审查助手复审通过 T00（`reviewed_tip=f870de1`），随后以 fast-forward 将任务分支合并到 `main`。T00 状态为 `verified`/`approved`；下一审查单元须等待用户明确指定，不自动进入 T01。
+
 2026-11-04 报告 `4a89ab15-867e-4c92-8531-697f2d8fca46` 降级诊断与长度压缩修复：三次尝试分别为 `trading_instruction`（3 个驱动/专题字段）和两次 `narrative_length`（3433、2993 字符）；模型在重试后已避开交易措辞，但正文超长未被压缩器救回。修复包括：`headline` 进入压缩候选；压缩到不超过 2500 即接受，不再因未达到 2200 目标而回退原文；极长句无句号时允许退到完整分句；仍超长时按整条程序事实省略并写入限制；Prompt 与重试明确全文不超过 2500、headline/heading 不超过 30 字，并提示描述情绪时也不要用“做多/做空”。新增标题压缩、分句回退、事实按长度省略与交易措辞重试回归；未调用真实模型，运行中容器仍是旧镜像，需重建后再生成本地报告。
 
 2026-11-04 报告 `b6de0fa2-85af-45a9-821a-975b405e0870` 降级诊断与部分事实恢复：该次三次尝试均为 `unbound_numeric_claim`（`numeric_symbol` 与 `chinese_quantity`），不是事实引用与段落证据不匹配；正文已经把数字直接写进叙述，没有可丢弃的 `fact_refs`，因此过滤事实引用不会救回该次。随后实现可定位单条事实引用的部分恢复：未知事实、未知目标、跨证据、重复或单段超额只丢弃该项并保留定性正文，省略数量写入既有 `limitations`；根形状错误仍整份拒绝。正文自由数字按完整句替换为固定省略句，不展示未验证数字；标题、枚举、标签和 timing 仍拒绝，无法保留中文内容或正文长度不足时回退整份降级。圈号等纯枚举符号不再被当作数量；Prompt 与纠错明确禁止中文数量、圈号、罗马数字、分数/上标等写法。新增/更新事实引用、模型、契约与页面回归；未调用真实模型，运行中容器仍是旧镜像，需重建后再生成本地报告。
