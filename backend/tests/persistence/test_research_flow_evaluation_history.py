@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.technical.plan_service import TechnicalPlanResearchService
-from app.harness.technical_research import HarnessedTechnicalPlanExecutor
+from app.governance.technical_research import GovernedTechnicalPlanExecutor
 from app.infrastructure.persistence.harness_audit_repository import SqlAlchemyHarnessAuditRepository
 from app.infrastructure.persistence.technical_report_repository import (
     SqlAlchemyTechnicalReportRepository,
@@ -122,7 +122,7 @@ async def test_real_repository_reads_immutable_degraded_v2_history(
                 model=technical_model(client),
                 clock=lambda: NOW,
             )
-            executor = HarnessedTechnicalPlanExecutor(
+            executor = GovernedTechnicalPlanExecutor(
                 service,
                 audit=audit,
                 authorizer=admitted,

@@ -38,12 +38,12 @@ def test_agent_sources_are_allowlisted_and_cannot_enable_social_or_full_page_fet
     assert "BeautifulSoup" not in news_source
 
 
-def test_agent_news_and_harness_contain_no_private_exchange_or_model_tool_surface() -> None:
+def test_agent_news_and_governance_contain_no_private_exchange_or_model_tool_surface() -> None:
     source = "\n".join(
         (
             _application_source("agent"),
             _application_source("news"),
-            _application_source("harness"),
+            _application_source("governance"),
         )
     )
 
@@ -63,8 +63,8 @@ def test_agent_news_and_harness_contain_no_private_exchange_or_model_tool_surfac
     assert not {token for token in forbidden if token in source}
 
 
-def test_harness_source_contains_no_tool_or_external_io_surface() -> None:
-    source = _application_source("harness")
+def test_governance_source_contains_no_tool_or_external_io_surface() -> None:
+    source = _application_source("governance")
     forbidden = (
         "sqlalchemy",
         "alembic",

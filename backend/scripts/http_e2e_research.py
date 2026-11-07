@@ -19,7 +19,7 @@ from app.agent.technical.plan_service import TechnicalPlanResearchService
 from app.agent.technical.worker import TechnicalResearchWorker
 from app.api.routes.research_symbols import router as symbols_router
 from app.api.routes.technical_reports import router as reports_router
-from app.harness.technical_research import HarnessedTechnicalPlanExecutor
+from app.governance.technical_research import GovernedTechnicalPlanExecutor
 from app.infrastructure.persistence.harness_audit_repository import SqlAlchemyHarnessAuditRepository
 from app.infrastructure.persistence.models.symbols import ResearchSymbolSyncRunRecord
 from app.infrastructure.persistence.symbol_repository import SqlAlchemySymbolRepository
@@ -126,7 +126,7 @@ class ResearchRuntime:
             model=technical_model(self.client, configured=symbol == "BTCUSDT"),
             clock=lambda: NOW,
         )
-        executor = HarnessedTechnicalPlanExecutor(
+        executor = GovernedTechnicalPlanExecutor(
             service,
             audit=SqlAlchemyHarnessAuditRepository(self.factory),
             authorizer=self.admitted,

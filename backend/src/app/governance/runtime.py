@@ -1,9 +1,12 @@
 # 协调注册策略、工作流与审计端口，先保存请求再验证权限，最后调用固定工作流。
 # 审计存储失败不能静默放行；日志只记录关联标识、计数与异常类型。
-"""受控工作流运行时。
+"""治理内核的受控工作流运行时。
 
-数据流：HarnessRunRequest → 创建请求审计记录 → 策略/标的/能力白名单校验 → 工作流
+数据流：GovernanceRunRequest → 创建请求审计记录 → 策略/标的/能力白名单校验 → 工作流
 执行及终态事件。运行时不替工作流放宽权限，也不会在审计缺失时静默继续。
+
+运行行为与此前 HarnessRuntime 保持一致；`HarnessAudit*` 存储类型、数据库事件值和
+`harness_run_*` 安全日志名都保留原值，只有 Python 包路径和公共类型改为 governance。
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from time import perf_counter
 
 import structlog
 
-from app.harness.audit import (
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditEventKind,
     HarnessAuditRepository,
@@ -30,25 +33,25 @@ from app.harness.audit import (
     policy_sha256,
     request_sha256,
 )
-from app.harness.contracts import (
-    HarnessCapability,
-    HarnessPolicy,
-    HarnessPolicyViolation,
-    HarnessRunKind,
-    HarnessRunRequest,
-    HarnessWorkflow,
+from app.governance.contracts import (
+    GovernanceCapability,
+    GovernancePolicy,
+    GovernancePolicyViolation,
+    GovernanceRunKind,
+    GovernanceRunRequest,
+    GovernedWorkflow,
 )
 from app.market.symbols import ResearchSymbol
 
 
 # 运行入口对同一类别只允许唯一策略和工作流，避免重复注册覆盖权限。
-class HarnessRuntime[ResultT]:
+class GovernanceRuntime[ResultT]:
     """受控工作流的统一入口：先审计，再白名单校验，最后执行。"""
 
     def __init__(
         self,
-        policies: tuple[HarnessPolicy, ...],
-        workflows: tuple[HarnessWorkflow[ResultT], ...],
+        policies: tuple[GovernancePolicy, ...],
+        workflows: tuple[GovernedWorkflow[ResultT], ...],
         audit_repository: HarnessAuditRepository,
         symbol_authorizer: Callable[[ResearchSymbol], Awaitable[bool]] | None = None,
         require_all_symbols_authorized: bool = False,
@@ -57,19 +60,19 @@ class HarnessRuntime[ResultT]:
         self._audit_repository = audit_repository
         self._symbol_authorizer = symbol_authorizer
         self._require_all_symbols_authorized = require_all_symbols_authorized
-        self._policies: dict[HarnessRunKind, HarnessPolicy] = {}
+        self._policies: dict[GovernanceRunKind, GovernancePolicy] = {}
         for policy in policies:
             if policy.run_kind in self._policies:
-                raise ValueError("duplicate Harness run kind registration")
+                raise ValueError("duplicate governance run kind registration")
             self._policies[policy.run_kind] = policy
 
-        self._workflows: dict[HarnessRunKind, HarnessWorkflow[ResultT]] = {}
+        self._workflows: dict[GovernanceRunKind, GovernedWorkflow[ResultT]] = {}
         for workflow in workflows:
             if workflow.kind in self._workflows:
-                raise ValueError("duplicate Harness run kind registration")
+                raise ValueError("duplicate governance run kind registration")
             self._workflows[workflow.kind] = workflow
 
-    async def run(self, request: HarnessRunRequest) -> ResultT:
+    async def run(self, request: GovernanceRunRequest) -> ResultT:
         """执行一条受控请求，并以固定审计生命周期记录批准、拒绝或失败。
 
         请求记录先于白名单校验落库；策略、标的、能力任一不满足即写拒绝事件并停止，
@@ -110,14 +113,14 @@ class HarnessRuntime[ResultT]:
             ),
         )
 
-        workflow: HarnessWorkflow[ResultT] | None = None
+        workflow: GovernedWorkflow[ResultT] | None = None
         # 注册、标的和能力三项必须全部通过；工作流声明的能力不能越过策略白名单。
         try:
             policy = self._policy_for(request.kind)
             workflow = self._workflow_for(request.kind)
             await self._require_symbol_allowed(policy, request.symbol)
             self._require_capabilities_allowed(policy, workflow.required_capabilities)
-        except HarnessPolicyViolation as error:
+        except GovernancePolicyViolation as error:
             declared_count = 0 if workflow is None else len(workflow.required_capabilities)
             allowed_count = (
                 0 if registered_policy is None else len(registered_policy.allowed_capabilities)
@@ -199,24 +202,24 @@ class HarnessRuntime[ResultT]:
         )
         return await self._run_logged(workflow, request, started_at=started_at)
 
-    def _policy_for(self, kind: HarnessRunKind) -> HarnessPolicy:
+    def _policy_for(self, kind: GovernanceRunKind) -> GovernancePolicy:
         """查找运行类型对应策略；未注册类型统一转换为受控策略违规。"""
         try:
             return self._policies[kind]
         except KeyError as error:
-            raise HarnessPolicyViolation("run_kind_not_registered") from error
+            raise GovernancePolicyViolation("run_kind_not_registered") from error
 
-    def _workflow_for(self, kind: HarnessRunKind) -> HarnessWorkflow[ResultT]:
+    def _workflow_for(self, kind: GovernanceRunKind) -> GovernedWorkflow[ResultT]:
         """查找运行类型对应工作流；策略与工作流缺一不可。"""
         try:
             return self._workflows[kind]
         except KeyError as error:
-            raise HarnessPolicyViolation("run_kind_not_registered") from error
+            raise GovernancePolicyViolation("run_kind_not_registered") from error
 
     # 可要求全部标的重新目录授权，以尊重排队期间的归档；默认模式保留预置标的兼容。
     async def _require_symbol_allowed(
         self,
-        policy: HarnessPolicy,
+        policy: GovernancePolicy,
         symbol: ResearchSymbol,
     ) -> None:
         """检查静态白名单，或核验目录中的已完成同步的研究币对。"""
@@ -224,33 +227,33 @@ class HarnessRuntime[ResultT]:
         if self._require_all_symbols_authorized and (
             self._symbol_authorizer is None or not await self._symbol_authorizer(symbol)
         ):
-            raise HarnessPolicyViolation("symbol_not_allowed")
+            raise GovernancePolicyViolation("symbol_not_allowed")
         if symbol not in policy.allowed_symbols:
             if (
                 policy.symbol_admission != "research_directory"
                 or self._symbol_authorizer is None
                 or not await self._symbol_authorizer(symbol)
             ):
-                raise HarnessPolicyViolation("symbol_not_allowed")
+                raise GovernancePolicyViolation("symbol_not_allowed")
 
     @staticmethod
     def _require_capabilities_allowed(
-        policy: HarnessPolicy,
-        required_capabilities: tuple[HarnessCapability, ...],
+        policy: GovernancePolicy,
+        required_capabilities: tuple[GovernanceCapability, ...],
     ) -> None:
         """确保工作流声明的每项能力都是枚举值且被策略显式授权。"""
         if any(
-            type(capability) is not HarnessCapability
+            type(capability) is not GovernanceCapability
             or capability not in policy.allowed_capabilities
             for capability in required_capabilities
         ):
-            raise HarnessPolicyViolation("capability_not_allowed")
+            raise GovernancePolicyViolation("capability_not_allowed")
 
     # 通过准入后执行；失败和取消尝试记录终态，取消路径的审计等待有上限。
     async def _run_logged(
         self,
-        workflow: HarnessWorkflow[ResultT],
-        request: HarnessRunRequest,
+        workflow: GovernedWorkflow[ResultT],
+        request: GovernanceRunRequest,
         *,
         started_at: float,
     ) -> ResultT:
@@ -309,7 +312,7 @@ class HarnessRuntime[ResultT]:
     @staticmethod
     def _log(
         event: str,
-        request: HarnessRunRequest,
+        request: GovernanceRunRequest,
         *,
         phase: str,
         duration_ms: int,
@@ -328,7 +331,7 @@ class HarnessRuntime[ResultT]:
 
     def _log_rejected(
         self,
-        request: HarnessRunRequest,
+        request: GovernanceRunRequest,
         *,
         declared_capability_count: int,
         allowed_capability_count: int,
@@ -338,7 +341,7 @@ class HarnessRuntime[ResultT]:
             request,
             phase="rejected",
             duration_ms=0,
-            error_type=HarnessPolicyViolation.__name__,
+            error_type=GovernancePolicyViolation.__name__,
             declared_capability_count=declared_capability_count,
             allowed_capability_count=allowed_capability_count,
         )
@@ -347,7 +350,7 @@ class HarnessRuntime[ResultT]:
 _UNREGISTERED_POLICY_VERSION = "unregistered"
 
 
-def _unregistered_policy_sha256(run_kind: HarnessRunKind) -> str:
+def _unregistered_policy_sha256(run_kind: GovernanceRunKind) -> str:
     """为未注册运行构造空白名单策略指纹，使拒绝请求也有可复核审计锚点。"""
     canonical_payload: dict[str, str | list[str]] = {
         "allowed_capabilities": [],

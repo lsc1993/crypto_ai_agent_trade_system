@@ -13,7 +13,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.harness.audit import (
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditEventKind,
     HarnessAuditRun,
@@ -24,7 +24,7 @@ from app.harness.audit import (
     HarnessEventDetails,
     HarnessInitiatorKind,
 )
-from app.harness.contracts import HarnessRunKind
+from app.governance.contracts import GovernanceRunKind
 from app.infrastructure.persistence.harness_audit_repository import (
     SqlAlchemyHarnessAuditRepository,
 )
@@ -176,7 +176,7 @@ def _admitted_run() -> Recording:
     run_id = uuid4()
     run = HarnessAuditRun(
         run_id=run_id,
-        run_kind=HarnessRunKind.MARKET_RESEARCH,
+        run_kind=GovernanceRunKind.MARKET_RESEARCH,
         policy_version="market_research_v1",
         policy_sha256="a" * 64,
         symbol=ContractSymbol.BTCUSDT,
@@ -222,7 +222,7 @@ def _admitted_run() -> Recording:
         occurred_at=NOW + timedelta(milliseconds=2),
         duration_ms=2,
         error_code=None,
-        details=HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+        details=HarnessEventDetails(workflow_kind=GovernanceRunKind.MARKET_RESEARCH),
     )
     return Recording(
         run=run,

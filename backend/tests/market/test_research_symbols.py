@@ -10,14 +10,14 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from app.agent.factor_collection import collect_etf
-from app.harness.contracts import HarnessRunKind, HarnessRunRequest
+from app.governance.contracts import GovernanceRunKind, GovernanceRunRequest
 from app.market.contracts import Candle, ContractSymbol
 from app.paper_trading.contracts import PaperAccount
 from app.reports.contracts import AnalysisReportDraft
 from app.strategy.contracts import TradeIntent
 
 
-@pytest.mark.parametrize("model", (Candle, AnalysisReportDraft, HarnessRunRequest))
+@pytest.mark.parametrize("model", (Candle, AnalysisReportDraft, GovernanceRunRequest))
 def test_research_contract_symbol_accepts_sol(model: type) -> None:
     adapter = TypeAdapter(model.model_fields["symbol"].rebuild_annotation())
     assert adapter.validate_python("SOLUSDT") == "SOLUSDT"
@@ -31,9 +31,9 @@ def test_trading_contract_symbol_stays_restricted(model: type) -> None:
 
 
 def test_dynamic_harness_request_serializes_plain_symbol() -> None:
-    request = HarnessRunRequest(
+    request = GovernanceRunRequest(
         run_id=uuid4(),
-        kind=HarnessRunKind.MARKET_RESEARCH,
+        kind=GovernanceRunKind.MARKET_RESEARCH,
         symbol="SOLUSDT",
         requested_at=datetime.now(UTC),
     )

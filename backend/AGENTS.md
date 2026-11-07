@@ -27,7 +27,7 @@ AI Agent 新增、生成或修改后端代码时，必须把详细中文注释�
 ## AI 与领域隔离
 
 - 先读 [AI 维护指南](../docs/ai-maintenance.md)。研究 `agent/` 与策略 `strategy/` 是不同边界：前者生成证据化报告，后者生成 `TradeIntent`。
-- `harness/` 保持受限协调层，通过注入的协议执行固定研究工作流；禁止引入模型工具循环、私有账户、模拟盘或执行服务调用。
+- `governance/` 是系统级 Harness 的治理内核，保持受限协调层，通过注入的协议执行固定研究工作流；禁止引入模型工具循环、私有账户、模拟盘或执行服务调用。`HarnessAudit*` 存储类型及既有 `harness_*` 表/事件值保留，但代码不得再导入 `app.harness`。
 - 模型输出必须经过确定性契约、证据引用和文本校验。不要为消除降级而直接放宽验证、伪造证据或复用旧数据冒充新采集。
 - 动态 `ResearchSymbol` 需经目录准入；交易、回测、模拟盘继续遵循各自静态契约，不能全局替换 `ContractSymbol`。
 - 研究币种同步 worker 在 API lifespan 中消费已排队任务，不能据此增加定时交易、自动报告生成或任意后台采集。
@@ -52,7 +52,7 @@ uv run pytest
 | 修改范围 | 重点回归入口（相对本目录） |
 | --- | --- |
 | Prompt、模型契约、重试或压缩 | `tests/agent/test_model.py`、`tests/agent/test_service.py`、`tests/security/` |
-| Harness 策略、生命周期或审计 | `tests/harness/`、`tests/persistence/test_harness_audit_repository.py`、`tests/security/` |
+| 治理内核/系统级 Harness 策略、生命周期或审计 | `tests/governance/`、`tests/persistence/test_harness_audit_repository.py`、`tests/security/` |
 | 研究币种、公开源与专题 | `tests/symbols/`、`tests/market/`、`tests/agent/test_factors.py`、相关 API 与持久化测试 |
 | 报告字段与迁移 | 报告/API/仓储/迁移测试，以及对应前端解码与展示测试 |
 | 策略、回测、风控、模拟成交 | `tests/strategy/`、`tests/research/backtests/`、`tests/risk/`、`tests/execution/`、`tests/paper_trading/` |

@@ -12,8 +12,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.harness.audit import HarnessAuditStorageUnavailableError
-from app.harness.contracts import HarnessPolicyViolation
+from app.governance.audit import HarnessAuditStorageUnavailableError
+from app.governance.contracts import GovernancePolicyViolation
 from app.market.contracts import MarketDataUnavailableError
 from app.paper_trading.contracts import (
     PaperAccountNotFoundError,
@@ -143,12 +143,13 @@ async def _market_data_unavailable_handler(
 
 
 # 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
-async def _harness_policy_violation_handler(
+# 错误码与消息保留 harness_* 线协议，避免治理命名迁移改变既有客户端契约。
+async def _governance_policy_violation_handler(
     _request: Request,
     exception: Exception,
 ) -> JSONResponse:
-    if not isinstance(exception, HarnessPolicyViolation):
-        raise TypeError("Harness 策略异常处理器收到了不支持的异常类型")
+    if not isinstance(exception, GovernancePolicyViolation):
+        raise TypeError("治理策略异常处理器收到了不支持的异常类型")
     return _response(
         403,
         ErrorEnvelope(
@@ -159,12 +160,13 @@ async def _harness_policy_violation_handler(
 
 
 # 接收已登记的异常类型并返回明确状态码和 ErrorEnvelope；不把任意异常对象直接序列化。
-async def _harness_audit_storage_unavailable_handler(
+# 存储异常类型名和错误码继续使用 HarnessAudit*，兼容既有审计读取与 HTTP 契约。
+async def _governance_audit_storage_unavailable_handler(
     _request: Request,
     exception: Exception,
 ) -> JSONResponse:
     if not isinstance(exception, HarnessAuditStorageUnavailableError):
-        raise TypeError("Harness 审计存储异常处理器收到了不支持的异常类型")
+        raise TypeError("治理审计存储异常处理器收到了不支持的异常类型")
     return _response(
         503,
         ErrorEnvelope(
@@ -312,12 +314,12 @@ def install_exception_handlers(app: FastAPI) -> None:
         _validation_exception_handler,
     )
     app.add_exception_handler(
-        HarnessPolicyViolation,
-        _harness_policy_violation_handler,
+        GovernancePolicyViolation,
+        _governance_policy_violation_handler,
     )
     app.add_exception_handler(
         HarnessAuditStorageUnavailableError,
-        _harness_audit_storage_unavailable_handler,
+        _governance_audit_storage_unavailable_handler,
     )
     app.add_exception_handler(
         MarketDataUnavailableError,

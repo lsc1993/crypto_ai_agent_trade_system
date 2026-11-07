@@ -1,9 +1,13 @@
 # 保存受控研究运行的请求与策略指纹、固定序号生命周期事件及白名单评估。
 # 详情只包含安全计数和类型，不能记录模型、凭证、新闻正文或任意外部载荷。
-"""受控工作流审计领域模型。
+"""治理内核的受控工作流审计领域模型。
 
 数据流：运行请求与策略指纹 → 固定四阶段事件及白名单评估 → 按 run_id、sequence 重建
 不可自相矛盾的审计轨迹。详情字段受限，避免把原始请求、凭证或不可信正文写入审计。
+
+本模块继续使用 HarnessAudit* 类型名和既有事件/表名：它们属于持久化兼容契约，
+Python 包路径迁移到 governance 不改变已保存审计记录的读取方式。日志事件名同样
+保留 harness_* 前缀，避免本次重命名变成运行时观测协议变更。
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.harness.contracts import HarnessPolicy, HarnessRunKind, HarnessRunRequest
+from app.governance.contracts import GovernancePolicy, GovernanceRunKind, GovernanceRunRequest
 from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
 
@@ -77,7 +81,7 @@ class HarnessEventDetails(_AuditModel):
 
     declared_capability_count: Annotated[int, Field(ge=0)] | None = None
     allowed_capability_count: Annotated[int, Field(ge=0)] | None = None
-    workflow_kind: HarnessRunKind | None = None
+    workflow_kind: GovernanceRunKind | None = None
     error_type: Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,99}$")] | None = None
 
     @model_serializer
@@ -105,10 +109,10 @@ class HarnessEvaluationDetails(_AuditModel):
 
 
 class HarnessAuditRun(_AuditModel):
-    """一次受控运行的不可变标识、请求指纹和策略版本快照。"""
+    """一次受治理运行的不可变标识、请求指纹和策略版本快照。"""
 
     run_id: UUID
-    run_kind: HarnessRunKind
+    run_kind: GovernanceRunKind
     policy_version: str
     policy_sha256: Sha256
     symbol: ResearchSymbol
@@ -241,7 +245,7 @@ class HarnessAuditRepository(Protocol):
 
 
 # 规范 JSON 固定键顺序；白名单列表保留给定顺序，指纹不额外排序列表元素。
-def policy_sha256(policy: HarnessPolicy) -> str:
+def policy_sha256(policy: GovernancePolicy) -> str:
     """对策略白名单的规范 JSON 求哈希，使审计能固定本次运行所用规则。"""
     # 规范化 JSON 后再哈希，集合枚举顺序不会造成同一策略产生不同的审计指纹。
     canonical_payload = {
@@ -256,7 +260,7 @@ def policy_sha256(policy: HarnessPolicy) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def request_sha256(request: HarnessRunRequest, policy_version: str) -> str:
+def request_sha256(request: GovernanceRunRequest, policy_version: str) -> str:
     """对请求范围和策略版本求哈希，供审计追踪而不保存额外原始输入。"""
     canonical_payload = {
         "kind": request.kind.value,

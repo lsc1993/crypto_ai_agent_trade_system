@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import update
 
 from app.agent.technical.plan_service import TechnicalPlanResearchService
-from app.harness.technical_research import HarnessedTechnicalPlanExecutor
+from app.governance.technical_research import GovernedTechnicalPlanExecutor
 from app.infrastructure.persistence.harness_audit_repository import SqlAlchemyHarnessAuditRepository
 from app.infrastructure.persistence.models.technical_runs import TechnicalRunRecord
 from app.infrastructure.persistence.technical_report_repository import (
@@ -100,7 +100,7 @@ async def test_report_commit_recovery_does_not_reenqueue(
     service = TechnicalPlanResearchService(
         market=Market(), repository=reports, model=Model(), clock=technical_clock
     )
-    executor = HarnessedTechnicalPlanExecutor(
+    executor = GovernedTechnicalPlanExecutor(
         service,
         audit=SqlAlchemyHarnessAuditRepository(factory),
         authorizer=allowed,

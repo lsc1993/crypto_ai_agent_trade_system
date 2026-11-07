@@ -1,4 +1,4 @@
-# 提供技术 v1 同步和 v2 队列执行的受控包装，技术策略不要求新闻读取能力。
+# 提供技术 v1 同步和 v2 队列执行的受治理包装，技术策略不要求新闻读取能力。
 # 队列执行重新核对全部标的的目录准入，尊重提交后归档；审计与报告共用运行标识。
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -6,29 +6,29 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from app.agent.technical.worker import TechnicalPlanRunExecutor
-from app.harness.audit import HarnessAuditRepository
-from app.harness.contracts import (
-    HarnessCapability,
-    HarnessPolicy,
-    HarnessRunKind,
-    HarnessRunRequest,
+from app.governance.audit import HarnessAuditRepository
+from app.governance.contracts import (
+    GovernanceCapability,
+    GovernancePolicy,
+    GovernanceRunKind,
+    GovernanceRunRequest,
 )
-from app.harness.runtime import HarnessRuntime
+from app.governance.runtime import GovernanceRuntime
 from app.market.symbols import ResearchSymbol
 from app.reports.contracts import ReportStorageUnavailableError
 from app.reports.technical import TechnicalReport
 from app.reports.technical_plan import TechnicalPlanReport
 from app.reports.technical_runs import TechnicalRunLease, TechnicalRunPhase
 
-TECHNICAL_RESEARCH_POLICY = HarnessPolicy(
+TECHNICAL_RESEARCH_POLICY = GovernancePolicy(
     version="technical_research_v1",
-    run_kind=HarnessRunKind.TECHNICAL_RESEARCH,
+    run_kind=GovernanceRunKind.TECHNICAL_RESEARCH,
     allowed_symbols=("BTCUSDT", "ETHUSDT"),
     symbol_admission="research_directory",
     allowed_capabilities=(
-        HarnessCapability.READ_PUBLIC_MARKET,
-        HarnessCapability.CALL_RESEARCH_MODEL,
-        HarnessCapability.PERSIST_IMMUTABLE_REPORT,
+        GovernanceCapability.READ_PUBLIC_MARKET,
+        GovernanceCapability.CALL_RESEARCH_MODEL,
+        GovernanceCapability.PERSIST_IMMUTABLE_REPORT,
     ),
 )
 
@@ -40,13 +40,13 @@ class TechnicalGenerator(Protocol):
 
 # 同步技术工作流只委托技术服务，其能力与独立技术策略一致。
 class TechnicalResearchWorkflow:
-    kind = HarnessRunKind.TECHNICAL_RESEARCH
+    kind = GovernanceRunKind.TECHNICAL_RESEARCH
     required_capabilities = TECHNICAL_RESEARCH_POLICY.allowed_capabilities
 
     def __init__(self, service: TechnicalGenerator) -> None:
         self._service = service
 
-    async def run(self, request: HarnessRunRequest) -> TechnicalReport:
+    async def run(self, request: GovernanceRunRequest) -> TechnicalReport:
         return await self._service.generate(request.symbol, analysis_id=request.run_id)
 
 
@@ -62,17 +62,17 @@ class UnavailableTechnicalResearchService:
 
 
 # 为同步技术服务建立请求并执行策略准入和审计。
-class HarnessedTechnicalResearchService:
+class GovernedTechnicalResearchService:
     def __init__(
-        self, runtime: HarnessRuntime[TechnicalReport], *, clock: Callable[[], datetime]
+        self, runtime: GovernanceRuntime[TechnicalReport], *, clock: Callable[[], datetime]
     ) -> None:
         self._runtime, self._clock = runtime, clock
 
     async def generate(self, symbol: ResearchSymbol) -> TechnicalReport:
         return await self._runtime.run(
-            HarnessRunRequest(
+            GovernanceRunRequest(
                 run_id=uuid4(),
-                kind=HarnessRunKind.TECHNICAL_RESEARCH,
+                kind=GovernanceRunKind.TECHNICAL_RESEARCH,
                 symbol=symbol,
                 requested_at=self._clock(),
             )
@@ -81,7 +81,7 @@ class HarnessedTechnicalResearchService:
 
 # 把队列进度与保存前租约回调传递给固定 v2 研究服务。
 class TechnicalPlanWorkflow:
-    kind = HarnessRunKind.TECHNICAL_RESEARCH
+    kind = GovernanceRunKind.TECHNICAL_RESEARCH
     required_capabilities = TECHNICAL_RESEARCH_POLICY.allowed_capabilities
 
     def __init__(
@@ -92,7 +92,7 @@ class TechnicalPlanWorkflow:
     ) -> None:
         self._service, self._progress, self._before_save = service, progress, before_save
 
-    async def run(self, request: HarnessRunRequest) -> TechnicalPlanReport:
+    async def run(self, request: GovernanceRunRequest) -> TechnicalPlanReport:
         return await self._service.generate(
             request.symbol,
             analysis_id=request.run_id,
@@ -102,7 +102,7 @@ class TechnicalPlanWorkflow:
 
 
 # 每次队列执行创建受限运行时，预置标的也必须通过当前目录授权。
-class HarnessedTechnicalPlanExecutor:
+class GovernedTechnicalPlanExecutor:
     def __init__(
         self,
         service: TechnicalPlanRunExecutor,
@@ -126,9 +126,9 @@ class HarnessedTechnicalPlanExecutor:
         progress: Callable[[TechnicalRunPhase], Awaitable[None]],
         before_save: Callable[[], Awaitable[TechnicalRunLease | None]],
     ) -> TechnicalPlanReport:
-        # Recheck directory admission even for preset symbols; legacy Harness policy
+        # Recheck directory admission even for preset symbols; the governance policy
         # admits presets directly, but queued work must respect later archiving.
-        runtime = HarnessRuntime[TechnicalPlanReport](
+        runtime = GovernanceRuntime[TechnicalPlanReport](
             policies=(TECHNICAL_RESEARCH_POLICY,),
             workflows=(TechnicalPlanWorkflow(self._service, progress, before_save),),
             audit_repository=self._audit,
@@ -136,9 +136,9 @@ class HarnessedTechnicalPlanExecutor:
             require_all_symbols_authorized=True,
         )
         return await runtime.run(
-            HarnessRunRequest(
+            GovernanceRunRequest(
                 run_id=analysis_id,
-                kind=HarnessRunKind.TECHNICAL_RESEARCH,
+                kind=GovernanceRunKind.TECHNICAL_RESEARCH,
                 symbol=symbol,
                 requested_at=self._clock(),
             )

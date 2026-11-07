@@ -16,7 +16,7 @@
 | 报告专题 | 美国政策、近七天资金费率、BTC/ETH 美国现货 ETF 资金流；各专题独立处理缺失和失败 | [专题说明](report-factors.md)、[因子测试](../backend/tests/agent/test_factors.py) |
 | 独立技术研究 | v2 两阶段模型、程序验证的条件候选、引用校验、规则降级与持久化后台任务；保留 v1 同步接口和历史读取 | [交易计划书](technical-trading-plan.md)、[technical](../backend/src/app/agent/technical/)、[模型测试](../backend/tests/agent/test_technical_plan_model.py)、[worker 测试](../backend/tests/agent/test_technical_worker.py) |
 | 技术报告展示 | 字段路径、状态与方法中文展示；多周期结构对照、条件计划与分析依据，原始引用可追溯 | [中文映射](../frontend/src/features/technical-reports/technical-presentation.ts)、[市场结构](../frontend/src/features/technical-reports/TechnicalMarketStructure.tsx)、[计划书](../frontend/src/features/technical-reports/TechnicalPlanBook.tsx) |
-| 受控 Harness | Phase 1 协调层与 Phase 2 审计：策略准入、固定生命周期、审计仓储 | [harness](../backend/src/app/harness/)、[测试](../backend/tests/harness/)、[架构决策](superpowers/specs/2026-08-31-controlled-agent-harness-architecture-design.md) |
+| 受控 Harness（治理内核） | Phase 1 协调层与 Phase 2 审计：策略准入、固定生命周期、审计仓储；代码位于 `governance/`，历史 `harness_*` 表/事件值保留 | [governance](../backend/src/app/governance/)、[测试](../backend/tests/governance/)、[架构决策](superpowers/specs/2026-08-31-controlled-agent-harness-architecture-design.md) |
 | 模型失败可观测性 | 综合研究提供安全摘要、有限格式重试及超长正文压缩；技术 v2 提供白名单规则反馈、保留合法段落的有限纠错及安全拒绝日志 | [维护指南](ai-maintenance.md)、[综合模型](../backend/src/app/agent/model.py)、[技术模型](../backend/src/app/agent/technical/plan_model.py) |
 | 确定性回测 | 当前 BTCUSDT SMA 回测、风控、模拟成交与审计；收盘决策、下一根开盘成交 | [回测](../backend/src/app/research/backtests/)、[测试](../backend/tests/research/backtests/) |
 | 手动模拟盘 | 当前 BTCUSDT 本地账户、手动意图或单次策略评估、快照模拟成交、绩效与审计 | [模拟盘](../backend/src/app/paper_trading/)、[测试](../backend/tests/paper_trading/) |
@@ -26,9 +26,9 @@
 | 测试库防误配置 | 显式测试授权、固定专用库/受限角色、只读身份权限预检；共享夹具及独立迁移用例均受保护 | [预检](../backend/scripts/check_test_database.py)、[测试](../backend/tests/tooling/test_test_database_guard.py) |
 | 固定离线契约评估 | 8 个合成案例通过真实综合研究适配器校验，分别统计接受/拒绝/可降级错误并保留版本指纹；不代表真实模型质量 | [样本说明](../backend/evaluation/README.md)、[评估入口](../backend/scripts/evaluate_research.py) |
 | 研究服务流程评估 | 9 个合成案例验证综合研究与技术 v2 的成功、拒绝、降级和证据不足门控；另有真实仓储降级历史及审计回归 | [流程集](../backend/evaluation/flows/README.md)、[真实仓储回归](../backend/tests/persistence/test_research_flow_evaluation_history.py) |
-| 架构机器门禁 | AST 检查研究/交易、Harness/IO及持久化、Risk/LLM 直接依赖；故意违规、漏扫及坏语法均有回归，保留原字符串安全检查 | [检查器](../backend/scripts/check_architecture.py)、[故障样例测试](../backend/tests/security/test_architecture_gate.py) |
+| 架构机器门禁 | AST 检查研究/交易、治理内核/IO及持久化、Risk/LLM 直接依赖；故意违规、漏扫及坏语法均有回归，保留原字符串安全检查 | [检查器](../backend/scripts/check_architecture.py)、[故障样例测试](../backend/tests/security/test_architecture_gate.py) |
 | HTTP 与数据库浏览器验收 | 交易日志在 api 模式经真实 HTTP 和生产仓储保存后，刷新及新上下文重读；随机测试 schema，不是整站生产装配验收 | [浏览器用例](../frontend/e2e-http/trade-persistence.spec.ts)、[隔离服务](../backend/scripts/http_e2e_server.py) |
-| 技术研究 HTTP 与任务恢复验收 | 生产队列/worker/Harness/适配器/SQL 的完成与降级闭环；worker 重建、子进程终止、取消、提交后恢复、去重与迟到租约拒绝 | [研究浏览器用例](../frontend/e2e-http/research-persistence.spec.ts)、[恢复测试](../backend/tests/persistence/test_technical_worker_recovery.py) |
+| 技术研究 HTTP 与任务恢复验收 | 生产队列/worker/治理内核/适配器/SQL 的完成与降级闭环；worker 重建、子进程终止、取消、提交后恢复、去重与迟到租约拒绝 | [研究浏览器用例](../frontend/e2e-http/research-persistence.spec.ts)、[恢复测试](../backend/tests/persistence/test_technical_worker_recovery.py) |
 | 币种同步重试 HTTP 验收 | 浏览器手动重试、运行中禁用/轮询、重复任务复用、部分恢复或再次失败及新会话重读；生产 worker/SQL/快照仓储，固定合成来源 | [同步浏览器用例](../frontend/e2e-http/symbol-sync-retry.spec.ts)、[隔离装配](../backend/scripts/http_e2e_symbols.py) |
 | 完整 Compose 运行与恢复验收 | 生产镜像、入口迁移、完整应用 lifespan 与 Nginx；合成日志在 API 重启、保卷重建及独立空库备份恢复后保持一致 | [本地运行验收记录](superpowers/plans/2026-11-01-isolated-compose-acceptance.md)、[部署说明](local-deployment.md) |
 
@@ -49,6 +49,8 @@
 2026-11-06 按用户指定明确异构开发与集中审查分工，新增[开发模型提示词](superpowers/plans/2026-11-06-manual-trading-agent-developer-prompt.md)：其他模型按指定模块实现与自测，生成准确 base/tip、改动/契约/测试证据的审查请求，再由用户交回原设计与审查助手正式审查；修复后重验重审，当前版本通过后才放行下一审查单元。交接说明同步至 v1.1，开发审查与产品内计划审核分别管理，不改变单 Agent 产品架构；本次未开始任何开发任务。
 
 ## 本次整理的行为
+
+2026-11-07 T00 治理内核命名迁移：后端 `app/harness/` 迁至 `app/governance/`，`HarnessRuntime`/`HarnessPolicy`/`HarnessCapability`/`HarnessRunKind`/`HarnessRunRequest`/`HarnessPolicyViolation`/`HarnessWorkflow` 及两个 `Harnessed*` 服务分别改为 `Governance*`/`Governed*` 命名；测试迁至 `tests/governance/`，导入、装配、AST 安全门禁与当前规范同步更新。`HarnessAudit*` 存储类型、表/审计事件值、`harness_*` 错误码和日志名保持不变，以兼容历史记录。聚焦验证与独立架构门禁已通过，测试数据库/全量 `full` 受本机环境限制的情况在审查材料中如实记录；正式模块审查尚未进行，开发状态为“待原审查助手审查”。
 
 2026-11-04 报告 `4a89ab15-867e-4c92-8531-697f2d8fca46` 降级诊断与长度压缩修复：三次尝试分别为 `trading_instruction`（3 个驱动/专题字段）和两次 `narrative_length`（3433、2993 字符）；模型在重试后已避开交易措辞，但正文超长未被压缩器救回。修复包括：`headline` 进入压缩候选；压缩到不超过 2500 即接受，不再因未达到 2200 目标而回退原文；极长句无句号时允许退到完整分句；仍超长时按整条程序事实省略并写入限制；Prompt 与重试明确全文不超过 2500、headline/heading 不超过 30 字，并提示描述情绪时也不要用“做多/做空”。新增标题压缩、分句回退、事实按长度省略与交易措辞重试回归；未调用真实模型，运行中容器仍是旧镜像，需重建后再生成本地报告。
 

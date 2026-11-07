@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.routes.research_symbols import get_symbol_repository, require_research_symbol
-from app.harness.technical_research import TechnicalReportGenerator
+from app.governance.technical_research import TechnicalReportGenerator
 from app.market.symbols import ResearchSymbol
 from app.reports.technical import TechnicalReport
 from app.reports.technical_plan import TechnicalReportDocument

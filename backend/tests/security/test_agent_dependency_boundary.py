@@ -25,11 +25,11 @@ def test_agent_dependencies_include_required_packages_and_exclude_forbidden_pack
     }
 
 
-# 扫描范围含注释，维护说明也不能错误地宣称协调层拥有外部实现依赖。
-def test_harness_source_has_no_risk_execution_or_persistence_implementation_dependency() -> None:
-    harness_files = sorted((BACKEND_ROOT / "src" / "app" / "harness").rglob("*.py"))
-    assert harness_files
-    assert "audit.py" in {path.name for path in harness_files}
+# 扫描范围含注释，维护说明也不能错误地宣称治理内核拥有外部实现依赖。
+def test_governance_source_has_no_risk_execution_or_persistence_implementation_dependency() -> None:
+    governance_files = sorted((BACKEND_ROOT / "src" / "app" / "governance").rglob("*.py"))
+    assert governance_files
+    assert "audit.py" in {path.name for path in governance_files}
 
     forbidden = (
         "sqlalchemy",
@@ -56,20 +56,21 @@ def test_harness_source_has_no_risk_execution_or_persistence_implementation_depe
         str(path.relative_to(BACKEND_ROOT)): tuple(
             token for token in forbidden if token in path.read_text(encoding="utf-8").lower()
         )
-        for path in harness_files
+        for path in governance_files
     }
     assert not {path: tokens for path, tokens in violations.items() if tokens}
 
 
-def test_live_agent_factory_routes_market_research_through_the_harness() -> None:
+def test_live_agent_factory_routes_market_research_through_the_governance_kernel() -> None:
     source = (BACKEND_ROOT / "src" / "app" / "main.py").read_text(encoding="utf-8")
 
-    assert "HarnessRuntime[PersistedAnalysisReport]" in source
+    assert "GovernanceRuntime[PersistedAnalysisReport]" in source
     assert "MarketResearchWorkflow(agent_service)" in source
     assert "SqlAlchemyHarnessAuditRepository(session_factory)" in source
-    assert "return HarnessedMarketResearchService(" in source
+    assert "return GovernedMarketResearchService(" in source
     assert "app.state.harness_runtime" not in source
     assert "app.state.harness_audit_repository" not in source
+    assert "app.state.governance_runtime" not in source
     assert "app.state.audit_repository" not in source
 
 

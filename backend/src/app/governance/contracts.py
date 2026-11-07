@@ -1,5 +1,7 @@
-# 定义研究运行请求、白名单策略及工作流协议，将运行权限表达为有限能力集合。
-# 研究目录准入只授权公开研究，不能扩大交易契约或授予私有账户与订单权限。
+# 治理内核的公共契约：定义研究运行请求、白名单策略及受治理工作流协议，
+# 将运行权限表达为有限能力集合。研究目录准入只授权公开研究，不能扩大交易契约
+# 或授予私有账户与订单权限；已保存的 run_kind 序列化值保持 market_research/
+# technical_research 不变。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -14,13 +16,13 @@ from app.market.symbols import ResearchSymbol
 
 
 # 区分综合与独立技术研究，注册和审计均以运行类别为键。
-class HarnessRunKind(StrEnum):
+class GovernanceRunKind(StrEnum):
     MARKET_RESEARCH = "market_research"
     TECHNICAL_RESEARCH = "technical_research"
 
 
 # 允许能力只有公开读取、受限模型和不可变保存；不能由输入扩展能力枚举。
-class HarnessCapability(StrEnum):
+class GovernanceCapability(StrEnum):
     READ_PUBLIC_MARKET = "read_public_market"
     READ_APPROVED_NEWS = "read_approved_news"
     CALL_RESEARCH_MODEL = "call_research_model"
@@ -28,11 +30,11 @@ class HarnessCapability(StrEnum):
 
 
 # 不可变手动请求携带关联标识、标的和 UTC 时间，不携带任意工具参数。
-class HarnessRunRequest(BaseModel):
+class GovernanceRunRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     run_id: UUID
-    kind: HarnessRunKind
+    kind: GovernanceRunKind
     symbol: ResearchSymbol
     requested_at: UtcDateTime
 
@@ -45,21 +47,21 @@ class HarnessRunRequest(BaseModel):
 
 
 # 将运行类别、标的准入模式与能力白名单冻结为可审计策略版本。
-class HarnessPolicy(BaseModel):
+class GovernancePolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: Annotated[str, Field(pattern=r"^[a-z0-9_]{1,64}$")]
-    run_kind: HarnessRunKind
+    run_kind: GovernanceRunKind
     allowed_symbols: tuple[ResearchSymbol, ...]
     symbol_admission: Literal["static", "research_directory"] = "static"
-    allowed_capabilities: tuple[HarnessCapability, ...]
+    allowed_capabilities: tuple[GovernanceCapability, ...]
 
     @field_validator("allowed_symbols", "allowed_capabilities")
     @classmethod
     def validate_nonempty_and_deduplicated(
         cls,
-        value: tuple[ResearchSymbol, ...] | tuple[HarnessCapability, ...],
-    ) -> tuple[ResearchSymbol, ...] | tuple[HarnessCapability, ...]:
+        value: tuple[ResearchSymbol, ...] | tuple[GovernanceCapability, ...],
+    ) -> tuple[ResearchSymbol, ...] | tuple[GovernanceCapability, ...]:
         if not value:
             raise ValueError("策略允许列表不能为空")
         if len(value) != len(set(value)):
@@ -68,13 +70,13 @@ class HarnessPolicy(BaseModel):
 
 
 # 工作流执行前的安全拒绝，由运行时记录白名单评估及拒绝事件。
-class HarnessPolicyViolation(RuntimeError):
+class GovernancePolicyViolation(RuntimeError):
     """Safe rejection raised before workflow invocation."""
 
 
 # 固定工作流必须声明类别和所需能力；运行时在调用前核对授权。
-class HarnessWorkflow[ResultT](Protocol):
-    kind: HarnessRunKind
-    required_capabilities: tuple[HarnessCapability, ...]
+class GovernedWorkflow[ResultT](Protocol):
+    kind: GovernanceRunKind
+    required_capabilities: tuple[GovernanceCapability, ...]
 
-    async def run(self, request: HarnessRunRequest) -> ResultT: ...
+    async def run(self, request: GovernanceRunRequest) -> ResultT: ...

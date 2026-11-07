@@ -22,12 +22,12 @@ from app.agent.service import (
     AgentResearchService,
     PersistedAgentMarketCapture,
 )
-from app.harness.market_research import (
-    HarnessedMarketResearchService,
+from app.governance.market_research import (
+    GovernedMarketResearchService,
     MarketResearchWorkflow,
 )
-from app.harness.policy import MARKET_RESEARCH_POLICY
-from app.harness.runtime import HarnessRuntime
+from app.governance.policy import MARKET_RESEARCH_POLICY
+from app.governance.runtime import GovernanceRuntime
 from app.infrastructure.persistence.harness_audit_repository import SqlAlchemyHarnessAuditRepository
 from app.infrastructure.persistence.models.agent_research import AgentAnalysisRunRecord
 from app.infrastructure.persistence.models.market import (
@@ -124,8 +124,8 @@ async def test_full_capture_freezes_partial_news_and_rereads_degraded_history(
                 clock=lambda: NOW,
             )
         )
-        harness = HarnessedMarketResearchService(
-            HarnessRuntime(
+        harness = GovernedMarketResearchService(
+            GovernanceRuntime(
                 policies=(MARKET_RESEARCH_POLICY,),
                 workflows=(MarketResearchWorkflow(service),),
                 audit_repository=SqlAlchemyHarnessAuditRepository(factory),

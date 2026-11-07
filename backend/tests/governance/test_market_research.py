@@ -1,4 +1,4 @@
-# 验证 Harness 包装服务向研究报告传递运行标识。
+# 验证治理包装服务向研究报告传递运行标识。
 # 记录型工作流与审计替身检查能力声明及委托调用。
 # 准入失败必须发生在研究服务执行之前。
 from __future__ import annotations
@@ -11,19 +11,19 @@ from uuid import UUID
 
 import pytest
 
-from app.harness.audit import (
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditRun,
     HarnessAuditTrace,
     HarnessEvaluation,
 )
-from app.harness.contracts import HarnessPolicyViolation
-from app.harness.market_research import (
-    HarnessedMarketResearchService,
+from app.governance.contracts import GovernancePolicyViolation
+from app.governance.market_research import (
+    GovernedMarketResearchService,
     MarketResearchWorkflow,
 )
-from app.harness.policy import MARKET_RESEARCH_POLICY
-from app.harness.runtime import HarnessRuntime
+from app.governance.policy import MARKET_RESEARCH_POLICY
+from app.governance.runtime import GovernanceRuntime
 from app.market.contracts import ContractSymbol
 from app.reports.contracts import PersistedAnalysisReport
 
@@ -64,7 +64,7 @@ class RecordingAuditRepository:
         return None
 
 
-# 记录委托标的与分析标识，返回最小报告替身以隔离 Harness 包装层。
+# 记录委托标的与分析标识，返回最小报告替身以隔离治理包装层。
 class RecordingAgentResearchService:
     def __init__(self) -> None:
         self.calls: list[tuple[ContractSymbol, UUID | None]] = []
@@ -79,13 +79,13 @@ class RecordingAgentResearchService:
         return cast(PersistedAnalysisReport, SimpleNamespace(analysis_id=analysis_id))
 
 
-def _service(delegate: RecordingAgentResearchService) -> HarnessedMarketResearchService:
-    runtime = HarnessRuntime(
+def _service(delegate: RecordingAgentResearchService) -> GovernedMarketResearchService:
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(MarketResearchWorkflow(delegate),),
         audit_repository=RecordingAuditRepository(),
     )
-    return HarnessedMarketResearchService(
+    return GovernedMarketResearchService(
         runtime,
         clock=lambda: NOW,
         new_run_id=lambda: RUN_ID,
@@ -116,18 +116,18 @@ async def test_policy_rejection_does_not_call_the_agent_delegate() -> None:
     rejected_policy = MARKET_RESEARCH_POLICY.model_copy(
         update={"allowed_symbols": (ContractSymbol.ETHUSDT,)}
     )
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(rejected_policy,),
         workflows=(MarketResearchWorkflow(delegate),),
         audit_repository=RecordingAuditRepository(),
     )
-    service = HarnessedMarketResearchService(
+    service = GovernedMarketResearchService(
         runtime,
         clock=lambda: NOW,
         new_run_id=lambda: RUN_ID,
     )
 
-    with pytest.raises(HarnessPolicyViolation, match="symbol_not_allowed"):
+    with pytest.raises(GovernancePolicyViolation, match="symbol_not_allowed"):
         await service.generate(ContractSymbol.BTCUSDT)
 
     # 零调用证明错误不是研究执行后才被报告，而是在委托前真正阻断。

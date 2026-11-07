@@ -9,8 +9,8 @@ from uuid import UUID
 import pytest
 import structlog
 
-import app.harness.runtime as harness_runtime_module
-from app.harness.audit import (
+import app.governance.runtime as governance_runtime_module
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditEventKind,
     HarnessAuditRun,
@@ -22,27 +22,27 @@ from app.harness.audit import (
     policy_sha256,
     request_sha256,
 )
-from app.harness.contracts import (
-    HarnessCapability,
-    HarnessPolicy,
-    HarnessPolicyViolation,
-    HarnessRunKind,
-    HarnessRunRequest,
+from app.governance.contracts import (
+    GovernanceCapability,
+    GovernancePolicy,
+    GovernancePolicyViolation,
+    GovernanceRunKind,
+    GovernanceRunRequest,
 )
-from app.harness.policy import MARKET_RESEARCH_POLICY
-from app.harness.runtime import HarnessRuntime
+from app.governance.policy import MARKET_RESEARCH_POLICY
+from app.governance.runtime import GovernanceRuntime
 from app.main import create_app
 from app.market.contracts import ContractSymbol
 
-REQUEST = HarnessRunRequest(
+REQUEST = GovernanceRunRequest(
     run_id=UUID("00000000-0000-0000-0000-000000000902"),
-    kind=HarnessRunKind.MARKET_RESEARCH,
+    kind=GovernanceRunKind.MARKET_RESEARCH,
     symbol=ContractSymbol.BTCUSDT,
     requested_at=datetime(2026, 8, 31, 12, tzinfo=UTC),
 )
 
 
-def _empty_calls() -> list[HarnessRunRequest]:
+def _empty_calls() -> list[GovernanceRunRequest]:
     return []
 
 
@@ -105,13 +105,13 @@ class RecordingAuditRepository:
 # 委托执行时读取已保存事件序号，直接观察审计是否先于工作流运行。
 @dataclass
 class RecordingWorkflow:
-    required_capabilities: tuple[HarnessCapability, ...]
+    required_capabilities: tuple[GovernanceCapability, ...]
     audit_repository: RecordingAuditRepository | None = None
-    calls: list[HarnessRunRequest] = field(default_factory=_empty_calls)
+    calls: list[GovernanceRunRequest] = field(default_factory=_empty_calls)
     event_sequences_at_call: list[int] = field(default_factory=_empty_sequences)
-    kind: HarnessRunKind = HarnessRunKind.MARKET_RESEARCH
+    kind: GovernanceRunKind = GovernanceRunKind.MARKET_RESEARCH
 
-    async def run(self, request: HarnessRunRequest) -> str:
+    async def run(self, request: GovernanceRunRequest) -> str:
         if self.audit_repository is not None:
             self.event_sequences_at_call = [
                 event.sequence for event in self.audit_repository.events
@@ -123,13 +123,15 @@ class RecordingWorkflow:
 # 记录调用后抛出带敏感正文的异常，区分原异常传播与安全失败事件内容。
 @dataclass
 class FailingWorkflow(RecordingWorkflow):
-    async def run(self, request: HarnessRunRequest) -> str:
+    async def run(self, request: GovernanceRunRequest) -> str:
         self.calls.append(request)
         raise RuntimeError("delegate exception message must not be logged")
 
 
 def _workflow(
-    required_capabilities: tuple[HarnessCapability, ...] = (HarnessCapability.READ_PUBLIC_MARKET,),
+    required_capabilities: tuple[GovernanceCapability, ...] = (
+        GovernanceCapability.READ_PUBLIC_MARKET,
+    ),
     audit_repository: RecordingAuditRepository | None = None,
 ) -> RecordingWorkflow:
     return RecordingWorkflow(
@@ -145,13 +147,13 @@ async def test_runtime_runs_registered_workflow(
 ) -> None:
     elapsed_ticks = iter((0.0, 1.0))
     monkeypatch.setattr(
-        harness_runtime_module,
+        governance_runtime_module,
         "perf_counter",
         lambda: next(elapsed_ticks, 1.0),
     )
     audit = RecordingAuditRepository()
     workflow = _workflow(audit_repository=audit)
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
@@ -190,24 +192,24 @@ async def test_runtime_rejects_unknown_capability_before_delegation(
 ) -> None:
     elapsed_ticks = iter((0.0, 1.0))
     monkeypatch.setattr(
-        harness_runtime_module,
+        governance_runtime_module,
         "perf_counter",
         lambda: next(elapsed_ticks, 1.0),
     )
     workflow = _workflow(
         (
-            HarnessCapability.READ_PUBLIC_MARKET,
-            cast(HarnessCapability, "private_account"),
+            GovernanceCapability.READ_PUBLIC_MARKET,
+            cast(GovernanceCapability, "private_account"),
         )
     )
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
     )
 
-    with pytest.raises(HarnessPolicyViolation, match="capability_not_allowed"):
+    with pytest.raises(GovernancePolicyViolation, match="capability_not_allowed"):
         await runtime.run(REQUEST)
 
     assert [event.kind for event in audit.events] == [
@@ -223,20 +225,20 @@ async def test_runtime_rejects_unknown_capability_before_delegation(
 @pytest.mark.asyncio
 async def test_runtime_rejects_symbol_omitted_by_policy_before_delegation() -> None:
     workflow = _workflow()
-    policy = HarnessPolicy(
+    policy = GovernancePolicy(
         version="restricted_test_v1",
-        run_kind=HarnessRunKind.MARKET_RESEARCH,
+        run_kind=GovernanceRunKind.MARKET_RESEARCH,
         allowed_symbols=(ContractSymbol.ETHUSDT,),
-        allowed_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,),
+        allowed_capabilities=(GovernanceCapability.READ_PUBLIC_MARKET,),
     )
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(policy,),
         workflows=(workflow,),
         audit_repository=audit,
     )
 
-    with pytest.raises(HarnessPolicyViolation, match="symbol_not_allowed"):
+    with pytest.raises(GovernancePolicyViolation, match="symbol_not_allowed"):
         await runtime.run(REQUEST)
 
     assert [event.kind for event in audit.events] == [
@@ -253,7 +255,7 @@ async def test_runtime_allows_a_ready_symbol_from_the_research_directory() -> No
     request = REQUEST.model_copy(update={"symbol": "SOLUSDT"})
     workflow = _workflow()
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
@@ -271,9 +273,9 @@ async def _is_ready_directory_symbol(symbol: str) -> bool:
 @pytest.mark.asyncio
 async def test_runtime_rejects_unregistered_kind() -> None:
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(policies=(), workflows=(), audit_repository=audit)
+    runtime = GovernanceRuntime(policies=(), workflows=(), audit_repository=audit)
 
-    with pytest.raises(HarnessPolicyViolation, match="run_kind_not_registered"):
+    with pytest.raises(GovernancePolicyViolation, match="run_kind_not_registered"):
         await runtime.run(REQUEST)
 
     assert audit.runs[0].policy_version == "unregistered"
@@ -290,14 +292,14 @@ def test_runtime_rejects_duplicate_policy_and_workflow_registration() -> None:
     audit = RecordingAuditRepository()
 
     with pytest.raises(ValueError, match="duplicate"):
-        HarnessRuntime(
+        GovernanceRuntime(
             policies=(MARKET_RESEARCH_POLICY, MARKET_RESEARCH_POLICY),
             workflows=(workflow,),
             audit_repository=audit,
         )
 
     with pytest.raises(ValueError, match="duplicate"):
-        HarnessRuntime(
+        GovernanceRuntime(
             policies=(MARKET_RESEARCH_POLICY,),
             workflows=(workflow, workflow),
             audit_repository=audit,
@@ -306,9 +308,9 @@ def test_runtime_rejects_duplicate_policy_and_workflow_registration() -> None:
 
 @pytest.mark.asyncio
 async def test_runtime_records_safe_workflow_failure_before_reraising() -> None:
-    workflow = FailingWorkflow(required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,))
+    workflow = FailingWorkflow(required_capabilities=(GovernanceCapability.READ_PUBLIC_MARKET,))
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
@@ -334,7 +336,7 @@ async def test_runtime_fails_closed_when_an_audit_write_fails(
 ) -> None:
     workflow = _workflow()
     audit = RecordingAuditRepository(fail_on=fail_on)
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
@@ -350,9 +352,9 @@ async def test_runtime_fails_closed_when_an_audit_write_fails(
 # 工作流已失败后再模拟终态审计失败，存储错误优先上抛且日志不泄露两个异常正文。
 @pytest.mark.asyncio
 async def test_runtime_audit_failure_while_recording_workflow_failure_takes_precedence() -> None:
-    workflow = FailingWorkflow(required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,))
+    workflow = FailingWorkflow(required_capabilities=(GovernanceCapability.READ_PUBLIC_MARKET,))
     audit = RecordingAuditRepository(fail_on="failed")
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
@@ -385,9 +387,9 @@ async def test_runtime_audit_failure_while_recording_workflow_failure_takes_prec
 
 @pytest.mark.asyncio
 async def test_runtime_logs_only_safe_lifecycle_fields() -> None:
-    workflow = FailingWorkflow(required_capabilities=(HarnessCapability.READ_PUBLIC_MARKET,))
+    workflow = FailingWorkflow(required_capabilities=(GovernanceCapability.READ_PUBLIC_MARKET,))
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,
@@ -419,7 +421,7 @@ async def test_runtime_logs_are_captured_after_application_logger_cache_is_warme
     create_app()
     workflow = _workflow()
     audit = RecordingAuditRepository()
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(MARKET_RESEARCH_POLICY,),
         workflows=(workflow,),
         audit_repository=audit,

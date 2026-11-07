@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from app.harness.audit import (
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditEventKind,
     HarnessAuditRun,
@@ -19,15 +19,15 @@ from app.harness.audit import (
     policy_sha256,
     request_sha256,
 )
-from app.harness.contracts import HarnessRunKind, HarnessRunRequest
-from app.harness.policy import MARKET_RESEARCH_POLICY
+from app.governance.contracts import GovernanceRunKind, GovernanceRunRequest
+from app.governance.policy import MARKET_RESEARCH_POLICY
 from app.market.contracts import ContractSymbol
 
 NOW = datetime(2026, 8, 31, 12, tzinfo=UTC)
 RUN_ID = UUID("00000000-0000-0000-0000-000000000901")
-REQUEST = HarnessRunRequest(
+REQUEST = GovernanceRunRequest(
     run_id=RUN_ID,
-    kind=HarnessRunKind.MARKET_RESEARCH,
+    kind=GovernanceRunKind.MARKET_RESEARCH,
     symbol=ContractSymbol.BTCUSDT,
     requested_at=NOW,
 )
@@ -38,7 +38,7 @@ EXPECTED_REQUEST_SHA256 = "5dfd2af46cd2be9bc0574b10e98280a07d82760f40b1eb49f53ed
 def _audit_run() -> HarnessAuditRun:
     return HarnessAuditRun(
         run_id=RUN_ID,
-        run_kind=HarnessRunKind.MARKET_RESEARCH,
+        run_kind=GovernanceRunKind.MARKET_RESEARCH,
         policy_version=MARKET_RESEARCH_POLICY.version,
         policy_sha256=policy_sha256(MARKET_RESEARCH_POLICY),
         symbol=ContractSymbol.BTCUSDT,
@@ -161,7 +161,7 @@ def test_degraded_terminal_preserves_optional_safe_reason(reason: str | None) ->
             HarnessAuditEventKind.WORKFLOW_STARTED,
             2,
             None,
-            HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+            HarnessEventDetails(workflow_kind=GovernanceRunKind.MARKET_RESEARCH),
         ),
         (HarnessAuditEventKind.WORKFLOW_COMPLETED, 3, None, HarnessEventDetails()),
         (HarnessAuditEventKind.WORKFLOW_DEGRADED, 3, None, HarnessEventDetails()),
@@ -255,19 +255,19 @@ def test_audit_events_accept_valid_lifecycle_positions(
             HarnessAuditEventKind.WORKFLOW_STARTED,
             0,
             None,
-            HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+            HarnessEventDetails(workflow_kind=GovernanceRunKind.MARKET_RESEARCH),
         ),
         (
             HarnessAuditEventKind.WORKFLOW_STARTED,
             1,
             None,
-            HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+            HarnessEventDetails(workflow_kind=GovernanceRunKind.MARKET_RESEARCH),
         ),
         (
             HarnessAuditEventKind.WORKFLOW_STARTED,
             3,
             None,
-            HarnessEventDetails(workflow_kind=HarnessRunKind.MARKET_RESEARCH),
+            HarnessEventDetails(workflow_kind=GovernanceRunKind.MARKET_RESEARCH),
         ),
         (HarnessAuditEventKind.WORKFLOW_COMPLETED, 0, None, HarnessEventDetails()),
         (HarnessAuditEventKind.WORKFLOW_COMPLETED, 1, None, HarnessEventDetails()),

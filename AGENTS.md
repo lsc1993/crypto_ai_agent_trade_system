@@ -9,7 +9,7 @@
 ## 开始任务前
 
 - 修改后端前读取 [backend/AGENTS.md](backend/AGENTS.md)，修改前端前读取 [frontend/AGENTS.md](frontend/AGENTS.md)；跨端任务读取两者。
-- 涉及 Agent、模型、报告或 Harness 时，读取 [AI 维护指南](docs/ai-maintenance.md)与[运行边界](docs/operational-boundaries.md)。
+- 涉及 Agent、模型、报告、Harness 或治理内核时，读取 [AI 维护指南](docs/ai-maintenance.md)与[运行边界](docs/operational-boundaries.md)。
 - 检查当前分支和工作区差异，保留已有未提交改动；不要把其他任务的改动纳入提交。
 - 根据当前代码、契约和验证结果核对历史设计；发现差异应记录，不能仅凭旧计划扩展能力或宣称验收完成。
 
@@ -29,12 +29,14 @@
 | 路径 | 职责与边界 |
 | --- | --- |
 | `agent/`、`reports/` | 固定研究图、冻结证据、模型输出校验及报告；研究 Agent 只能输出研究结果，不能生成或执行交易请求 |
-| `harness/` | 研究运行的策略准入、生命周期和审计；不能成为任意工具路由或调用风控、模拟订单、真实执行 |
+| `governance/` | 系统级 Harness 的治理内核：研究运行的策略准入、生命周期和审计；不能成为任意工具路由，也不持有持久化实现或调用风控、模拟订单、真实执行 |
 | `market/`、`news/`、`symbols/` | 受治理公开源、研究币种准入与初始同步；动态 `ResearchSymbol` 不扩展交易契约的 `ContractSymbol` |
 | `research/backtests/`、`strategy/` | 确定性回测与策略；策略生成 `TradeIntent`，不得包含实盘密钥或真实下单实现 |
 | `risk/`、`execution/`、`paper_trading/` | 确定性风控、模拟成交与模拟账户；当前 `execution/` 是模拟器，不代表已接入真实交易所执行 |
 | `infrastructure/persistence/` | 数据库模型、仓储及不可变报告和审计记录；迁移位于 `backend/alembic/` |
 | `api/`、`shared/`、`dashboard/`、`trades/` | HTTP 契约、配置、日志、看板与交易日志/复盘 |
+
+`governance/` 是系统级 Harness 的准入与审计内核，不等于全部 Harness 能力。`HarnessAudit*` 存储类型以及既有 `harness_*` 表、审计事件值和日志名保留，以兼容历史记录；代码导入不得再使用 `app.harness`。当前仍是固定研究图，受控模型工具循环的放行属于后续实现批次。
 
 前端位于 `frontend/src/`，页面通过 `WorkbenchApi` 使用 Mock/HTTP/Hybrid 适配器。部署入口是根目录 `compose.yaml`，前后端构建入口分别位于 `backend/Dockerfile` 与 `frontend/Dockerfile`。
 

@@ -1,4 +1,4 @@
-# 用标准库 AST 检查研究、Harness 和风控的直接依赖边界，不导入待检模块。
+# 用标准库 AST 检查研究、治理内核和风控的直接依赖边界，不导入待检模块。
 # 规则覆盖静态导入及可识别的动态导入；计算出的模块名会拒绝，但这不是任意
 # Python 运行期安全证明：反射、间接包装器、重导出和依赖传递仍需审查与运行测试。
 # 报告只包含安全相对路径、行号、固定规则码和计数，不记录源码、模块参数或异常文本。
@@ -15,22 +15,22 @@ from importlib.util import resolve_name
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-SCOPES = ("agent", "harness", "risk")
+SCOPES = ("agent", "governance", "risk")
 REQUIRED_FILES = (
     "src/app/agent/__init__.py",
     "src/app/agent/service.py",
     "src/app/agent/graph.py",
     "src/app/agent/technical/plan_service.py",
-    "src/app/harness/__init__.py",
-    "src/app/harness/runtime.py",
-    "src/app/harness/audit.py",
+    "src/app/governance/__init__.py",
+    "src/app/governance/runtime.py",
+    "src/app/governance/audit.py",
     "src/app/risk/__init__.py",
     "src/app/risk/engine.py",
 )
 TRADE_MODULES = ("app.execution", "app.risk", "app.strategy", "app.paper_trading")
 RULES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "agent": (("ARCH001", TRADE_MODULES),),
-    "harness": (
+    "governance": (
         ("ARCH002", TRADE_MODULES),
         (
             "ARCH003",

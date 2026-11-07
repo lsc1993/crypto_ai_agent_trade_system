@@ -15,9 +15,9 @@ REQUIRED_FILES = (
     "src/app/agent/service.py",
     "src/app/agent/graph.py",
     "src/app/agent/technical/plan_service.py",
-    "src/app/harness/__init__.py",
-    "src/app/harness/runtime.py",
-    "src/app/harness/audit.py",
+    "src/app/governance/__init__.py",
+    "src/app/governance/runtime.py",
+    "src/app/governance/audit.py",
     "src/app/risk/__init__.py",
     "src/app/risk/engine.py",
 )
@@ -75,15 +75,15 @@ def test_gate_cli_checks_real_repository_and_writes_report(tmp_path: Path) -> No
         ("agent/technical/__init__.py", "from ... import risk", "ARCH001"),
         ("agent/probe.py", "if True:\n    import app.execution", "ARCH001"),
         ("agent/probe.py", "import json, app.execution.engine", "ARCH001"),
-        ("harness/probe.py", "from app import strategy", "ARCH002"),
-        ("harness/probe.py", "from ..paper_trading import engine", "ARCH002"),
-        ("harness/probe.py", "from urllib import request", "ARCH003"),
-        ("harness/probe.py", "import httpx as transport", "ARCH003"),
-        ("harness/probe.py", "from requests.sessions import Session", "ARCH003"),
-        ("harness/probe.py", "from app.infrastructure import persistence", "ARCH004"),
-        ("harness/probe.py", "from sqlalchemy import create_engine", "ARCH004"),
-        ("harness/probe.py", "from os import system as run\nrun('unused')", "ARCH003"),
-        ("harness/probe.py", "import os as runtime\nruntime.system('unused')", "ARCH003"),
+        ("governance/probe.py", "from app import strategy", "ARCH002"),
+        ("governance/probe.py", "from ..paper_trading import engine", "ARCH002"),
+        ("governance/probe.py", "from urllib import request", "ARCH003"),
+        ("governance/probe.py", "import httpx as transport", "ARCH003"),
+        ("governance/probe.py", "from requests.sessions import Session", "ARCH003"),
+        ("governance/probe.py", "from app.infrastructure import persistence", "ARCH004"),
+        ("governance/probe.py", "from sqlalchemy import create_engine", "ARCH004"),
+        ("governance/probe.py", "from os import system as run\nrun('unused')", "ARCH003"),
+        ("governance/probe.py", "import os as runtime\nruntime.system('unused')", "ARCH003"),
         ("risk/probe.py", "from app.agent.model import ResearchModel", "ARCH005"),
         ("risk/probe.py", "from app import agent", "ARCH005"),
         ("risk/probe.py", "from openai import OpenAI", "ARCH005"),
@@ -171,11 +171,42 @@ def test_comments_strings_and_legitimate_contracts_do_not_trigger_gate(source_tr
     (source_tree / "src/app/risk/engine.py").write_text(
         "from app.strategy.contracts import TradeIntent\n", encoding="utf-8"
     )
-    (source_tree / "src/app/harness/runtime.py").write_text(
+    (source_tree / "src/app/governance/runtime.py").write_text(
         "from app.agent.technical.worker import TechnicalPlanRunExecutor\n",
         encoding="utf-8",
     )
     assert _run(source_tree, source_tree / "report.json").returncode == 0
+
+
+def test_governance_gate_rejects_trade_io_and_empty_scan(source_tree: Path, tmp_path: Path) -> None:
+    # 迁移后门禁必须继续覆盖治理内核的三类直接依赖，不能因新包名而漏扫。
+    (source_tree / "src/app/governance/trade_probe.py").write_text(
+        "import app.execution.engine\n", encoding="utf-8"
+    )
+    (source_tree / "src/app/governance/http_probe.py").write_text(
+        "import httpx\n", encoding="utf-8"
+    )
+    (source_tree / "src/app/governance/sql_probe.py").write_text(
+        "from sqlalchemy import create_engine\n", encoding="utf-8"
+    )
+    output = source_tree / "report.json"
+    result = _run(source_tree, output)
+    report = json.loads(output.read_text(encoding="utf-8"))
+
+    assert result.returncode == 1
+    assert report["status"] == "failed"
+    assert {"ARCH002", "ARCH003", "ARCH004"} <= {item["rule"] for item in report["findings"]}
+
+    # 空树没有任何可扫描的治理文件，必须产生不完整扫描失败而不是零发现通过。
+    empty_tree = tmp_path / "empty"
+    empty_tree.mkdir()
+    empty_output = empty_tree / "report.json"
+    empty_result = _run(empty_tree, empty_output)
+    empty_report = json.loads(empty_output.read_text(encoding="utf-8"))
+
+    assert empty_result.returncode == 1
+    assert empty_report["status"] == "failed"
+    assert any(item["rule"] == "ARCH100" for item in empty_report["findings"])
 
 
 @pytest.mark.parametrize("failure", ["empty", "missing", "syntax", "encoding", "unsafe_path"])
@@ -187,7 +218,7 @@ def test_incomplete_scan_fails_with_only_safe_diagnostics(
         source_tree = tmp_path / "empty"
         source_tree.mkdir()
     elif failure == "missing":
-        (source_tree / "src/app/harness/audit.py").unlink()
+        (source_tree / "src/app/governance/audit.py").unlink()
     elif failure == "syntax":
         (source_tree / "src/app/agent/service.py").write_text(
             "SECRET_SENTINEL = (\n", encoding="utf-8"

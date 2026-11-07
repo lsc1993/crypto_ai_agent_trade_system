@@ -31,16 +31,16 @@ from app.api.router import API_NAME
 from app.api.router import router as api_router
 from app.api.routes.health import router as health_router
 from app.dashboard.service import DashboardService
-from app.harness.market_research import (
-    HarnessedMarketResearchService,
+from app.governance.market_research import (
+    GovernedMarketResearchService,
     MarketResearchWorkflow,
 )
-from app.harness.policy import MARKET_RESEARCH_POLICY
-from app.harness.runtime import HarnessRuntime
-from app.harness.technical_research import (
+from app.governance.policy import MARKET_RESEARCH_POLICY
+from app.governance.runtime import GovernanceRuntime
+from app.governance.technical_research import (
     TECHNICAL_RESEARCH_POLICY,
-    HarnessedTechnicalPlanExecutor,
-    HarnessedTechnicalResearchService,
+    GovernedTechnicalPlanExecutor,
+    GovernedTechnicalResearchService,
     TechnicalReportGenerator,
     TechnicalResearchWorkflow,
     UnavailableTechnicalResearchService,
@@ -663,7 +663,7 @@ def create_app(
                 ),
                 checkpointer=checkpointer,
             )
-            runtime = HarnessRuntime[PersistedAnalysisReport](
+            runtime = GovernanceRuntime[PersistedAnalysisReport](
                 policies=(MARKET_RESEARCH_POLICY,),
                 workflows=(MarketResearchWorkflow(agent_service),),
                 audit_repository=harness_audit_repository,
@@ -672,7 +672,7 @@ def create_app(
                     symbol,
                 ),
             )
-            return HarnessedMarketResearchService(
+            return GovernedMarketResearchService(
                 runtime,
                 clock=lambda: datetime.now(UTC),
             )
@@ -698,7 +698,7 @@ def create_app(
                 ),
                 clock=lambda: datetime.now(UTC),
             )
-            technical_runtime = HarnessRuntime[TechnicalReport](
+            technical_runtime = GovernanceRuntime[TechnicalReport](
                 policies=(TECHNICAL_RESEARCH_POLICY,),
                 workflows=(TechnicalResearchWorkflow(technical_service),),
                 audit_repository=SqlAlchemyHarnessAuditRepository(session_factory),
@@ -706,7 +706,7 @@ def create_app(
                     symbol_repository, symbol
                 ),
             )
-            technical_research_service = HarnessedTechnicalResearchService(
+            technical_research_service = GovernedTechnicalResearchService(
                 technical_runtime,
                 clock=lambda: datetime.now(UTC),
             )
@@ -731,7 +731,7 @@ def create_app(
             clock=lambda: datetime.now(UTC),
             timeout_seconds=settings.technical_run_timeout_seconds,
         )
-        executor = HarnessedTechnicalPlanExecutor(
+        executor = GovernedTechnicalPlanExecutor(
             plan_service,
             audit=SqlAlchemyHarnessAuditRepository(session_factory),
             authorizer=lambda symbol: _is_research_ready_symbol(symbol_repository, symbol),
@@ -878,7 +878,7 @@ async def _is_enabled_research_symbol(
     return entry is not None and entry.enabled
 
 
-# 只有目录项存在、启用且 can_research 为真才授权研究，供 Harness 的注入门禁调用。
+# 只有目录项存在、启用且 can_research 为真才授权研究，供治理内核的注入门禁调用。
 async def _is_research_ready_symbol(
     repository: SymbolRepository,
     symbol: ResearchSymbol,

@@ -1,4 +1,4 @@
-# 验证 Harness 和币种准入异常转换为统一安全错误信封。
+# 验证治理策略和币种准入异常转换为统一安全错误信封。
 # 策略拒绝与审计存储故障使用不同状态和错误码。
 # 准入检查保留可操作的白名单详情，而不转发上游异常原文。
 import pytest
@@ -6,8 +6,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.api.errors import install_exception_handlers
-from app.harness.audit import HarnessAuditStorageUnavailableError
-from app.harness.contracts import HarnessPolicyViolation
+from app.governance.audit import HarnessAuditStorageUnavailableError
+from app.governance.contracts import GovernancePolicyViolation
 from app.symbols.contracts import SymbolError
 
 
@@ -17,7 +17,7 @@ async def test_harness_policy_violation_uses_safe_rejection_envelope() -> None:
     install_exception_handlers(app)
 
     async def reject() -> None:
-        raise HarnessPolicyViolation("symbol_not_allowed")
+        raise GovernancePolicyViolation("symbol_not_allowed")
 
     app.add_api_route("/reject", reject, methods=["GET"])
     transport = ASGITransport(app=app, raise_app_exceptions=False)

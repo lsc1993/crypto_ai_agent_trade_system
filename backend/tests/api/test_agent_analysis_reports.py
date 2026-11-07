@@ -14,18 +14,18 @@ import pytest
 from fastapi import FastAPI
 from pydantic import JsonValue
 
-from app.harness.audit import (
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditRun,
     HarnessAuditTrace,
     HarnessEvaluation,
 )
-from app.harness.market_research import (
-    HarnessedMarketResearchService,
+from app.governance.market_research import (
+    GovernedMarketResearchService,
     MarketResearchWorkflow,
 )
-from app.harness.policy import MARKET_RESEARCH_POLICY
-from app.harness.runtime import HarnessRuntime
+from app.governance.policy import MARKET_RESEARCH_POLICY
+from app.governance.runtime import GovernanceRuntime
 from app.main import create_app
 from app.market.contracts import Candle, ContractSymbol, FreshnessStatus, MarketTimeframe
 from app.market.research import PersistedMarketReader, PersistedMarketSnapshot
@@ -150,8 +150,8 @@ async def test_analysis_post_retry_and_detail_preserve_the_http_contract() -> No
     delegate = FakeAgentService(report)
     audit = RecordingAuditRepository()
     run_ids = iter((ANALYSIS_ID, RETRY_ANALYSIS_ID))
-    service = HarnessedMarketResearchService(
-        HarnessRuntime[PersistedAnalysisReport](
+    service = GovernedMarketResearchService(
+        GovernanceRuntime[PersistedAnalysisReport](
             policies=(MARKET_RESEARCH_POLICY,),
             workflows=(MarketResearchWorkflow(delegate),),
             audit_repository=audit,

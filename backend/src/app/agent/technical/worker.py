@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from app.harness.contracts import HarnessPolicyViolation
+from app.governance.contracts import GovernancePolicyViolation
 from app.market.symbols import ResearchSymbol
 from app.reports.contracts import ReportStorageUnavailableError
 from app.reports.technical_plan import TechnicalPlanReport
@@ -100,7 +100,7 @@ class TechnicalResearchWorker:
             pulse.cancel()
             code = (
                 "symbol_not_admitted"
-                if isinstance(error, HarnessPolicyViolation)
+                if isinstance(error, GovernancePolicyViolation)
                 else (
                     "storage_unavailable"
                     if isinstance(error, (TechnicalRunError, ReportStorageUnavailableError))

@@ -10,10 +10,10 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.technical.service import TechnicalResearchService
-from app.harness.runtime import HarnessRuntime
-from app.harness.technical_research import (
+from app.governance.runtime import GovernanceRuntime
+from app.governance.technical_research import (
     TECHNICAL_RESEARCH_POLICY,
-    HarnessedTechnicalResearchService,
+    GovernedTechnicalResearchService,
     TechnicalResearchWorkflow,
 )
 from app.infrastructure.persistence.harness_audit_repository import SqlAlchemyHarnessAuditRepository
@@ -38,12 +38,12 @@ async def test_persists_frozen_report_and_atomic_terminal_audit(
     service = TechnicalResearchService(
         market=Market(), repository=repository, model=Model(), clock=technical_clock
     )
-    runtime = HarnessRuntime(
+    runtime = GovernanceRuntime(
         policies=(TECHNICAL_RESEARCH_POLICY,),
         workflows=(TechnicalResearchWorkflow(service),),
         audit_repository=audit,
     )
-    report = await HarnessedTechnicalResearchService(runtime, clock=technical_clock).generate(
+    report = await GovernedTechnicalResearchService(runtime, clock=technical_clock).generate(
         "BTCUSDT"
     )
     assert await repository.get(report.id) == report

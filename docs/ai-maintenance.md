@@ -2,18 +2,20 @@
 
 本指南描述当前项目实现，配合[根目录规则](../AGENTS.md)、[后端约定](../backend/AGENTS.md)与[运行边界](operational-boundaries.md)使用。能力进展和未完成项见[项目状态](project-status.md)。
 
+文中的“Harness”指系统级运行支撑与治理能力；其策略准入和审计内核现位于 `backend/src/app/governance/`。`HarnessAudit*` 存储类型、既有 `harness_*` 表/审计事件值和日志名保留，用于读取历史记录；旧 `app/harness/` 包不再存在。
+
 ## 执行路径与修改入口
 
 当前技术页面使用 [v2 交易计划书](technical-trading-plan.md)及专用后台 worker。`plan_model.py` 分开思考分析与非思考编排，`references.py` 校验引用，数字由程序按字段渲染。原始 reasoning_content 不保存或转发。下段定性投影描述保留的 v1 同步路径，综合研究不变。迁移为 0018，迁移与部署需按运行环境核验；个别真实模型成功样本不构成长期质量基准。
 
-本节及后续重试、压缩说明描述原有综合研究。独立技术研究位于 `agent/technical/`，路径为公开行情采集 → 确定性事实与条件计划 → 受限定性模型解释 → 不可变保存，通过单独的 Harness 策略运行。它不使用综合报告的新闻图或正文压缩；技术模型显式关闭思考模式，仅接收冻结分析的定性投影与已审查方法，完整数值分析仍由确定性代码计算、保存及展示。格式校验失败最多尝试三次，纠正仅使用相同投影和白名单字段路径/错误类别，超时与上游错误直接降级。2026-10-09 经用户确认，正常定性中文不因包含中文数字字符被直接拒绝，但具体数值、数量、交易语言及引用继续校验；不替换原文。安全诊断日志为 `technical_model_response_rejected`，不记录模型原文；接口、方法指纹、迁移及测试入口见 [Skill 技术研究报告](technical-reports.md)。
+本节及后续重试、压缩说明描述原有综合研究。独立技术研究位于 `agent/technical/`，路径为公开行情采集 → 确定性事实与条件计划 → 受限定性模型解释 → 不可变保存，通过单独的治理策略运行。它不使用综合报告的新闻图或正文压缩；技术模型显式关闭思考模式，仅接收冻结分析的定性投影与已审查方法，完整数值分析仍由确定性代码计算、保存及展示。格式校验失败最多尝试三次，纠正仅使用相同投影和白名单字段路径/错误类别，超时与上游错误直接降级。2026-10-09 经用户确认，正常定性中文不因包含中文数字字符被直接拒绝，但具体数值、数量、交易语言及引用继续校验；不替换原文。安全诊断日志为 `technical_model_response_rejected`，不记录模型原文；接口、方法指纹、迁移及测试入口见 [Skill 技术研究报告](technical-reports.md)。
 
-研究请求经 API 与 Harness 准入后进入固定 LangGraph：采集市场 → 采集新闻 → 计算确定性市场结构 → 证据门 → 模型生成并校验保存，或保存降级报告。模型无权选择工具或改变图路径；该链路不调用策略、风控放行或模拟/真实下单。
+研究请求经 API 与治理内核准入后进入固定 LangGraph：采集市场 → 采集新闻 → 计算确定性市场结构 → 证据门 → 模型生成并校验保存，或保存降级报告。模型无权选择工具或改变图路径；该链路不调用策略、风控放行或模拟/真实下单。
 
 | 关注点 | 入口 |
 | --- | --- |
 | 服务装配、资源和 checkpoint 生命周期 | [main.py](../backend/src/app/main.py) |
-| Harness 策略、运行和审计契约 | [policy.py](../backend/src/app/harness/policy.py)、[runtime.py](../backend/src/app/harness/runtime.py)、[audit.py](../backend/src/app/harness/audit.py) |
+| 治理策略、运行和审计契约 | [policy.py](../backend/src/app/governance/policy.py)、[runtime.py](../backend/src/app/governance/runtime.py)、[audit.py](../backend/src/app/governance/audit.py) |
 | 图节点、研究编排与冻结证据 | [graph.py](../backend/src/app/agent/graph.py)、[service.py](../backend/src/app/agent/service.py)、[evidence.py](../backend/src/app/agent/evidence.py) |
 | Prompt、模型请求、校验、重试与压缩 | [prompt.py](../backend/src/app/agent/prompt.py)、[model.py](../backend/src/app/agent/model.py) |
 | 市场结构与专题事实 | [market_structure.py](../backend/src/app/agent/market_structure.py)、[factor_collection.py](../backend/src/app/agent/factor_collection.py)、[factors.py](../backend/src/app/agent/factors.py) |
@@ -22,7 +24,7 @@
 
 ## AI Agent 生成与维护代码的注释要求
 
-生成或修改后端代码时，遵循[后端注释规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)：用详细中文注释解释模块职责、契约、关键流程与设计原因，并随代码变更同步维护。研究和 Harness 尤其要说明冻结输入、确定性验证、有限重试、降级、安全日志和交易隔离的实际边界；不要把规划写成当前能力，也不要将实现说明插入模型 Prompt、冻结方法或证据载荷。测试与迁移同样需要场景、断言意图和兼容性说明。
+生成或修改后端代码时，遵循[后端注释规范](../backend/AGENTS.md#代码注释与-ai-agent-生成原则)：用详细中文注释解释模块职责、契约、关键流程与设计原因，并随代码变更同步维护。研究和治理内核/Harness 尤其要说明冻结输入、确定性验证、有限重试、降级、安全日志和交易隔离的实际边界；不要把规划写成当前能力，也不要将实现说明插入模型 Prompt、冻结方法或证据载荷。测试与迁移同样需要场景、断言意图和兼容性说明。
 
 ## 必须保持的约束
 
@@ -30,7 +32,7 @@
 - RSS 标题、摘要和其他外部文本均为不可信数据。保留新闻内容边界与转义，不能把其中的指令升级为系统指令。
 - 缺失、失败、未披露、零值、历史快照是不同含义。来源故障不得用旧值冒充本次输入；ETF 日期、暂定值与回填限制见[专题说明](report-factors.md)。
 - 研究目录准入不授权交易。新增币种不得扩大静态交易契约；新增来源也不得增加模型工具或私有账户权限。
-- 报告、证据及 Harness 审计保持可关联与不可变。持久化变更需说明迁移、旧报告读取及失败处理，不修改已保存的模型结果来伪造成功。
+- 报告、证据及治理审计保持可关联与不可变。持久化变更需说明迁移、旧报告读取及失败处理，不修改已保存的模型结果来伪造成功。
 
 ## 模型修改与诊断
 
@@ -61,7 +63,7 @@
 现有测试与样本是起点，无需为日常验证调用真实付费模型。以下命令在 `backend/` 执行，不包含依赖 PostgreSQL 的持久化验收：
 
 ```powershell
-uv run pytest tests/agent tests/harness tests/security
+uv run pytest tests/agent tests/governance tests/security
 ```
 
 | 场景 | 当前主要验证入口 |
@@ -70,7 +72,7 @@ uv run pytest tests/agent tests/harness tests/security
 | 缺失密钥、无效 JSON、超时、有限重试与安全日志 | `tests/agent/test_model.py`、`tests/agent/test_service.py` |
 | 伪造证据 ID、错误专题引用、新闻边界和交易操作语言 | `tests/agent/test_model.py`、`tests/agent/test_factors.py`、`tests/security/` |
 | 超长/不足正文、压缩不截断数值 | `tests/agent/test_model.py` |
-| 准入拒绝、Harness 生命周期及审计关联 | `tests/harness/`，数据库部分另见 `tests/persistence/test_harness_audit_repository.py` |
+| 准入拒绝、治理生命周期及审计关联 | `tests/governance/`，数据库部分另见 `tests/persistence/test_harness_audit_repository.py` |
 | 报告保存、旧报告兼容和诊断展示 | `tests/persistence/test_agent_research_repository.py`、`tests/api/test_agent_analysis_reports.py`，以及前端报告测试 |
 
 修改数据源或专题时还需运行相应 `tests/market/`、`tests/news/`、`tests/symbols/`。新增 schema 或报告字段需要专用测试数据库与前后端联验；聚焦测试不替代这些检查。
@@ -79,7 +81,7 @@ uv run pytest tests/agent tests/harness tests/security
 
 该评估不需要真实密钥、网络或数据库，不证明真实模型质量、抗注入能力或数值事实准确性，也不单独覆盖完整研究图的证据不足门控与降级持久化。上述图/持久化回归继续使用现有服务及仓储测试；真实模型质量基准仍待补充，不能把替身评估通过等同于模型质量已获验证。统一命令、证据与 CI 见[质量验证](quality-verification.md)。
 
-第二阶段另有[研究服务流程评估](../backend/evaluation/flows/README.md)：通过实际综合研究服务、技术 v2 两阶段适配器及证据门控，验证不足时不调模型、成功或降级后按合同保存和重读。其内存仓储证明范围与[真实数据库历史回归](../backend/tests/persistence/test_research_flow_evaluation_history.py)分开；后者使用受限测试库、实际 Harness 审计与新仓储读取技术 v2 降级报告。两类评估均不代表真实模型质量或数值事实准确性。
+第二阶段另有[研究服务流程评估](../backend/evaluation/flows/README.md)：通过实际综合研究服务、技术 v2 两阶段适配器及证据门控，验证不足时不调模型、成功或降级后按合同保存和重读。其内存仓储证明范围与[真实数据库历史回归](../backend/tests/persistence/test_research_flow_evaluation_history.py)分开；后者使用受限测试库、实际治理审计与新仓储读取技术 v2 降级报告。两类评估均不代表真实模型质量或数值事实准确性。
 
 当前传输协议为 `structured-v1`，不改变持久化与HTTP报告契约。数组最多十六项，同段最多五条；target只允许带evidence_ids的叶子段落，thesis不接受fact_refs。重复引用与单段超额分别诊断；重复、越界、非规范索引、未知/跨证据绑定与旧内联token均拒绝，一个段落可列多个evidence_id，输入提供多证据与叶子目标示例。压缩先为已选事实尾部预留预算，只裁剪定性完整句；无法容纳则按原长度门禁拒绝，不能静默删掉事实。缺少数组的纯定性提案兼容为空；历史报告不重新校验。方案见[独立引用协议](superpowers/plans/2026-11-03-structured-fact-refs.md)。
 

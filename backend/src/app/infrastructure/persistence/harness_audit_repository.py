@@ -1,6 +1,7 @@
 # 追加和读取 Harness 运行、策略评估及有序审计事件。
 # 请求与初始事件、评估与对应事件分别在同一事务保存，再按 sequence 重建轨迹。
-# SQLAlchemy 错误转换为安全存储异常；仓储不执行工作流或给研究增加工具权限。
+# 仓储文件名、HarnessAudit* 记录和表名保持历史持久化契约；领域包路径已迁移到
+# app.governance。SQLAlchemy 错误转换为安全存储异常，仓储不执行工作流或扩大工具权限。
 from __future__ import annotations
 
 from typing import Literal, cast
@@ -10,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.harness.audit import (
+from app.governance.audit import (
     HarnessAuditEvent,
     HarnessAuditEventKind,
     HarnessAuditRepository,
@@ -23,7 +24,7 @@ from app.harness.audit import (
     HarnessEventDetails,
     HarnessInitiatorKind,
 )
-from app.harness.contracts import HarnessRunKind
+from app.governance.contracts import GovernanceRunKind
 from app.infrastructure.persistence.models.harness import (
     HarnessAuditEventRecord,
     HarnessAuditRunRecord,
@@ -33,7 +34,7 @@ from app.infrastructure.persistence.models.harness import (
 
 # SqlAlchemyHarnessAuditRepository 将已校验领域契约连接到异步会话；数据库操作范围由各方法决定。
 class SqlAlchemyHarnessAuditRepository(HarnessAuditRepository):
-    """Append and read immutable Harness audit traces in PostgreSQL."""
+    """Append and read immutable governance audit traces in PostgreSQL."""
 
     # 仅保存注入的会话工厂供后续操作使用；构造实例时不连接数据库或开启事务。
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -156,7 +157,7 @@ def _evaluation_record(evaluation: HarnessEvaluation) -> HarnessEvaluationRecord
 def _to_run(record: HarnessAuditRunRecord) -> HarnessAuditRun:
     return HarnessAuditRun(
         run_id=record.run_id,
-        run_kind=HarnessRunKind(record.run_kind),
+        run_kind=GovernanceRunKind(record.run_kind),
         policy_version=record.policy_version,
         policy_sha256=record.policy_sha256,
         symbol=record.symbol,
