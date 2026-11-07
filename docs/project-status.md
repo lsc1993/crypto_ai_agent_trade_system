@@ -50,7 +50,7 @@
 
 ## 本次整理的行为
 
-2026-11-07 T00 治理内核命名迁移：后端 `app/harness/` 迁至 `app/governance/`，`HarnessRuntime`/`HarnessPolicy`/`HarnessCapability`/`HarnessRunKind`/`HarnessRunRequest`/`HarnessPolicyViolation`/`HarnessWorkflow` 及两个 `Harnessed*` 服务分别改为 `Governance*`/`Governed*` 命名；测试迁至 `tests/governance/`，导入、装配、AST 安全门禁与当前规范同步更新。`HarnessAudit*` 存储类型、表/审计事件值、`harness_*` 错误码和日志名保持不变，以兼容历史记录。聚焦验证与独立架构门禁已通过，测试数据库/全量 `full` 受本机环境限制的情况在审查材料中如实记录；正式模块审查尚未进行，开发状态为“待原审查助手审查”。
+2026-11-07 T00 治理内核命名迁移：后端 `app/harness/` 迁至 `app/governance/`，`HarnessRuntime`/`HarnessPolicy`/`HarnessCapability`/`HarnessRunKind`/`HarnessRunRequest`/`HarnessPolicyViolation`/`HarnessWorkflow` 及两个 `Harnessed*` 服务分别改为 `Governance*`/`Governed*` 命名；测试迁至 `tests/governance/`，导入、装配、AST 安全门禁与当前规范同步更新。`HarnessAudit*` 存储类型、表/审计事件值、`harness_*` 错误码、日志事件名及拒绝日志 `error_type` 保持历史值，以兼容既有观测与审计读取。复审阶段已在专用测试库通过 full（后端 1017 passed），并完成旧报告/审计读取 SQL 回归 34 passed；开发状态保持 `implemented`，等待原审查助手复审，不自行标记 `verified`。
 
 2026-11-04 报告 `4a89ab15-867e-4c92-8531-697f2d8fca46` 降级诊断与长度压缩修复：三次尝试分别为 `trading_instruction`（3 个驱动/专题字段）和两次 `narrative_length`（3433、2993 字符）；模型在重试后已避开交易措辞，但正文超长未被压缩器救回。修复包括：`headline` 进入压缩候选；压缩到不超过 2500 即接受，不再因未达到 2200 目标而回退原文；极长句无句号时允许退到完整分句；仍超长时按整条程序事实省略并写入限制；Prompt 与重试明确全文不超过 2500、headline/heading 不超过 30 字，并提示描述情绪时也不要用“做多/做空”。新增标题压缩、分句回退、事实按长度省略与交易措辞重试回归；未调用真实模型，运行中容器仍是旧镜像，需重建后再生成本地报告。
 
