@@ -287,6 +287,21 @@ async def test_runtime_rejects_unregistered_kind() -> None:
     assert audit.evaluations[0].reason_code == "run_kind_not_registered"
 
 
+@pytest.mark.asyncio
+async def test_rejection_log_keeps_historical_harness_error_type() -> None:
+    # 事件名和 error_type 属于观测协议；Python 异常类改名不能改变既有筛选值。
+    audit = RecordingAuditRepository()
+    runtime = GovernanceRuntime(policies=(), workflows=(), audit_repository=audit)
+
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(GovernancePolicyViolation, match="run_kind_not_registered"):
+            await runtime.run(REQUEST)
+
+    rejected = next(entry for entry in logs if entry["event"] == "harness_run_rejected")
+    assert rejected["error_type"] == "HarnessPolicyViolation"
+    assert rejected["phase"] == "rejected"
+
+
 def test_runtime_rejects_duplicate_policy_and_workflow_registration() -> None:
     workflow = _workflow()
     audit = RecordingAuditRepository()

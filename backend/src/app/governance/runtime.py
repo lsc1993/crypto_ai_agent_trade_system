@@ -336,12 +336,15 @@ class GovernanceRuntime[ResultT]:
         declared_capability_count: int,
         allowed_capability_count: int,
     ) -> None:
+        # error_type 与 harness_run_rejected 事件名同属既有观测协议。Python 异常类
+        # 已改名为 GovernancePolicyViolation，但日志值继续保留历史名，避免按旧值
+        # 过滤的告警或审计规则漏匹配；兼容性由 test_rejection_log_* 断言守护。
         self._log(
             "harness_run_rejected",
             request,
             phase="rejected",
             duration_ms=0,
-            error_type=GovernancePolicyViolation.__name__,
+            error_type="HarnessPolicyViolation",
             declared_capability_count=declared_capability_count,
             allowed_capability_count=allowed_capability_count,
         )
