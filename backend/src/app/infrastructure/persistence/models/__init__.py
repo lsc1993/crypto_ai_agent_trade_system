@@ -22,6 +22,11 @@ from app.infrastructure.persistence.models.paper_trading import (
     PaperOrderRecord,
     PaperPositionRecord,
 )
+from app.infrastructure.persistence.models.research_strategies import (
+    StrategyCatalogRequestRecord,
+    StrategyDefinitionRecord,
+    StrategyVersionRecord,
+)
 from app.infrastructure.persistence.models.symbols import (
     ResearchNewsLinkRecord,
     ResearchSymbolEventRecord,
@@ -58,4 +63,7 @@ __all__ = [
     "ResearchSymbolEventRecord",
     "ResearchSymbolRecord",
     "ResearchSymbolSyncRunRecord",
+    "StrategyCatalogRequestRecord",
+    "StrategyDefinitionRecord",
+    "StrategyVersionRecord",
 ]
