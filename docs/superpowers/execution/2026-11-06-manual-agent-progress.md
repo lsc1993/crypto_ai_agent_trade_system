@@ -2,19 +2,20 @@
 
 - 记录日期：2026-11-08
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 只记录开发自测，不预填正式审查结论。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T00 已于 `6f293fe` 合并） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T01 代码/复审文档已 fast-forward 合并，合并前 tip `e12de3a`；本条为合并后状态记录） |
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t01` |
 | 分支 | `task/manual-agent-t01` |
 | base | `6f293fec8d47541ae001afdd3bb4295f298f0cdb`（`main`，T01 开始时工作区干净） |
 | implementation tip | `159a43be3822e6f0fcbd314da67719187c06e610`（复审修复提交） |
 | tree | `6dc9d2f3bb0b1c8d7ab5f7e748a7fef7ff618ebd` |
+| reviewed_tip | `159a43be3822e6f0fcbd314da67719187c06e610`（用户于 2026-11-08 传回原审查助手正式通过结论） |
 | 上一轮受审 tip | `f870de19c8c1434ce6e089e970a67a46607572c7`（T00 正式通过） |
 
 ## T00：治理内核与规范迁移（D0）
@@ -66,14 +67,14 @@
 | FR/AC/HN | FR-10；支撑 FR-09 的候选/版本绑定；AC-07、AC-08、AC-09、AC-28；HN-09、HN-10。未实现 FR-04/FR-14/FR-15/FR-16，不宣称完整规划或知识检索 |
 | 时间 | 2026-11-08 |
 | 任务状态 | `verified`（实现、复审修复、聚焦、SQL 并发回归和后端 full 已完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（待原审查助手复审） |
-| reviewed_tip | —（原审查助手首轮结论为不通过，等待复审） |
+| review_status | `approved`（用户于 2026-11-08 传回原审查助手正式通过结论） |
+| reviewed_tip | `159a43be3822e6f0fcbd314da67719187c06e610` |
 | 改动 | 首轮 17 个文件；复审修复 8 个文件（并发 request_id 串行化、嵌套输入快照/重验、根 Schema object 校验及回归测试） |
 | 公共接口 | `VersionRef`、`ArtifactRef`、`ProductKey`、`DecimalText`、`PageQuery`/`VersionPage`；`EvidenceEpoch`/`EvidenceItem`；`StrategyDraft`/`StrategyVersion`/`PriceCandidate`/`StrategyEvaluation`；`StrategyCatalog`/`StrategyEvaluator`/`StrategyService`；`TechnicalStrategyEvaluator`；`SqlAlchemyStrategyCatalog` |
 | 依赖/迁移 | 无新增依赖；新增前向迁移 `0019_strategy_catalog`（strategy_definitions/strategy_versions/strategy_catalog_requests 与发布不可变触发器）；迁移 head 为 `0019_strategy_catalog`；未迁移业务库 |
 | 验证 | 修复前纯回归 6 failed / 15 passed、SQL 并发 3 failed / 7 passed；修复后纯+既有引擎 69 passed；SQL+迁移 27 passed；后端 full 1049 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿 |
 | 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实知识/RAG、T12+ 规划计算、T03/T18 产品规则、业务库迁移；未执行真实策略算法或收益评估 |
-| 遗留 | 等待原审查助手复审；不自动开始 T02，不自行标记 `approved` |
+| 遗留 | T01 已通过正式复审并以 fast-forward 合并到 `main`；不自动开始 T02，等待用户指定下一审查单元 |
 
 ### T01 复审修复（第 2 轮）
 
@@ -83,6 +84,12 @@
 | P1 封存证据/发布策略嵌套内容可修改且旧指纹继续生效 | 证据内容、epoch items、策略 Schema、组成参数在模型边界深拷贝；新增 `EvidenceEpoch.validated_snapshot()` 与 `StrategyVersion.validated_snapshot()` 重验内容/epoch/正文哈希；服务和适配器在消费前取隔离快照；`from_draft` 深拷贝并重校验。新增内容篡改、原始输入/草稿修改隔离、服务拒绝被改发布版本的回归。 |
 | P2 参数 Schema 根节点未强制为 object | `validate_parameter_schema()` 根入口强制 `type == "object"`；string/array/decimal/integer/boolean 根均拒绝，合法 object 根和嵌套类型继续通过。 |
 
+
+### T01 复审结论
+
+- 2026-11-08 用户传回原审查助手正式通过结论；`reviewed_tip` 为 `159a43be3822e6f0fcbd314da67719187c06e610`，审查请求中的正式状态已改为 `approved`。
+- T01 代码与复审文档以 fast-forward 从 `e12de3a` 合并到 `main`；本条状态记录是合并后的 docs 提交，具体 hash 见最终回复。
+- T01 状态为 `verified`/`approved`。不自动开始 T02；下一审查单元须等待用户明确指定。
 
 ### T01 测试证据
 
@@ -110,6 +117,6 @@
 ## 后续接续规则
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
-2. T01 当前 `review_status=awaiting_review`，`reviewed_tip` 为空；不得自行标记正式审查通过，也不得自动开始 T02。
-3. 下一审查单元须等待用户传回原审查助手对 T01 的正式结论；修复后记录新 tip、变更和验证，再次交审。
+2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
+3. 下一审查单元（T02）须等待用户明确指定；不得因 T01 通过而自动推进。
 4. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
