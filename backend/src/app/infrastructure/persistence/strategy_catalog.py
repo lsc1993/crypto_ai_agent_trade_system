@@ -3,6 +3,7 @@
 # 已发布正文不可改；数据库触发器提供第二道保护。该仓储不访问账户、行情或交易执行。
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,7 +11,7 @@ from typing import cast
 from uuid import UUID
 
 from pydantic import JsonValue, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -97,33 +98,36 @@ class SqlAlchemyStrategyCatalog:
         *,
         request_id: UUID,
     ) -> StrategyDraft:
-        if draft.state_version != 0:
+        draft_payload = _draft_payload(draft)
+        draft_snapshot = StrategyDraft.model_validate(draft_payload)
+        if draft_snapshot.state_version != 0:
             raise StrategyConflictError("新草稿版本必须从零开始")
         request_sha = _request_sha(
             _ACTION_CREATE,
             workspace_id,
-            {"draft": _draft_payload(draft)},
+            {"draft": draft_payload},
         )
         now = self._now()
         try:
             async with self._factory() as session, session.begin():
+                await _lock_request(session, request_id)
                 replay = await _load_request(
                     session, request_id, workspace_id, _ACTION_CREATE, request_sha
                 )
                 if replay is not None:
                     return _draft_result(replay)
-                if await session.get(StrategyVersionRecord, draft.draft_id) is not None:
+                if await session.get(StrategyVersionRecord, draft_snapshot.draft_id) is not None:
                     raise StrategyConflictError("草稿标识已存在")
                 definition = await session.get(
                     StrategyDefinitionRecord,
-                    draft.strategy_id,
+                    draft_snapshot.strategy_id,
                     with_for_update=True,
                 )
                 if definition is None:
                     definition = StrategyDefinitionRecord(
-                        id=draft.strategy_id,
+                        id=draft_snapshot.strategy_id,
                         workspace_id=workspace_id,
-                        name=draft.name,
+                        name=draft_snapshot.name,
                         state_version=0,
                         created_at=now,
                         updated_at=now,
@@ -134,18 +138,17 @@ class SqlAlchemyStrategyCatalog:
                         raise StrategyNotAvailableError("策略不属于当前工作台")
                     if definition.archived_at is not None:
                         raise StrategyNotAvailableError("策略已停用，不能创建新草稿")
-                    definition.name = draft.name
+                    definition.name = draft_snapshot.name
                     definition.updated_at = now
-                payload = _draft_payload(draft)
                 session.add(
                     StrategyVersionRecord(
-                        id=draft.draft_id,
-                        strategy_id=draft.strategy_id,
+                        id=draft_snapshot.draft_id,
+                        strategy_id=draft_snapshot.strategy_id,
                         workspace_id=workspace_id,
                         state="draft",
-                        state_version=draft.state_version,
-                        document=cast(dict[str, object], payload),
-                        sha256=strategy_draft_sha256(draft),
+                        state_version=draft_snapshot.state_version,
+                        document=cast(dict[str, object], draft_payload),
+                        sha256=strategy_draft_sha256(draft_snapshot),
                         created_at=now,
                         updated_at=now,
                     )
@@ -156,10 +159,10 @@ class SqlAlchemyStrategyCatalog:
                     workspace_id=workspace_id,
                     action=_ACTION_CREATE,
                     request_sha256=request_sha,
-                    result=payload,
+                    result=draft_payload,
                     now=now,
                 )
-            return draft
+            return draft_snapshot
         except IntegrityError:
             replayed = await self._replay_request(
                 request_id, workspace_id, _ACTION_CREATE, request_sha
@@ -182,18 +185,21 @@ class SqlAlchemyStrategyCatalog:
         expected_version: int,
         request_id: UUID,
     ) -> StrategyDraft:
+        draft_payload = _draft_payload(draft)
+        draft_snapshot = StrategyDraft.model_validate(draft_payload)
         request_sha = _request_sha(
             _ACTION_UPDATE,
             workspace_id,
             {
                 "draftId": str(draft_id),
                 "expectedVersion": expected_version,
-                "draft": _draft_payload(draft),
+                "draft": draft_payload,
             },
         )
         now = self._now()
         try:
             async with self._factory() as session, session.begin():
+                await _lock_request(session, request_id)
                 replay = await _load_request(
                     session, request_id, workspace_id, _ACTION_UPDATE, request_sha
                 )
@@ -203,14 +209,17 @@ class SqlAlchemyStrategyCatalog:
                 existing = _draft_from_row(row)
                 if existing.state_version != expected_version:
                     raise StrategyConflictError("草稿版本已变化，请重新读取")
-                if draft.draft_id != draft_id or draft.strategy_id != existing.strategy_id:
+                if (
+                    draft_snapshot.draft_id != draft_id
+                    or draft_snapshot.strategy_id != existing.strategy_id
+                ):
                     raise StrategyConflictError("草稿标识或策略身份不一致")
                 definition = await _lock_definition(session, workspace_id, row.strategy_id)
                 if definition.archived_at is not None:
                     raise StrategyNotAvailableError("策略已停用，不能修改草稿")
                 updated = StrategyDraft.model_validate(
                     {
-                        **_draft_payload(draft),
+                        **draft_payload,
                         "draft_id": str(draft_id),
                         "strategy_id": str(existing.strategy_id),
                         "state_version": expected_version + 1,
@@ -262,6 +271,7 @@ class SqlAlchemyStrategyCatalog:
         now = self._now()
         try:
             async with self._factory() as session, session.begin():
+                await _lock_request(session, request_id)
                 replay = await _load_request(
                     session, request_id, workspace_id, _ACTION_PUBLISH, request_sha
                 )
@@ -333,6 +343,7 @@ class SqlAlchemyStrategyCatalog:
         now = self._now()
         try:
             async with self._factory() as session, session.begin():
+                await _lock_request(session, request_id)
                 replay = await _load_request(
                     session, request_id, workspace_id, _ACTION_ARCHIVE, request_sha
                 )
@@ -439,6 +450,15 @@ class SqlAlchemyStrategyCatalog:
             return None
 
 
+# 请求级事务锁：同一 request_id 的并发调用先串行化，避免第二个请求在业务锁后误读已变化状态。
+# 锁随事务提交/回滚释放；不同 request_id 不共享锁，真正的业务冲突仍由行锁和状态校验拒绝。
+async def _lock_request(session: AsyncSession, request_id: UUID) -> None:
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:request_key, 0))"),
+        {"request_key": str(request_id)},
+    )
+
+
 # 读取并校验请求幂等记录；同一 request_id 不能对应不同工作台、操作或内容。
 async def _load_request(
     session: AsyncSession,
@@ -492,14 +512,20 @@ def _request_sha(action: str, workspace_id: UUID, payload: JsonObject) -> str:
     return sha256_json(cast(JsonValue, body))
 
 
-# 草稿持久化载荷；draft_id/state_version 参与行一致性校验，但不进入正文哈希。
+# 草稿持久化载荷；深拷贝避免调用方稍后修改草稿嵌套对象影响事务内数据。
 def _draft_payload(draft: StrategyDraft) -> JsonObject:
-    return cast(JsonObject, draft.model_dump(mode="json", by_alias=False))
+    return cast(
+        JsonObject,
+        copy.deepcopy(draft.model_dump(mode="json", by_alias=False)),
+    )
 
 
-# 发布版本持久化载荷；归档状态另由定义行派生，避免改写不可变正文。
+# 发布版本持久化载荷；深拷贝并保留归档状态由定义行派生的既有语义。
 def _version_payload(version: StrategyVersion) -> JsonObject:
-    return cast(JsonObject, version.model_dump(mode="json", by_alias=False))
+    return cast(
+        JsonObject,
+        copy.deepcopy(version.model_dump(mode="json", by_alias=False)),
+    )
 
 
 # 解析请求重放结果；损坏的历史结果不能被当作成功响应。

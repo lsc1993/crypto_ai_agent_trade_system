@@ -3,16 +3,21 @@
 # 所有策略文本与参数均为合成夹具，不包含用户策略算法、凭证或真实财务资料。
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.infrastructure.persistence.models.research_strategies import StrategyVersionRecord
+from app.infrastructure.persistence.models.research_strategies import (
+    StrategyCatalogRequestRecord,
+    StrategyDefinitionRecord,
+    StrategyVersionRecord,
+)
 from app.infrastructure.persistence.strategy_catalog import SqlAlchemyStrategyCatalog
 from app.market.contracts import MarketTimeframe
 from app.research.strategies.contracts import (
@@ -342,3 +347,257 @@ async def test_list_versions_paginates_published_versions(
         first.ref.version_id,
         second.ref.version_id,
     }
+
+
+# 复制草稿并只改可编辑字段；用于并发 update 的同内容请求。
+def _revised(draft: StrategyDraft, *, name: str) -> StrategyDraft:
+    payload = draft.model_dump(mode="python", by_alias=False)
+    payload["name"] = name
+    return StrategyDraft.model_validate(payload)
+
+
+# 统计指定 request_id 的幂等记录数；并发成功后必须只有一条。
+async def _request_count(factory: async_sessionmaker[AsyncSession], request_id: UUID) -> int:
+    async with factory() as session:
+        value = await session.scalar(
+            select(func.count())
+            .select_from(StrategyCatalogRequestRecord)
+            .where(StrategyCatalogRequestRecord.request_id == request_id)
+        )
+    return value or 0
+
+
+# 两个相同 publish 请求并发：第二个必须重放第一个结果，不能因已发布状态报冲突。
+@pytest.mark.asyncio
+async def test_concurrent_same_publish_request_replays_success(
+    migrated_database: Database,
+) -> None:
+    catalog = SqlAlchemyStrategyCatalog(migrated_database.session_factory, clock=_clock)
+    workspace_id = uuid4()
+    draft = await catalog.create_draft(workspace_id, _draft(), request_id=uuid4())
+    request_id = uuid4()
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(StrategyVersionRecord)
+            .where(StrategyVersionRecord.id == draft.draft_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        tasks = [
+            asyncio.create_task(
+                catalog.publish(
+                    workspace_id,
+                    draft.draft_id,
+                    expected_version=0,
+                    request_id=request_id,
+                )
+            )
+            for _ in range(2)
+        ]
+        await asyncio.sleep(0.2)
+        assert all(not task.done() for task in tasks)
+
+    first, second = await asyncio.gather(*tasks)
+    assert first.ref == second.ref
+    assert first.state_version == second.state_version == 1
+    assert await _request_count(migrated_database.session_factory, request_id) == 1
+    async with migrated_database.session_factory() as session:
+        rows = (
+            await session.scalars(
+                select(StrategyVersionRecord).where(
+                    StrategyVersionRecord.strategy_id == draft.strategy_id
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].state == "published"
+
+
+# 两个相同 update_draft 请求并发：只能递增一次并返回同一个草稿结果。
+@pytest.mark.asyncio
+async def test_concurrent_same_update_request_replays_success(
+    migrated_database: Database,
+) -> None:
+    catalog = SqlAlchemyStrategyCatalog(migrated_database.session_factory, clock=_clock)
+    workspace_id = uuid4()
+    draft = await catalog.create_draft(workspace_id, _draft(), request_id=uuid4())
+    revised = _revised(draft, name="并发更新")
+    request_id = uuid4()
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(StrategyVersionRecord)
+            .where(StrategyVersionRecord.id == draft.draft_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        tasks = [
+            asyncio.create_task(
+                catalog.update_draft(
+                    workspace_id,
+                    draft.draft_id,
+                    revised,
+                    expected_version=0,
+                    request_id=request_id,
+                )
+            )
+            for _ in range(2)
+        ]
+        await asyncio.sleep(0.2)
+        assert all(not task.done() for task in tasks)
+
+    first, second = await asyncio.gather(*tasks)
+    assert first == second
+    assert first.state_version == 1
+    assert await _request_count(migrated_database.session_factory, request_id) == 1
+    async with migrated_database.session_factory() as session:
+        stored = await session.get(StrategyVersionRecord, draft.draft_id)
+        assert stored is not None
+        assert stored.state_version == 1
+        assert stored.document["name"] == "并发更新"
+
+
+# 两个相同 archive 请求并发：只归档一次，第二个请求重放成功且不重复递增代次。
+@pytest.mark.asyncio
+async def test_concurrent_same_archive_request_replays_success(
+    migrated_database: Database,
+) -> None:
+    catalog = SqlAlchemyStrategyCatalog(migrated_database.session_factory, clock=_clock)
+    workspace_id = uuid4()
+    draft = await catalog.create_draft(workspace_id, _draft(), request_id=uuid4())
+    published = await catalog.publish(
+        workspace_id,
+        draft.draft_id,
+        expected_version=0,
+        request_id=uuid4(),
+    )
+    request_id = uuid4()
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(StrategyDefinitionRecord)
+            .where(StrategyDefinitionRecord.id == published.strategy_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        tasks = [
+            asyncio.create_task(
+                catalog.archive(
+                    workspace_id,
+                    published.strategy_id,
+                    expected_version=published.state_version,
+                    request_id=request_id,
+                )
+            )
+            for _ in range(2)
+        ]
+        await asyncio.sleep(0.2)
+        assert all(not task.done() for task in tasks)
+
+    results = await asyncio.gather(*tasks)
+    assert results == [None, None]
+    assert await _request_count(migrated_database.session_factory, request_id) == 1
+    async with migrated_database.session_factory() as session:
+        definition = await session.get(StrategyDefinitionRecord, published.strategy_id)
+        assert definition is not None
+        assert definition.archived_at is not None
+        assert definition.state_version == published.state_version + 1
+
+
+# create_draft 也有同类并发缺口：相同请求必须只创建一次并返回同一草稿。
+@pytest.mark.asyncio
+async def test_concurrent_same_create_request_replays_success(
+    migrated_database: Database,
+) -> None:
+    catalog = SqlAlchemyStrategyCatalog(migrated_database.session_factory, clock=_clock)
+    workspace_id = uuid4()
+    existing = await catalog.create_draft(workspace_id, _draft(), request_id=uuid4())
+    new_draft = _draft(strategy_id=existing.strategy_id, name="并发草稿")
+    request_id = uuid4()
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(StrategyDefinitionRecord)
+            .where(StrategyDefinitionRecord.id == existing.strategy_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        tasks = [
+            asyncio.create_task(
+                catalog.create_draft(workspace_id, new_draft, request_id=request_id)
+            )
+            for _ in range(2)
+        ]
+        await asyncio.sleep(0.2)
+        assert all(not task.done() for task in tasks)
+
+    first, second = await asyncio.gather(*tasks)
+    assert first == second == new_draft
+    assert await _request_count(migrated_database.session_factory, request_id) == 1
+    async with migrated_database.session_factory() as session:
+        rows = (
+            await session.scalars(
+                select(StrategyVersionRecord).where(StrategyVersionRecord.id == new_draft.draft_id)
+            )
+        ).all()
+        assert len(rows) == 1
+
+
+# 同一请求键用于不同操作或工作台仍是真实冲突，不能被并发重放路径吞掉。
+@pytest.mark.asyncio
+async def test_request_key_rejects_different_operation_and_workspace(
+    migrated_database: Database,
+) -> None:
+    catalog = SqlAlchemyStrategyCatalog(migrated_database.session_factory, clock=_clock)
+    workspace_id = uuid4()
+    request_id = uuid4()
+    draft = await catalog.create_draft(workspace_id, _draft(), request_id=request_id)
+
+    with pytest.raises(StrategyConflictError):
+        await catalog.publish(
+            workspace_id,
+            draft.draft_id,
+            expected_version=0,
+            request_id=request_id,
+        )
+    with pytest.raises(StrategyConflictError):
+        await catalog.create_draft(uuid4(), _draft(), request_id=request_id)
+
+
+# 相同 request_id 但内容不同，即使并发也只能有一个成功，另一个必须返回真实冲突。
+@pytest.mark.asyncio
+async def test_concurrent_same_request_different_content_is_conflict(
+    migrated_database: Database,
+) -> None:
+    catalog = SqlAlchemyStrategyCatalog(migrated_database.session_factory, clock=_clock)
+    workspace_id = uuid4()
+    existing = await catalog.create_draft(workspace_id, _draft(), request_id=uuid4())
+    request_id = uuid4()
+    first_draft = _draft(strategy_id=existing.strategy_id, name="并发内容甲")
+    second_draft = _draft(strategy_id=existing.strategy_id, name="并发内容乙")
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(StrategyDefinitionRecord)
+            .where(StrategyDefinitionRecord.id == existing.strategy_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        tasks = [
+            asyncio.create_task(
+                catalog.create_draft(workspace_id, first_draft, request_id=request_id)
+            ),
+            asyncio.create_task(
+                catalog.create_draft(workspace_id, second_draft, request_id=request_id)
+            ),
+        ]
+        await asyncio.sleep(0.2)
+        assert all(not task.done() for task in tasks)
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    successes = [result for result in results if isinstance(result, StrategyDraft)]
+    conflicts = [result for result in results if isinstance(result, StrategyConflictError)]
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+    assert await _request_count(migrated_database.session_factory, request_id) == 1

@@ -79,6 +79,11 @@ class TechnicalStrategyEvaluator:
         parameters: dict[str, JsonValue],
         evidence: EvidenceEpoch,
     ) -> StrategyEvaluation:
+        # 直接调用适配器时也先隔离并重验输入，避免嵌套修改沿用旧版本/证据指纹。
+        strategy = strategy.validated_snapshot()
+        evidence = evidence.validated_snapshot()
+        if strategy.archived or strategy.archived_at is not None:
+            raise StrategyEvaluatorError("策略已停用", code="strategy_archived")
         if strategy.evaluator_id != self.evaluator_id:
             raise StrategyEvaluatorError(
                 "策略没有绑定技术突破评估器", code="evaluator_contract_mismatch"

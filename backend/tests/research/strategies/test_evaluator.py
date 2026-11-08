@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -491,6 +491,66 @@ def test_evidence_epoch_rejects_future_or_tampered_content() -> None:
     )
     with pytest.raises(EvidenceUnavailableError):
         duplicate.market_detail()
+
+
+# 封存必须隔离输入对象；已封存 epoch 的嵌套内容被改动时，消费入口应明确拒绝。
+@pytest.mark.asyncio
+async def test_sealed_evidence_isolates_input_and_rejects_nested_mutation() -> None:
+    detail = make_technical_detail()
+    content = cast(JsonObject, detail.model_dump(mode="json"))
+    item = _evidence_item(kind=MARKET_EVIDENCE_KIND, content=content)
+    epoch = EvidenceEpoch.seal(
+        analysis_as_of=NOW,
+        sealed_at=NOW,
+        items=(item,),
+    )
+    original_sha = epoch.sha256
+
+    # 修改构造输入不得改变已封存 epoch。
+    summary = cast(dict[str, Any], content["summary"])
+    summary["price"] = "1"
+    snapshot = epoch.validated_snapshot()
+    assert snapshot.sha256 == original_sha
+    assert snapshot.items[0].content is not None
+    assert cast(dict[str, Any], snapshot.items[0].content["summary"])["price"] != "1"
+
+    # 直接修改 epoch 内嵌内容后，评估入口必须拒绝旧指纹继续生效。
+    assert epoch.items[0].content is not None
+    actual_summary = cast(dict[str, Any], epoch.items[0].content["summary"])
+    actual_summary["price"] = "1"
+    with pytest.raises(EvidenceUnavailableError):
+        epoch.validated_snapshot()
+    with pytest.raises(EvidenceUnavailableError):
+        await TechnicalStrategyEvaluator().evaluate(_technical_strategy(), _parameters(), epoch)
+
+
+# 审查复现：通过 market_evidence() 取得内容后修改，不能让评估沿用旧证据指纹。
+@pytest.mark.asyncio
+async def test_market_evidence_nested_mutation_cannot_reuse_old_fingerprint() -> None:
+    epoch = _epoch()
+    item = epoch.market_evidence()
+    assert item.content is not None
+    summary = cast(dict[str, Any], item.content["summary"])
+    summary["price"] = "1"
+
+    with pytest.raises(EvidenceUnavailableError):
+        await TechnicalStrategyEvaluator().evaluate(_technical_strategy(), _parameters(), epoch)
+
+
+# 服务必须在调用评估器前验证发布版本身份；嵌套 Schema 改动不能沿用旧版本引用。
+@pytest.mark.asyncio
+async def test_service_rejects_mutated_published_strategy_body() -> None:
+    strategy = _technical_strategy()
+    properties = cast(dict[str, Any], strategy.parameter_schema["properties"])
+    risk = cast(dict[str, Any], properties["minimum_reward_risk"])
+    risk["maximum"] = "99"
+    service = StrategyService(
+        catalog=cast(StrategyCatalog, _ReadOnlyCatalog(strategy)),
+        evaluators=StrategyEvaluatorRegistry(),
+    )
+
+    with pytest.raises(StrategyIntegrityError):
+        await service.evaluate(WORKSPACE_ID, strategy.ref, _parameters(), _epoch())
 
 
 # 参数哈希函数只接受 JSON 安全值，且对字典顺序稳定。

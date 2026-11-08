@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -23,6 +23,7 @@ from app.research.strategies.contracts import (
     StrategyDraft,
     StrategyEvaluation,
     StrategyEvaluationStatus,
+    StrategyIntegrityError,
     StrategyKind,
     StrategyParameterError,
     StrategySchemaError,
@@ -336,3 +337,72 @@ def test_evaluation_distinguishes_missing_evaluator_from_no_candidates() -> None
             applicability=StrategyApplicability.UNKNOWN,
             reason_codes=(),
         )
+
+
+# 参数 Schema 根节点必须是 object；非 object 根不能进入草稿或发布契约。
+def test_parameter_schema_requires_object_root() -> None:
+    invalid_roots: tuple[JsonObject, ...] = (
+        {"type": "string"},
+        {"type": "decimal", "minimum": "0"},
+        {"type": "integer"},
+        {"type": "boolean"},
+        {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+    )
+    for schema in invalid_roots:
+        with pytest.raises(StrategySchemaError):
+            validate_parameter_schema(schema)
+        with pytest.raises(ValidationError):
+            _draft(parameter_schema=schema)
+
+    # 合法的 object 根和嵌套 string/array 仍必须通过，避免根检查误伤子节点。
+    validate_parameter_schema(_schema())
+
+
+# 发布版本必须与草稿隔离；草稿或发布对象的嵌套修改不能沿用旧版本指纹。
+def test_published_version_snapshot_isolates_draft_and_detects_mutation() -> None:
+    draft = _draft()
+    published = StrategyVersion.from_draft(draft, published_at=NOW, state_version=1)
+    original_sha = published.ref.sha256
+
+    draft_properties = cast(dict[str, Any], draft.parameter_schema["properties"])
+    draft_risk = cast(dict[str, Any], draft_properties["minimum_reward_risk"])
+    draft_risk["maximum"] = "99"
+
+    published_properties = cast(dict[str, Any], published.parameter_schema["properties"])
+    published_risk = cast(dict[str, Any], published_properties["minimum_reward_risk"])
+    assert published_risk["maximum"] == "10"
+    assert published.validated_snapshot().ref.sha256 == original_sha
+
+    published_risk["maximum"] = "99"
+    with pytest.raises(StrategyIntegrityError):
+        published.validated_snapshot()
+
+
+# 组合组成参数同样必须隔离；修改已发布组成参数后不能再通过完整性快照。
+def test_published_composite_snapshot_detects_component_parameter_mutation() -> None:
+    components = (
+        StrategyComponent(
+            role="trend",
+            strategy_ref=_ref(),
+            parameters={"weight": "1"},
+        ),
+    )
+    published = StrategyVersion.from_draft(
+        _draft(
+            kind=StrategyKind.COMPOSITE,
+            components=components,
+            composition_rules="测试组合仅冻结引用。",
+            evaluator_id="test_composite_v1",
+        ),
+        published_at=NOW,
+        state_version=1,
+    )
+    original_sha = published.ref.sha256
+
+    components[0].parameters["weight"] = "2"
+    assert published.components[0].parameters == {"weight": "1"}
+    assert published.validated_snapshot().ref.sha256 == original_sha
+
+    published.components[0].parameters["weight"] = "2"
+    with pytest.raises(StrategyIntegrityError):
+        published.validated_snapshot()

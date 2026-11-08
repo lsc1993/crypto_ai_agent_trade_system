@@ -15,6 +15,7 @@ from app.research.strategies.contracts import (
     StrategyEvaluationStatus,
     StrategyEvaluatorError,
     StrategyIntegrityError,
+    StrategyNotAvailableError,
     StrategyParameterError,
     StrategySchemaError,
     StrategyVersion,
@@ -59,7 +60,7 @@ class StrategyService:
         self._catalog = catalog
         self._evaluators = evaluators or StrategyEvaluatorRegistry()
 
-    # 读取已发布版本，校验参数后调用精确评估器；所有结果都绑定所选版本/参数/证据指纹。
+    # 读取已发布版本，校验参数后调用精确评估器；输入先做隔离快照并重验完整性。
     async def evaluate(
         self,
         workspace_id: UUID,
@@ -67,7 +68,13 @@ class StrategyService:
         parameters: dict[str, JsonValue],
         evidence: EvidenceEpoch,
     ) -> StrategyEvaluation:
+        safe_evidence = evidence.validated_snapshot()
         strategy = await self._catalog.get_published(workspace_id, ref)
+        strategy = strategy.validated_snapshot()
+        if strategy.ref != ref:
+            raise StrategyIntegrityError("目录返回的策略版本与请求引用不一致")
+        if strategy.archived or strategy.archived_at is not None:
+            raise StrategyNotAvailableError("策略已停用，不能执行新的评估")
         evaluator = self._evaluators.get(strategy.evaluator_id)
         evaluator_version = evaluator.evaluator_version if evaluator is not None else "unavailable"
         raw_parameter_sha = _safe_parameter_sha256(parameters)
@@ -80,7 +87,7 @@ class StrategyService:
                 evaluator_id=strategy.evaluator_id,
                 evaluator_version=evaluator_version,
                 parameters_sha256=raw_parameter_sha,
-                evidence_sha256=evidence.sha256,
+                evidence_sha256=safe_evidence.sha256,
                 status=StrategyEvaluationStatus.INVALID_PARAMETERS,
                 applicability=StrategyApplicability.UNKNOWN,
                 reason_codes=("invalid_parameters",),
@@ -93,7 +100,7 @@ class StrategyService:
                 evaluator_id=strategy.evaluator_id,
                 evaluator_version="unavailable",
                 parameters_sha256=normalized_sha,
-                evidence_sha256=evidence.sha256,
+                evidence_sha256=safe_evidence.sha256,
                 status=StrategyEvaluationStatus.NO_EVALUATOR,
                 applicability=StrategyApplicability.UNKNOWN,
                 reason_codes=("evaluator_unavailable",),
@@ -102,14 +109,14 @@ class StrategyService:
             raise StrategyIntegrityError("评估器 ID 与所选策略不一致")
 
         try:
-            evaluation = await evaluator.evaluate(strategy, normalized, evidence)
+            evaluation = await evaluator.evaluate(strategy, normalized, safe_evidence)
         except StrategyEvaluatorError as error:
             return StrategyEvaluation(
                 strategy_ref=strategy.ref,
                 evaluator_id=strategy.evaluator_id,
                 evaluator_version=evaluator.evaluator_version,
                 parameters_sha256=normalized_sha,
-                evidence_sha256=evidence.sha256,
+                evidence_sha256=safe_evidence.sha256,
                 status=StrategyEvaluationStatus.FAILED,
                 applicability=StrategyApplicability.UNKNOWN,
                 reason_codes=(error.code,),
@@ -119,7 +126,7 @@ class StrategyService:
             strategy=strategy,
             evaluator_version=evaluator.evaluator_version,
             parameters_sha256=normalized_sha,
-            evidence=evidence,
+            evidence=safe_evidence,
         )
         return evaluation
 

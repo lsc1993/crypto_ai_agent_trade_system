@@ -4,6 +4,7 @@
 # 候选只含价格几何与证据/参数指纹，不含资金、数量、订单或 TradeIntent。
 from __future__ import annotations
 
+import copy
 import json
 import re
 from datetime import datetime
@@ -12,7 +13,7 @@ from enum import StrEnum
 from typing import cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from pydantic import Field, JsonValue, field_validator, model_validator
+from pydantic import Field, JsonValue, ValidationError, field_validator, model_validator
 
 from app.market.contracts import MarketTimeframe
 from app.market.symbols import ResearchSymbol
@@ -130,6 +131,12 @@ class StrategyComponent(AgentModel):
     strategy_ref: VersionRef
     parameters: JsonObject = Field(default_factory=dict)
 
+    # 组合参数可能在草稿与发布对象间传递；构造时深拷贝，避免外部改原字典影响冻结正文。
+    @field_validator("parameters", mode="before")
+    @classmethod
+    def isolate_parameters(cls, value: object) -> object:
+        return copy.deepcopy(value)
+
 
 # 单条确定性事实；数值由程序计算，模型只能引用，不能自行改写。
 class StrategyFact(AgentModel):
@@ -191,6 +198,12 @@ class _StrategyContent(AgentModel):
         validate_parameter_schema(value)
         return value
 
+    # 参数 Schema 和组成对象在模型边界深拷贝，避免草稿/发布版本与调用方共享嵌套可变对象。
+    @field_validator("components", "parameter_schema", mode="before")
+    @classmethod
+    def isolate_nested_content(cls, value: object) -> object:
+        return copy.deepcopy(value)
+
     @model_validator(mode="after")
     def validate_content(self) -> _StrategyContent:
         if len(set(self.supported_symbols)) != len(self.supported_symbols):
@@ -240,7 +253,7 @@ class StrategyVersion(_StrategyContent):
             raise ValueError("归档状态与归档时间必须一致")
         return self
 
-    # 从草稿冻结发布版本；ref.version_id 复用草稿标识，正文哈希由同一规范化载荷计算。
+    # 从草稿冻结发布版本；先深拷贝并重新校验草稿，避免后续修改草稿嵌套对象影响发布版本。
     @classmethod
     def from_draft(
         cls,
@@ -251,29 +264,44 @@ class StrategyVersion(_StrategyContent):
         archived: bool = False,
         archived_at: datetime | None = None,
     ) -> StrategyVersion:
+        snapshot = StrategyDraft.model_validate(
+            copy.deepcopy(draft.model_dump(mode="python", by_alias=False))
+        )
         return cls(
             ref=VersionRef(
-                version_id=draft.draft_id,
-                sha256=strategy_draft_sha256(draft),
+                version_id=snapshot.draft_id,
+                sha256=strategy_draft_sha256(snapshot),
             ),
-            strategy_id=draft.strategy_id,
-            name=draft.name,
-            method_text=draft.method_text,
-            kind=draft.kind,
-            components=draft.components,
-            composition_rules=draft.composition_rules,
-            parameter_schema=draft.parameter_schema,
-            supported_symbols=draft.supported_symbols,
-            supported_timeframes=draft.supported_timeframes,
-            warmup_candles=draft.warmup_candles,
-            evaluator_id=draft.evaluator_id,
-            capabilities=draft.capabilities,
-            risk_notes=draft.risk_notes,
+            strategy_id=snapshot.strategy_id,
+            name=snapshot.name,
+            method_text=snapshot.method_text,
+            kind=snapshot.kind,
+            components=snapshot.components,
+            composition_rules=snapshot.composition_rules,
+            parameter_schema=snapshot.parameter_schema,
+            supported_symbols=snapshot.supported_symbols,
+            supported_timeframes=snapshot.supported_timeframes,
+            warmup_candles=snapshot.warmup_candles,
+            evaluator_id=snapshot.evaluator_id,
+            capabilities=snapshot.capabilities,
+            risk_notes=snapshot.risk_notes,
             published_at=published_at,
             state_version=state_version,
             archived=archived,
             archived_at=archived_at,
         )
+
+    # 在消费入口创建隔离快照并重新校验正文哈希；嵌套 Schema/组成参数被改后不得沿用旧 ref。
+    def validated_snapshot(self) -> StrategyVersion:
+        try:
+            snapshot = StrategyVersion.model_validate(
+                copy.deepcopy(self.model_dump(mode="python", by_alias=False))
+            )
+        except (ValidationError, TypeError, ValueError) as error:
+            raise StrategyIntegrityError("发布版本正文与版本指纹不一致") from error
+        if snapshot.ref != self.ref:
+            raise StrategyIntegrityError("发布版本引用与正文不一致")
+        return snapshot
 
 
 # 计算草稿内容哈希；draft_id/state_version 不进入语义哈希，编辑正文后哈希必变。
@@ -555,8 +583,10 @@ _SCHEMA_TYPES = {"object", "string", "decimal", "integer", "boolean", "array"}
 _PROPERTY_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
-# 校验根 Schema 并递归检查每个子节点；不接受远程引用、代码类型和未列入白名单的关键字。
+# 校验根 Schema 并递归检查每个子节点；根必须是 object，不接受远程引用、代码类型和未知关键字。
 def validate_parameter_schema(schema: JsonObject) -> None:
+    if schema.get("type") != "object":
+        raise StrategySchemaError("参数 Schema 根节点必须是 object")
     _validate_schema_node(schema, depth=0, counter=[0])
 
 

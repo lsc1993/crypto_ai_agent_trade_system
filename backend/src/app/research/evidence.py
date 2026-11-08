@@ -3,6 +3,7 @@
 # 证据封存后不得改写；市场详情只用于确定性评估，刷新当前数据不能冒充旧时点证据。
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime
 from enum import StrEnum
@@ -94,6 +95,12 @@ class EvidenceItem(AgentModel):
     def validate_times(cls, value: datetime) -> datetime:
         return require_utc(value)
 
+    # 内容在证据模型边界深拷贝，避免调用方修改原 JSON 后影响已构造证据。
+    @field_validator("content", mode="before")
+    @classmethod
+    def isolate_content(cls, value: object) -> object:
+        return copy.deepcopy(value)
+
     @model_validator(mode="after")
     def validate_content_and_times(self) -> EvidenceItem:
         if not self.observed_at <= self.available_at <= self.fetched_at:
@@ -142,6 +149,12 @@ class EvidenceEpoch(AgentModel):
             raise ValueError("证据 epoch 指纹必须是 64 位小写十六进制")
         return value
 
+    # epoch 构造时隔离逐项对象，后续修改原始 items 不能改写已封存集合。
+    @field_validator("items", mode="before")
+    @classmethod
+    def isolate_items(cls, value: object) -> object:
+        return copy.deepcopy(value)
+
     @model_validator(mode="after")
     def validate_epoch(self) -> EvidenceEpoch:
         if self.analysis_as_of > self.sealed_at:
@@ -166,7 +179,7 @@ class EvidenceEpoch(AgentModel):
             raise ValueError("证据 epoch 标识与内容不一致")
         return self
 
-    # 封存一组证据并计算稳定标识；排序保证同一集合不因输入顺序改变指纹。
+    # 封存一组证据并计算稳定标识；先深拷贝逐项内容，排序保证同一集合顺序无关。
     @classmethod
     def seal(
         cls,
@@ -175,7 +188,8 @@ class EvidenceEpoch(AgentModel):
         sealed_at: datetime,
         items: tuple[EvidenceItem, ...],
     ) -> EvidenceEpoch:
-        ordered = tuple(sorted(items, key=lambda item: str(item.evidence_id)))
+        isolated = tuple(_isolated_item(item) for item in items)
+        ordered = tuple(sorted(isolated, key=lambda item: str(item.evidence_id)))
         payload = _epoch_payload(analysis_as_of, sealed_at, ordered)
         digest = sha256_json(payload)
         return cls(
@@ -186,18 +200,36 @@ class EvidenceEpoch(AgentModel):
             sha256=digest,
         )
 
-    # 返回唯一的市场证据项；缺失或重复都表示无法安全执行技术评估。
+    # 在消费入口创建隔离快照，重验逐项内容指纹、epoch 哈希和标识；失败明确拒绝。
+    def validated_snapshot(self) -> EvidenceEpoch:
+        try:
+            isolated = tuple(_isolated_item(item) for item in self.items)
+            snapshot = EvidenceEpoch.seal(
+                analysis_as_of=self.analysis_as_of,
+                sealed_at=self.sealed_at,
+                items=isolated,
+            )
+        except EvidenceUnavailableError as error:
+            raise EvidenceUnavailableError(
+                "evidence_epoch_tampered", "证据快照内容与指纹不一致"
+            ) from error
+        except (ValidationError, TypeError, ValueError) as error:
+            raise EvidenceUnavailableError(
+                "evidence_epoch_tampered", "证据快照内容与指纹不一致"
+            ) from error
+        if snapshot.sha256 != self.sha256 or snapshot.epoch_id != self.epoch_id:
+            raise EvidenceUnavailableError("evidence_epoch_tampered", "证据快照与封存标识不一致")
+        return snapshot
+
+    # 返回唯一的市场证据项；先重验整个 epoch，避免嵌套内容修改后沿用旧指纹。
     def market_evidence(self) -> EvidenceItem:
-        matches = tuple(item for item in self.items if item.kind == MARKET_EVIDENCE_KIND)
-        if not matches:
-            raise EvidenceUnavailableError("market_evidence_missing", "缺少市场证据")
-        if len(matches) != 1:
-            raise EvidenceUnavailableError("duplicate_market_evidence", "市场证据不唯一")
-        return matches[0]
+        self.validated_snapshot()
+        return self._market_item()
 
     # 将冻结市场内容还原为已校验行情详情；内容缺失或结构无效时明确不可用。
     def market_detail(self) -> MarketDetail:
-        item = self.market_evidence()
+        snapshot = self.validated_snapshot()
+        item = snapshot._market_item()
         if item.quality is not EvidenceQuality.VALID:
             raise EvidenceUnavailableError("market_evidence_not_valid", "市场证据质量不足")
         if item.content is None:
@@ -208,6 +240,27 @@ class EvidenceEpoch(AgentModel):
             return MarketDetail.model_validate(item.content)
         except ValidationError as error:
             raise EvidenceUnavailableError("market_evidence_invalid", "市场证据结构无效") from error
+
+    # 仅从当前对象选择市场项；调用方先在公开入口完成完整性快照校验。
+    def _market_item(self) -> EvidenceItem:
+        matches = tuple(item for item in self.items if item.kind == MARKET_EVIDENCE_KIND)
+        if not matches:
+            raise EvidenceUnavailableError("market_evidence_missing", "缺少市场证据")
+        if len(matches) != 1:
+            raise EvidenceUnavailableError("duplicate_market_evidence", "市场证据不唯一")
+        return matches[0]
+
+
+# 深拷贝证据项并重新校验内容指纹；返回对象与调用方后续修改隔离。
+def _isolated_item(item: EvidenceItem) -> EvidenceItem:
+    try:
+        payload = item.model_dump(mode="python", by_alias=False)
+        payload["content"] = copy.deepcopy(item.content)
+        return EvidenceItem.model_validate(payload)
+    except (ValidationError, TypeError, ValueError, AttributeError) as error:
+        raise EvidenceUnavailableError(
+            "evidence_item_tampered", "证据内容与逐项指纹不一致"
+        ) from error
 
 
 # 构造 epoch 指纹载荷；逐项内容指纹已包含内容，不把大型正文重复嵌入 epoch 摘要。
