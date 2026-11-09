@@ -65,16 +65,27 @@ def tokenize(text: str) -> tuple[str, ...]:
 def chunk_text(text: str) -> tuple[str, ...]:
     if not text:
         return ()
-    chunks: list[str] = []
-    start = 0
-    length = len(text)
-    while start < length:
-        end = min(start + CHUNK_SIZE, length)
-        chunks.append(text[start:end])
-        if end == length:
-            break
-        start = end - CHUNK_OVERLAP
-    return tuple(chunks)
+    count = _chunk_count(len(text))
+    return tuple(chunk_at(text, index) for index in range(count))
+
+
+# 返回指定块序号对应的原文切片；供数据库防护、检索一致性和测试共用。
+# 第 index 块的起点固定为 index * (CHUNK_SIZE - CHUNK_OVERLAP)，越界返回空串。
+def chunk_at(text: str, chunk_index: int) -> str:
+    if chunk_index < 0:
+        raise ValueError("知识分块序号不能为负")
+    start = chunk_index * (CHUNK_SIZE - CHUNK_OVERLAP)
+    if start >= len(text):
+        return ""
+    return text[start : start + CHUNK_SIZE]
+
+
+# 由文本长度推导块数；1..1000 字符为 1 块，之后按 900 字符步长递增。
+def _chunk_count(length: int) -> int:
+    if length <= CHUNK_SIZE:
+        return 1
+    step = CHUNK_SIZE - CHUNK_OVERLAP
+    return 1 + (length - CHUNK_SIZE + step - 1) // step
 
 
 # 计算 UTF-8 原文或片段指纹；用于版本引用和命中校验，不改变内容。
@@ -83,7 +94,7 @@ def sha256_text(text: str) -> str:
 
 
 # 由版本 ID、块序号和块指纹派生稳定块 ID；同一版本重建分块不会得到随机 ID。
-def _chunk_id(version_id: UUID, chunk_index: int, chunk_sha256: str) -> UUID:
+def chunk_id_for(version_id: UUID, chunk_index: int, chunk_sha256: str) -> UUID:
     return uuid5(
         NAMESPACE_URL,
         f"knowledge-chunk:{version_id}:{chunk_index}:{chunk_sha256}",
@@ -98,7 +109,7 @@ def prepare_chunks(version_id: UUID, title: str, text: str) -> tuple[PreparedChu
         digest = sha256_text(chunk)
         prepared.append(
             PreparedChunk(
-                chunk_id=_chunk_id(version_id, chunk_index, digest),
+                chunk_id=chunk_id_for(version_id, chunk_index, digest),
                 chunk_index=chunk_index,
                 text=chunk,
                 sha256=digest,
@@ -127,6 +138,8 @@ __all__ = [
     "MAX_HITS",
     "MAX_QUERY_TERMS",
     "PreparedChunk",
+    "chunk_at",
+    "chunk_id_for",
     "chunk_text",
     "prepare_chunks",
     "score_chunk",

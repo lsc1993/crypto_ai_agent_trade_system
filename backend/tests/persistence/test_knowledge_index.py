@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -11,7 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -26,6 +27,7 @@ from app.research.knowledge.contracts import (
     KnowledgeAccess,
     KnowledgeConflictError,
     KnowledgeImport,
+    KnowledgeIntegrityError,
     KnowledgeNotAvailableError,
     KnowledgeQuery,
     KnowledgeQueryError,
@@ -33,7 +35,7 @@ from app.research.knowledge.contracts import (
     KnowledgeVersion,
     knowledge_text_sha256,
 )
-from app.research.knowledge.indexing import score_chunk, tokenize
+from app.research.knowledge.indexing import prepare_chunks, score_chunk, tokenize
 from app.shared.agent_types import PageQuery, VersionRef
 
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
@@ -138,6 +140,90 @@ async def _version_count(factory: async_sessionmaker[AsyncSession], document_id:
             .where(KnowledgeVersionRecord.document_id == document_id)
         )
     return value or 0
+
+
+# 等待并发会话真正进入指定表的锁等待；避免仅靠固定 sleep 猜测 publish 已持有版本行锁。
+# pg_stat_activity 只读取当前测试库、当前受限角色的会话，不输出连接串或业务数据。
+async def _wait_for_lock_wait(
+    factory: async_sessionmaker[AsyncSession],
+    relation: str,
+    *,
+    timeout: float = 5.0,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        async with factory() as session:
+            waiting = await session.scalar(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() "
+                    "AND wait_event_type = 'Lock' "
+                    "AND query ILIKE :needle"
+                ),
+                {"needle": f"%{relation}%"},
+            )
+        if waiting:
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"未观察到 {relation} 的锁等待")
+
+
+# 取得本次随机测试 schema 名，仅用于在隔离 schema 中临时禁用触发器模拟数据库被绕过。
+async def _current_knowledge_schema(factory: async_sessionmaker[AsyncSession]) -> str:
+    async with factory() as session:
+        schema = await session.scalar(
+            text(
+                "SELECT schemaname FROM pg_tables "
+                "WHERE tablename = 'knowledge_chunks' "
+                "AND schemaname LIKE 'market_test_%' "
+                "ORDER BY schemaname LIMIT 1"
+            )
+        )
+    assert isinstance(schema, str)
+    assert re.fullmatch(r"market_test_[0-9a-f]{16}", schema) is not None
+    return schema
+
+
+# 直接插入一个缺少分块的草稿版本，用于验证 publish 在并发插入后仍核对完整分块集合。
+# 该夹具只构造测试所需的异常中间态，不绕过正文/版本数据库触发器，也不代表生产写入路径。
+async def _insert_draft_version_without_chunks(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    document_id: UUID,
+    workspace_id: UUID,
+    text: str,
+) -> KnowledgeVersion:
+    version = KnowledgeVersion.build(
+        version_id=uuid4(),
+        document_id=document_id,
+        draft=_draft(document_id=document_id, text=text),
+        first_available_at=NOW,
+    )
+    async with factory() as session:
+        session.add(
+            KnowledgeVersionRecord(
+                id=version.ref.version_id,
+                document_id=document_id,
+                workspace_id=workspace_id,
+                state=KnowledgeStatus.DRAFT.value,
+                state_version=0,
+                title=version.title,
+                source=version.source,
+                scope=version.scope,
+                access=version.access.value,
+                text=version.text,
+                text_sha256=version.text_sha256,
+                sha256=version.ref.sha256,
+                chunk_count=version.chunk_count,
+                first_available_at=version.first_available_at,
+                declared_published_at=None,
+                published_at=None,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.commit()
+    return version
 
 
 # 真实 SQL 检索的标题 4 分/正文 1 分与纯函数一致；最多返回 6 分块，并按分数稳定排序。
@@ -685,3 +771,445 @@ async def test_version_model_rejects_tampered_payload(
                 "text": "直接改写正文",
             }
         )
+
+
+# 发布后的版本分块集合必须冻结；直接 SQL 追加未占用序号和任意正文必须由数据库拒绝。
+@pytest.mark.asyncio
+async def test_published_version_rejects_appended_chunk(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    published = await _published(
+        index,
+        workspace_id,
+        draft=_draft(text="突破 " * 400),
+    )
+    forged = "发布后追加的伪造分块"
+
+    async with migrated_database.session_factory() as session:
+        try:
+            with pytest.raises(DBAPIError, match="immutable"):
+                await session.execute(
+                    insert(KnowledgeChunkRecord).values(
+                        id=uuid4(),
+                        version_id=published.ref.version_id,
+                        workspace_id=workspace_id,
+                        chunk_index=2,
+                        text=forged,
+                        sha256=knowledge_text_sha256(forged),
+                        terms=list(tokenize(forged)),
+                        title_terms=list(tokenize(published.title)),
+                    )
+                )
+                await session.commit()
+        finally:
+            await session.rollback()
+
+    async with migrated_database.session_factory() as session:
+        stored_count = await session.scalar(
+            select(func.count())
+            .select_from(KnowledgeChunkRecord)
+            .where(KnowledgeChunkRecord.version_id == published.ref.version_id)
+        )
+    assert stored_count == 2
+
+
+# 分块插入触发器必须同时校验父版本状态、工作台、块序号、正文切片和块指纹。
+@pytest.mark.asyncio
+async def test_chunk_insert_guard_validates_text_index_workspace_and_hash(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    draft = await _import(index, workspace_id, draft=_draft(text="突破 " * 400))
+    expected = prepare_chunks(draft.ref.version_id, draft.title, draft.text)
+    assert len(expected) == 2
+
+    async def expect_insert_error(values: dict[str, object], match: str) -> None:
+        async with migrated_database.session_factory() as session:
+            try:
+                with pytest.raises(DBAPIError, match=match):
+                    await session.execute(insert(KnowledgeChunkRecord).values(**values))
+                    await session.commit()
+            finally:
+                await session.rollback()
+
+    base_values: dict[str, object] = {
+        "id": uuid4(),
+        "version_id": draft.ref.version_id,
+        "workspace_id": workspace_id,
+        "chunk_index": 0,
+        "text": expected[0].text,
+        "sha256": expected[0].sha256,
+        "terms": list(expected[0].terms),
+        "title_terms": list(expected[0].title_terms),
+    }
+    await expect_insert_error(
+        {**base_values, "chunk_index": 2},
+        "index out of range",
+    )
+    await expect_insert_error(
+        {**base_values, "text": "不属于版本正文的内容", "sha256": "0" * 64},
+        "text mismatch",
+    )
+    await expect_insert_error(
+        {**base_values, "sha256": "0" * 64},
+        "hash mismatch",
+    )
+    await expect_insert_error(
+        {**base_values, "workspace_id": uuid4()},
+        "workspace mismatch",
+    )
+
+    async with migrated_database.session_factory() as session:
+        stored_count = await session.scalar(
+            select(func.count())
+            .select_from(KnowledgeChunkRecord)
+            .where(KnowledgeChunkRecord.version_id == draft.ref.version_id)
+        )
+    assert stored_count == 2
+
+
+# 即使已发布版本缺少某个范围内的块序号，也不能通过直接插入补齐；状态检查优先于序号检查。
+@pytest.mark.asyncio
+async def test_published_version_rejects_unoccupied_in_range_chunk(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    base = await _import(index, workspace_id)
+    draft = await _insert_draft_version_without_chunks(
+        migrated_database.session_factory,
+        document_id=base.document_id,
+        workspace_id=workspace_id,
+        text="突破 " * 400,
+    )
+    expected = prepare_chunks(draft.ref.version_id, draft.title, draft.text)[0]
+
+    async with migrated_database.session_factory() as session:
+        await session.execute(
+            update(KnowledgeVersionRecord)
+            .where(KnowledgeVersionRecord.id == draft.ref.version_id)
+            .values(state="published", state_version=1, published_at=NOW)
+        )
+        await session.commit()
+
+    async with migrated_database.session_factory() as session:
+        try:
+            with pytest.raises(DBAPIError, match="immutable"):
+                await session.execute(
+                    insert(KnowledgeChunkRecord).values(
+                        id=expected.chunk_id,
+                        version_id=draft.ref.version_id,
+                        workspace_id=workspace_id,
+                        chunk_index=expected.chunk_index,
+                        text=expected.text,
+                        sha256=expected.sha256,
+                        terms=list(expected.terms),
+                        title_terms=list(expected.title_terms),
+                    )
+                )
+                await session.commit()
+        finally:
+            await session.rollback()
+
+    async with migrated_database.session_factory() as session:
+        stored_count = await session.scalar(
+            select(func.count())
+            .select_from(KnowledgeChunkRecord)
+            .where(KnowledgeChunkRecord.version_id == draft.ref.version_id)
+        )
+    assert stored_count == 0
+
+
+# 发布时间必须在获取请求锁、版本行锁和文档行锁之后采样；锁等待期间推进的时钟不得被忽略。
+@pytest.mark.asyncio
+async def test_publish_time_is_sampled_after_lock_wait(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    draft = await _import(index, workspace_id, draft=_draft(text="突破 " * 100))
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(KnowledgeVersionRecord)
+            .where(KnowledgeVersionRecord.id == draft.ref.version_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        publish_task = asyncio.create_task(
+            index.publish(
+                workspace_id,
+                draft.ref,
+                expected_version=0,
+                request_id=uuid4(),
+            )
+        )
+        await asyncio.sleep(0.2)
+        assert not publish_task.done()
+        clock.advance(timedelta(minutes=5))
+
+    published = await publish_task
+
+    assert published.published_at == NOW + timedelta(minutes=5)
+    assert (
+        await index.search(
+            workspace_id,
+            KnowledgeQuery(text="突破", as_of=NOW + timedelta(minutes=1)),
+        )
+        == ()
+    )
+    assert (
+        len(
+            await index.search(
+                workspace_id,
+                KnowledgeQuery(text="突破", as_of=NOW + timedelta(minutes=5)),
+            )
+        )
+        == 1
+    )
+
+
+# 导入的 first_available_at 也必须在锁定既有文档后采样，不能把等锁时间提前记为可得。
+@pytest.mark.asyncio
+async def test_import_time_is_sampled_after_document_lock_wait(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    existing = await _import(index, workspace_id)
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(KnowledgeDocumentRecord)
+            .where(KnowledgeDocumentRecord.id == existing.document_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        import_task = asyncio.create_task(
+            index.import_text(
+                workspace_id,
+                _draft(
+                    document_id=existing.document_id,
+                    text="突破 等待锁之后的新正文",
+                ),
+                request_id=uuid4(),
+            )
+        )
+        await asyncio.sleep(0.2)
+        assert not import_task.done()
+        clock.advance(timedelta(minutes=5))
+
+    imported = await import_task
+
+    # 版本契约不暴露数据库 created_at；first_available_at 是历史检索使用的可得时间。
+    assert imported.first_available_at == NOW + timedelta(minutes=5)
+
+
+# 归档时间同样在文档行锁之后采样，避免审计时间早于实际操作。
+@pytest.mark.asyncio
+async def test_archive_time_is_sampled_after_document_lock_wait(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    published = await _published(index, workspace_id)
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(KnowledgeDocumentRecord)
+            .where(KnowledgeDocumentRecord.id == published.document_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        archive_task = asyncio.create_task(
+            index.archive(
+                workspace_id,
+                published.document_id,
+                expected_version=published.state_version,
+                request_id=uuid4(),
+            )
+        )
+        await asyncio.sleep(0.2)
+        assert not archive_task.done()
+        clock.advance(timedelta(minutes=5))
+
+    await archive_task
+
+    async with migrated_database.session_factory() as session:
+        document = await session.get(KnowledgeDocumentRecord, published.document_id)
+    assert document is not None
+    assert document.archived_at == NOW + timedelta(minutes=5)
+
+
+# 即使数据库触发器被绕过，search 也不能把不属于版本原文的伪造分块作为合法命中返回。
+# 临时禁用触发器只模拟已损坏数据库；测试结束后立即恢复，schema 仍由夹具回收。
+@pytest.mark.asyncio
+async def test_forged_chunk_cannot_become_legal_hit(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    published = await _published(
+        index,
+        workspace_id,
+        draft=_draft(title="方法", text="突破 成交量"),
+    )
+    schema = await _current_knowledge_schema(migrated_database.session_factory)
+    forged = "伪造历史命中"
+
+    try:
+        async with migrated_database.session_factory() as session:
+            await session.execute(
+                text(f'ALTER TABLE "{schema}".knowledge_chunks DISABLE TRIGGER USER')
+            )
+            await session.commit()
+        async with migrated_database.session_factory() as session:
+            await session.execute(
+                update(KnowledgeChunkRecord)
+                .where(KnowledgeChunkRecord.version_id == published.ref.version_id)
+                .values(
+                    text=forged,
+                    sha256=knowledge_text_sha256(forged),
+                    terms=list(tokenize(forged)),
+                    title_terms=list(tokenize(published.title)),
+                )
+            )
+            await session.commit()
+
+        with pytest.raises(KnowledgeIntegrityError):
+            await index.search(workspace_id, KnowledgeQuery(text=forged))
+    finally:
+        async with migrated_database.session_factory() as session:
+            await session.execute(
+                text(f'ALTER TABLE "{schema}".knowledge_chunks ENABLE TRIGGER USER')
+            )
+            await session.commit()
+
+
+# 发布持有版本行锁时，并发追加分块必须等待；发布提交后追加应被状态触发器拒绝。
+@pytest.mark.asyncio
+async def test_insert_waits_for_publish_lock_and_is_rejected(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    draft = await _import(index, workspace_id, draft=_draft(text="突破 " * 400))
+    forged = "发布后并发追加"
+
+    async def append_chunk() -> None:
+        async with migrated_database.session_factory() as session:
+            await session.execute(
+                insert(KnowledgeChunkRecord).values(
+                    id=uuid4(),
+                    version_id=draft.ref.version_id,
+                    workspace_id=workspace_id,
+                    chunk_index=2,
+                    text=forged,
+                    sha256=knowledge_text_sha256(forged),
+                    terms=list(tokenize(forged)),
+                    title_terms=list(tokenize(draft.title)),
+                )
+            )
+            await session.commit()
+
+    async with migrated_database.session_factory() as blocker, blocker.begin():
+        row = await blocker.execute(
+            select(KnowledgeDocumentRecord)
+            .where(KnowledgeDocumentRecord.id == draft.document_id)
+            .with_for_update()
+        )
+        assert row.scalar_one_or_none() is not None
+        publish_task = asyncio.create_task(
+            index.publish(
+                workspace_id,
+                draft.ref,
+                expected_version=0,
+                request_id=uuid4(),
+            )
+        )
+        await _wait_for_lock_wait(migrated_database.session_factory, "knowledge_documents")
+        insert_task = asyncio.create_task(append_chunk())
+        await asyncio.sleep(0.2)
+        assert not insert_task.done()
+
+    published = await publish_task
+    insert_result = (await asyncio.gather(insert_task, return_exceptions=True))[0]
+
+    assert published.status is KnowledgeStatus.PUBLISHED
+    assert isinstance(insert_result, DBAPIError)
+    assert "immutable" in str(insert_result)
+    assert len(await index.search(workspace_id, KnowledgeQuery(text="突破"))) == 2
+
+
+# 分块插入先持有草稿行锁、发布随后等待时，发布必须核对完整集合而拒绝缺失版本。
+@pytest.mark.asyncio
+async def test_publish_rejects_incomplete_chunk_set_after_concurrent_insert(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    index = SqlAlchemyKnowledgeIndex(migrated_database.session_factory, clock=clock)
+    workspace_id = uuid4()
+    base = await _import(index, workspace_id)
+    draft = await _insert_draft_version_without_chunks(
+        migrated_database.session_factory,
+        document_id=base.document_id,
+        workspace_id=workspace_id,
+        text="突破 " * 400,
+    )
+    expected_chunks = prepare_chunks(draft.ref.version_id, draft.title, draft.text)
+    assert len(expected_chunks) == 2
+    first = expected_chunks[0]
+
+    insert_session = migrated_database.session_factory()
+    await insert_session.begin()
+    publish_task: asyncio.Task[KnowledgeVersion] | None = None
+    try:
+        await insert_session.execute(
+            insert(KnowledgeChunkRecord).values(
+                id=first.chunk_id,
+                version_id=draft.ref.version_id,
+                workspace_id=workspace_id,
+                chunk_index=first.chunk_index,
+                text=first.text,
+                sha256=first.sha256,
+                terms=list(first.terms),
+                title_terms=list(first.title_terms),
+            )
+        )
+        publish_task = asyncio.create_task(
+            index.publish(
+                workspace_id,
+                draft.ref,
+                expected_version=0,
+                request_id=uuid4(),
+            )
+        )
+        await _wait_for_lock_wait(migrated_database.session_factory, "knowledge_versions")
+        await insert_session.commit()
+    except BaseException:
+        if publish_task is not None:
+            publish_task.cancel()
+            await asyncio.gather(publish_task, return_exceptions=True)
+        raise
+    finally:
+        await insert_session.close()
+
+    assert publish_task is not None
+    publish_result = (await asyncio.gather(publish_task, return_exceptions=True))[0]
+    assert isinstance(publish_result, KnowledgeIntegrityError)
+
+    async with migrated_database.session_factory() as session:
+        stored = await session.get(KnowledgeVersionRecord, draft.ref.version_id)
+    assert stored is not None
+    assert stored.state == KnowledgeStatus.DRAFT.value

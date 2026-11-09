@@ -35,8 +35,12 @@ from app.research.knowledge.contracts import (
 )
 from app.research.knowledge.indexing import (
     MAX_HITS,
+    chunk_at,
+    chunk_id_for,
     prepare_chunks,
     score_chunk,
+    sha256_text,
+    tokenize,
 )
 from app.shared.agent_types import (
     JsonObject,
@@ -85,12 +89,6 @@ class SqlAlchemyKnowledgeIndex:
         draft_payload = _draft_payload(draft)
         snapshot = _parse_import(draft_payload)
         request_sha = _request_sha(_ACTION_IMPORT, workspace_id, {"draft": draft_payload})
-        now = self._now()
-        if snapshot.declared_published_at is not None and snapshot.declared_published_at > now:
-            raise KnowledgeQueryError(
-                "用户声明发布时间不能晚于服务端当前时间",
-                code="knowledge_declared_time_in_future",
-            )
         try:
             async with self._factory() as session, session.begin():
                 await _lock_request(session, request_id)
@@ -105,14 +103,23 @@ class SqlAlchemyKnowledgeIndex:
                     return _version_result(replay)
 
                 document_id = snapshot.document_id or uuid4()
-                document = await self._prepare_document(
+                document, now = await self._prepare_document(
                     session,
                     workspace_id=workspace_id,
                     document_id=document_id,
                     create=snapshot.document_id is None,
-                    now=now,
                     snapshot=snapshot,
                 )
+                # first_available_at 在请求锁和既有文档行锁之后采样；等锁时间不得提前记为可得。
+                # 它仍是导入决策时间，不是 PostgreSQL 提交时间；草稿发布前不会进入检索。
+                if (
+                    snapshot.declared_published_at is not None
+                    and snapshot.declared_published_at > now
+                ):
+                    raise KnowledgeQueryError(
+                        "用户声明发布时间不能晚于服务端当前时间",
+                        code="knowledge_declared_time_in_future",
+                    )
                 version_id = uuid4()
                 candidate = KnowledgeVersion.build(
                     version_id=version_id,
@@ -181,7 +188,6 @@ class SqlAlchemyKnowledgeIndex:
                 "expectedVersion": expected_version,
             },
         )
-        now = self._now()
         try:
             async with self._factory() as session, session.begin():
                 await _lock_request(session, request_id)
@@ -216,6 +222,15 @@ class SqlAlchemyKnowledgeIndex:
                     raise KnowledgeNotAvailableError("知识文档已停用，不能发布新版本")
 
                 draft_version = _version_from_row(row, document)
+                await _verify_chunk_set(
+                    session,
+                    draft_version,
+                    workspace_id=workspace_id,
+                )
+                # 发布时间在请求锁、版本/文档行锁和分块集合校验之后采样，避免锁等待被提前计入。
+                # 它仍是发布决策时间而非 PostgreSQL 提交时间；采样到提交之间无法用普通时间戳
+                # 严格证明“当时已提交”，本实现不宣称严格提交时可得，见审查请求剩余限制。
+                now = self._now()
                 published = _published_version(
                     draft_version,
                     published_at=now,
@@ -267,7 +282,6 @@ class SqlAlchemyKnowledgeIndex:
             workspace_id,
             {"documentId": str(document_id), "expectedVersion": expected_version},
         )
-        now = self._now()
         try:
             async with self._factory() as session, session.begin():
                 await _lock_request(session, request_id)
@@ -283,6 +297,9 @@ class SqlAlchemyKnowledgeIndex:
                 document = await _lock_document(session, workspace_id, document_id)
                 if document.state_version != expected_version:
                     raise KnowledgeConflictError("知识文档代次已变化，请重新读取")
+                # 归档时间在文档行锁之后、状态写入之前采样；同 submit-time 语义：
+                # 它是服务端决策时间，不宣称严格等于数据库提交时间。
+                now = self._now()
                 if document.archived_at is None:
                     document.archived_at = now
                     document.state_version += 1
@@ -386,14 +403,18 @@ class SqlAlchemyKnowledgeIndex:
             select(
                 KnowledgeVersionRecord.id.label("version_id"),
                 KnowledgeVersionRecord.document_id.label("document_id"),
+                KnowledgeVersionRecord.workspace_id.label("version_workspace_id"),
                 KnowledgeVersionRecord.sha256.label("version_sha256"),
                 KnowledgeVersionRecord.title.label("title"),
                 KnowledgeVersionRecord.source.label("source"),
                 KnowledgeVersionRecord.scope.label("scope"),
+                KnowledgeVersionRecord.text.label("version_text"),
+                KnowledgeVersionRecord.chunk_count.label("version_chunk_count"),
                 KnowledgeVersionRecord.first_available_at.label("first_available_at"),
                 KnowledgeVersionRecord.declared_published_at.label("declared_published_at"),
                 KnowledgeVersionRecord.published_at.label("published_at"),
                 KnowledgeChunkRecord.id.label("chunk_id"),
+                KnowledgeChunkRecord.workspace_id.label("chunk_workspace_id"),
                 KnowledgeChunkRecord.chunk_index.label("chunk_index"),
                 KnowledgeChunkRecord.text.label("chunk_text"),
                 KnowledgeChunkRecord.sha256.label("chunk_sha256"),
@@ -411,6 +432,7 @@ class SqlAlchemyKnowledgeIndex:
             )
             .where(
                 KnowledgeVersionRecord.workspace_id == workspace_id,
+                KnowledgeChunkRecord.workspace_id == workspace_id,
                 KnowledgeVersionRecord.state == KnowledgeStatus.PUBLISHED.value,
                 KnowledgeDocumentRecord.archived_at.is_(None),
                 KnowledgeVersionRecord.access == query.access.value,
@@ -439,7 +461,7 @@ class SqlAlchemyKnowledgeIndex:
         except SQLAlchemyError:
             raise KnowledgeIndexError("知识索引检索不可用") from None
 
-        hits = tuple(_row_to_hit(row, terms) for row in rows)
+        hits = tuple(_row_to_hit(row, terms, workspace_id=workspace_id) for row in rows)
         return tuple(
             sorted(
                 hits,
@@ -451,7 +473,8 @@ class SqlAlchemyKnowledgeIndex:
             )
         )
 
-    # 新建或锁定既有文档；新建时先 flush 满足版本外键，既有文档不允许跨工作台或归档写入。
+    # 新建或锁定既有文档；返回与文档锁/请求锁同一时点采样的服务端 UTC 时间。
+    # 旧实现先采样再等锁，会把锁等待时间提前计入 first_available_at；现在改为锁后采样。
     async def _prepare_document(
         self,
         session: AsyncSession,
@@ -459,10 +482,10 @@ class SqlAlchemyKnowledgeIndex:
         workspace_id: UUID,
         document_id: UUID,
         create: bool,
-        now: datetime,
         snapshot: KnowledgeImport,
-    ) -> KnowledgeDocumentRecord:
+    ) -> tuple[KnowledgeDocumentRecord, datetime]:
         if create:
+            now = self._now()
             document = KnowledgeDocumentRecord(
                 id=document_id,
                 workspace_id=workspace_id,
@@ -476,7 +499,7 @@ class SqlAlchemyKnowledgeIndex:
             )
             session.add(document)
             await session.flush()
-            return document
+            return document, now
         document = await session.get(
             KnowledgeDocumentRecord,
             document_id,
@@ -486,7 +509,8 @@ class SqlAlchemyKnowledgeIndex:
             raise KnowledgeNotAvailableError("知识文档不存在或不属于当前工作台")
         if document.archived_at is not None:
             raise KnowledgeNotAvailableError("知识文档已停用，不能导入新版本")
-        return document
+        now = self._now()
+        return document, now
 
     # 并发相同请求在唯一约束上失败后重读已提交结果；内容不同按冲突处理。
     async def _replay_request(
@@ -670,6 +694,37 @@ def _chunk_rows(
     ]
 
 
+# 核对草稿的分块集合是否与版本正文完全一致：数量、序号、正文、指纹、词项、工作台和稳定块 ID。
+# 发布持有版本行 FOR UPDATE；分块 INSERT 的触发器会等待该锁，因此校验期间集合不会再变化。
+async def _verify_chunk_set(
+    session: AsyncSession,
+    version: KnowledgeVersion,
+    *,
+    workspace_id: UUID,
+) -> None:
+    rows = (
+        await session.scalars(
+            select(KnowledgeChunkRecord)
+            .where(KnowledgeChunkRecord.version_id == version.ref.version_id)
+            .order_by(KnowledgeChunkRecord.chunk_index)
+        )
+    ).all()
+    expected = prepare_chunks(version.ref.version_id, version.title, version.text)
+    if len(rows) != len(expected):
+        raise KnowledgeIntegrityError("知识分块数量与版本正文不一致")
+    for row, chunk in zip(rows, expected, strict=True):
+        if (
+            row.id != chunk.chunk_id
+            or row.workspace_id != workspace_id
+            or row.chunk_index != chunk.chunk_index
+            or row.text != chunk.text
+            or row.sha256 != chunk.sha256
+            or tuple(row.terms) != chunk.terms
+            or tuple(row.title_terms) != chunk.title_terms
+        ):
+            raise KnowledgeIntegrityError("知识分块集合与版本正文不一致")
+
+
 # 把发布版本推进到已发布状态；发布时间和文档代次由仓储提供，不读取客户端时间。
 def _published_version(
     version: KnowledgeVersion,
@@ -740,10 +795,33 @@ def _match_count(column: Any, terms: Any) -> Any:
     )
 
 
-# 将 SQL 行转为命中契约；先重算 4:1 分数和块指纹，防止 SQL 表达式或存储内容漂移。
-def _row_to_hit(row: Any, query_terms: tuple[str, ...]) -> KnowledgeHit:
+# 将 SQL 行转为命中契约；先核对工作台、块序号、原文切片、稳定块 ID 和词项，再重算分数。
+# 这样即使数据库触发器被绕过或历史行被直接改写，伪造分块也不能成为合法检索命中。
+def _row_to_hit(
+    row: Any,
+    query_terms: tuple[str, ...],
+    *,
+    workspace_id: UUID,
+) -> KnowledgeHit:
+    if row.version_workspace_id != workspace_id or row.chunk_workspace_id != workspace_id:
+        raise KnowledgeIntegrityError("知识命中行工作台不一致")
+    if not 0 <= row.chunk_index < row.version_chunk_count:
+        raise KnowledgeIntegrityError("知识命中块序号超出范围")
+    expected_text = chunk_at(row.version_text, row.chunk_index)
+    if row.chunk_text != expected_text:
+        raise KnowledgeIntegrityError("知识命中块与版本正文不一致")
+    expected_chunk_sha256 = sha256_text(expected_text)
+    if row.chunk_sha256 != expected_chunk_sha256:
+        raise KnowledgeIntegrityError("知识命中块指纹与版本正文不一致")
+    if row.chunk_id != chunk_id_for(row.version_id, row.chunk_index, expected_chunk_sha256):
+        raise KnowledgeIntegrityError("知识命中块标识与版本正文不一致")
+
     title_terms = tuple(str(term) for term in row.title_terms)
     body_terms = tuple(str(term) for term in row.terms)
+    if title_terms != tokenize(row.title):
+        raise KnowledgeIntegrityError("知识标题词项与标题不一致")
+    if body_terms != tokenize(row.chunk_text):
+        raise KnowledgeIntegrityError("知识分块词项与正文不一致")
     expected_score = score_chunk(title_terms, body_terms, query_terms)
     sql_score = int(row.score)
     if expected_score != sql_score or sql_score < 1:

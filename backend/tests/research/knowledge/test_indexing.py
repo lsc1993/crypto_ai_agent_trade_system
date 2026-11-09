@@ -25,6 +25,8 @@ from app.research.knowledge.indexing import (
     MAX_DOCUMENT_BYTES,
     MAX_HITS,
     MAX_QUERY_TERMS,
+    chunk_at,
+    chunk_id_for,
     chunk_text,
     prepare_chunks,
     score_chunk,
@@ -104,6 +106,37 @@ def test_chunk_text_uses_fixed_size_and_overlap() -> None:
     assert chunk_text("") == ()
     assert chunk_text("x" * CHUNK_SIZE) == ("x" * CHUNK_SIZE,)
     assert len(chunk_text("x" * (CHUNK_SIZE + 1))) == 2
+
+    # 数据库防护和检索校验使用 chunk_at；逐块拼接必须与 chunk_text 完全一致。
+    for length in (1, CHUNK_SIZE, CHUNK_SIZE + 1, 1900, 1901, 2500):
+        value = "甲" * length
+        chunks = chunk_text(value)
+        assert tuple(chunk_at(value, index) for index in range(len(chunks))) == chunks
+    assert chunk_at("abc", 1) == ""
+    with pytest.raises(ValueError):
+        chunk_at("abc", -1)
+
+
+# 稳定块 ID 由版本、序号和块指纹共同决定；任一变化都不能复用旧块标识。
+def test_chunk_id_binds_version_index_and_fingerprint() -> None:
+    version_id = uuid4()
+    fingerprint = "a" * 64
+
+    assert chunk_id_for(version_id, 0, fingerprint) == chunk_id_for(
+        version_id,
+        0,
+        fingerprint,
+    )
+    assert chunk_id_for(version_id, 0, fingerprint) != chunk_id_for(
+        version_id,
+        1,
+        fingerprint,
+    )
+    assert chunk_id_for(version_id, 0, fingerprint) != chunk_id_for(
+        version_id,
+        0,
+        "b" * 64,
+    )
 
 
 # 单文档上限按 UTF-8 字节而不是字符计算；空白正文、非法范围和本地时区都被拒绝。

@@ -1,6 +1,7 @@
 # 建立版本化关键词知识库：文档、不可变版本、GIN 词项分块与请求幂等记录。
 # 本迁移只新增前向表和索引，不迁移旧报告、不回写真实知识库、不发布任何用户资料。
-# 版本正文、分块和文档删除由触发器保护；发布只允许改变状态列，历史引用不删除。
+# 版本正文、分块集合和文档删除由触发器保护；发布只允许改变状态列，历史引用不删除。
+# 0020 尚未合并或应用到业务库；复审 P1 修复在首次合并前补齐分块 INSERT 防护。
 """Versioned keyword research knowledge tables."""
 
 from collections.abc import Sequence
@@ -243,6 +244,64 @@ def upgrade() -> None:
         CREATE TRIGGER trg_knowledge_chunks_immutable
         BEFORE UPDATE OR DELETE ON knowledge_chunks
         FOR EACH ROW EXECUTE FUNCTION reject_knowledge_chunk_mutation();
+        """
+    )
+
+    # 分块只允许在父版本仍为草稿时插入，且必须对应该版本正文的固定切片。
+    # FOR KEY SHARE 与 publish 的版本行 FOR UPDATE 冲突：发布先持锁时，追加等待后看到
+    # published 被拒绝；追加先持锁时，发布等待其提交并核对完整分块集合。
+    # 900/1000 与 research/knowledge/indexing.py 的 CHUNK_SIZE/CHUNK_OVERLAP 固定契约一致。
+    op.execute(
+        """
+        CREATE FUNCTION guard_knowledge_chunk_insert()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        DECLARE
+            parent_state text;
+            parent_workspace uuid;
+            parent_text text;
+            parent_chunk_count integer;
+            expected_text text;
+        BEGIN
+            EXECUTE format(
+                'SELECT state, workspace_id, text, chunk_count '
+                'FROM %I.knowledge_versions WHERE id = $1 FOR KEY SHARE',
+                TG_TABLE_SCHEMA
+            )
+            INTO parent_state, parent_workspace, parent_text, parent_chunk_count
+            USING NEW.version_id;
+
+            -- EXECUTE 不保证按 SELECT INTO 语义设置 FOUND；state 非空，用其作为存在哨兵。
+            IF parent_state IS NULL THEN
+                RAISE EXCEPTION 'knowledge chunk parent missing';
+            END IF;
+            IF parent_state <> 'draft' THEN
+                RAISE EXCEPTION 'knowledge chunks are immutable';
+            END IF;
+            IF NEW.workspace_id <> parent_workspace THEN
+                RAISE EXCEPTION 'knowledge chunk workspace mismatch';
+            END IF;
+            IF NEW.chunk_index < 0 OR NEW.chunk_index >= parent_chunk_count THEN
+                RAISE EXCEPTION 'knowledge chunk index out of range';
+            END IF;
+            expected_text := substr(parent_text, NEW.chunk_index * 900 + 1, 1000);
+            IF NEW.text IS DISTINCT FROM expected_text THEN
+                RAISE EXCEPTION 'knowledge chunk text mismatch';
+            END IF;
+            IF NEW.sha256 <> encode(sha256(convert_to(NEW.text, 'UTF8')), 'hex') THEN
+                RAISE EXCEPTION 'knowledge chunk hash mismatch';
+            END IF;
+            RETURN NEW;
+        END;
+        $$;
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_knowledge_chunks_insert_guard
+        BEFORE INSERT ON knowledge_chunks
+        FOR EACH ROW EXECUTE FUNCTION guard_knowledge_chunk_insert();
         """
     )
 
