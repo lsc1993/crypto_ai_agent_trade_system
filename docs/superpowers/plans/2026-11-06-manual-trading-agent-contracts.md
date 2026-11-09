@@ -1,6 +1,6 @@
 # 实盘手动计划 Agent：实施契约清单
 
-- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-09）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，首轮独立审查判定 P1/P2 不通过，修复提交 `8835a1d` 补充分块 INSERT 防护、发布/检索一致性校验和锁后时间采样，聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地资料/政策/成本/保证金/公开规则快照、单池 generation 与 `0021_planning_inputs` 迁移，聚焦 24、阶段回归 168、后端 full 1113 passed，自测 `verified`，当前为 `awaiting_review`；其余接口尚未实现。
+- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-09）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，首轮独立审查判定 P1/P2 不通过，修复提交 `8835a1d` 补充分块 INSERT 防护、发布/检索一致性校验和锁后时间采样，聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地资料/政策/成本/保证金/公开规则快照、单池 generation 与 `0021_planning_inputs` 迁移；首轮审查 4 项 P2 不通过后，修复提交 `4f0e7ae` 补齐冷却显式状态、规则刷新带锁重放、来源抓取时间和网关异常转换，聚焦 20 纯契约 + 12 SQL、阶段回归 176、后端 full 1121 passed，自测 `verified`，当前为 `awaiting_review`；其余接口尚未实现。
 - 主计划：[实施任务与验证](2026-11-06-manual-trading-agent-implementation.md)。
 - 依据：[需求 v2.0](../specs/2026-11-06-manual-trading-agent-requirements.md)、[架构 v2.0](../specs/2026-11-06-manual-trading-agent-design.md)。
 
@@ -68,7 +68,7 @@ class KnowledgeIndex(Protocol):
 
 | 类型 | 必需内容 |
 | --- | --- |
-| `PlanningProfileSnapshot` | 资料 ref、pool/generation、USDT 规划资金/可用保证金/剩余单日与组合风险、已有仓位/挂单风险及资金占用、当日损益资料日期、冷却截止/熔断状态、杠杆/保证金及持仓模式、`costs_ref: VersionRef \| None`、`margin_evidence: MarginEvidence \| None`、声明时间/有效期；未知显式为 None |
+| `PlanningProfileSnapshot` | 资料 ref、pool/generation、USDT 规划资金/可用保证金/剩余单日与组合风险、已有仓位/挂单风险及资金占用、当日损益资料日期、冷却状态/截止时间、熔断状态、杠杆/保证金及持仓模式、`costs_ref: VersionRef \| None`、`margin_evidence: MarginEvidence \| None`、声明时间/有效期；未知显式为 None。冷却状态必须显式：未知不完整，`none` 不得携带截止时间，`active` 必须有晚于声明时间的截止时间 |
 | `PlanningRiskPolicy` | 用户确认的单笔风险额、最大名义额/数量/杠杆、最小净盈亏比、日损与组合约束、止损强制要求、冷却/熔断规则，全部版本化；无默认金额、比例或杠杆，不读取模拟盘 RiskConfig |
 | `VenueRuleSnapshot` | ProductKey、合约乘数/数量单位、PRICE_FILTER/LOT_SIZE/MARKET_LOT_SIZE/MIN_NOTIONAL 等适用过滤器、交易状态、订单/触发/有效期支持、规则时刻/来源/有效期；缺项不可用，不能只看 pricePrecision/quantityPrecision |
 | `CostAssumptions` | 入场/止损/目标退出费率、滑点/价差与持有成本情景及上界、来源/声明/有效期；同一项不得在成交价和附加费重复计入 |
@@ -78,7 +78,7 @@ class KnowledgeIndex(Protocol):
 
 初始资料有效期 15 分钟、公开规则快照 60 分钟、费用/保证金资料取用户声明有效期与 15 分钟的较早者；均不得超过各自来源有效期。用于采纳/重验的报价最多 60 秒，已收盘序列覆盖最新所需周期。上述时效是本计划的保守初值，不代表市场长期稳定。UTC 跨日后单日剩余额度必须重新声明；不按新的一天自动恢复资金或释放未知占用。
 
-公开规则适配器放在 `infrastructure/market_rules/binance_usdm.py`，复用受控公开 HTTP 边界。当前 `market/binance_usdm.py:get_exchange_info()` 仅返回六个准入字段，不能直接作实盘过滤器来源。新增有类型的规则读取端口与固定 `/fapi/v1/exchangeInfo` 解析，旧方法行为兼容；不使用签名或私有档位接口。字段与模式支持必须在发布前只读复核现行官方说明。
+公开规则适配器放在 `infrastructure/market_rules/binance_usdm.py`，复用受控公开 HTTP 边界。当前 `market/binance_usdm.py:get_exchange_info()` 仅返回六个准入字段，不能直接作实盘过滤器来源。新增有类型的规则读取端口与固定 `/fapi/v1/exchangeInfo` 解析，旧方法行为兼容；不使用签名或私有档位接口。公开网关缓存命中必须沿用首次 HTTP 抓取时刻，规则快照的 60 分钟有效期按来源时间计算；网关类型化异常在规则适配器边界转换为 `planning_rule_unavailable`。字段与模式支持必须在发布前只读复核现行官方说明。
 
 `PlanningInputService.create_profile(workspace_id: UUID, draft: PlanningProfileDraft, *, request_id: UUID, expected_generation: int) -> PlanningProfileSnapshot` 与 `create_policy(workspace_id: UUID, draft: PlanningRiskPolicyDraft, *, request_id: UUID, expected_generation: int) -> PlanningRiskPolicy` 为 async；两个 Draft 位于 inputs.py，字段按上表，缺失资料明确保留。补录与某候选/数量/模式绑定的 MarginEvidence 也创建新 profile 版本，重验生成待审新材料；不把旧预览套用到变化数量。资料、政策、规则和成本齐备后由服务端 `resolve_refs(workspace_id: UUID) -> PlanningRefs | None` 组合引用，不要求创建一份不完整 profile 就返回完整 PlanningRefs。
 
