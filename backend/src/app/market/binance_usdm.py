@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from types import MappingProxyType
 from typing import cast
 
 import httpx
@@ -72,6 +73,34 @@ class PublicDerivativesMetrics:
     fetched_at: datetime
 
 
+# 公开 exchangeInfo 的单个过滤器；只保留上游字符串键值，解析语义留给规则适配器。
+@dataclass(frozen=True)
+class PublicExchangeFilter:
+    filter_type: str
+    values: Mapping[str, str]
+
+    # 冻结内部映射，防止缓存中的公开规则被调用方原地改写。
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+
+
+# 有类型的公开合约元数据；旧目录准入只提取六个字段，规划规则适配器读取完整过滤器。
+# 此类不包含账户、仓位、杠杆档位或私有接口，调用方只能基于公开响应构造。
+@dataclass(frozen=True)
+class PublicExchangeSymbol:
+    symbol: str
+    contract_type: str
+    status: str
+    base_asset: str
+    quote_asset: str
+    margin_asset: str
+    price_precision: int | None
+    quantity_precision: int | None
+    filters: tuple[PublicExchangeFilter, ...]
+    order_types: tuple[str, ...]
+    time_in_force: tuple[str, ...]
+
+
 # Binance USDⓈ-M 公共 REST 的唯一只读边界。
 class BinanceUsdmPublicMarketGateway:
     """Binance USDⓈ-M 公共 REST 的唯一只读边界。"""
@@ -98,19 +127,36 @@ class BinanceUsdmPublicMarketGateway:
         self._sleep = sleep
         self._summary_cache: AsyncTtlCache[MarketSummary] = AsyncTtlCache(clock)
         self._candle_cache: AsyncTtlCache[CandleSeries] = AsyncTtlCache(clock)
-        self._exchange_info_cache: AsyncTtlCache[dict[str, str] | None] = AsyncTtlCache(clock)
+        self._exchange_info_cache: AsyncTtlCache[PublicExchangeSymbol | None] = AsyncTtlCache(clock)
 
     # 读取公开合约元数据作为目录准入依据；未找到标的时返回空值。
     async def get_exchange_info(self, symbol: str) -> dict[str, str] | None:
         """Read only contract metadata used to admit an eligible research symbol."""
+        typed = await self.get_exchange_symbol_rules(symbol)
+        if typed is None:
+            return None
+        # 旧准入方法只暴露原有六个字段；新增过滤器不改变目录准入行为。
+        return {
+            "symbol": typed.symbol,
+            "baseAsset": typed.base_asset,
+            "quoteAsset": typed.quote_asset,
+            "marginAsset": typed.margin_asset,
+            "contractType": typed.contract_type,
+            "status": typed.status,
+        }
+
+    # 读取有类型的公开合约规则元数据；规划规则适配器据此解析真实 tick/step/最小名义额。
+    # 解析仍限制在固定主机的公开 exchangeInfo，不访问签名、账户或杠杆档位接口。
+    async def get_exchange_symbol_rules(self, symbol: str) -> PublicExchangeSymbol | None:
+        """读取公开 exchangeInfo 中的类型化合约元数据。"""
         return await self._exchange_info_cache.get_or_load(
-            f"exchange-info:{symbol}",
-            lambda: self._fetch_exchange_info(symbol),
+            f"exchange-symbol:{symbol}",
+            lambda: self._fetch_exchange_symbol(symbol),
             EXCHANGE_INFO_TTL,
         )
 
-    # 从公开合约列表定位唯一标的，只返回所需字符串元数据；缺失返回空值，重复或字段异常拒绝。
-    async def _fetch_exchange_info(self, symbol: str) -> dict[str, str] | None:
+    # 从公开合约列表定位唯一标的并校验基础结构；缺失返回空值，重复或字段异常拒绝。
+    async def _fetch_exchange_symbol(self, symbol: str) -> PublicExchangeSymbol | None:
         payload = _mapping_payload(await self._get_public_json("/fapi/v1/exchangeInfo", {}))
         rows = payload.get("symbols")
         if not isinstance(rows, list):
@@ -131,16 +177,22 @@ class BinanceUsdmPublicMarketGateway:
         if not matches:
             return None
         row = matches[0]
-        values: dict[str, str] = {}
-        for field in ("symbol", "baseAsset", "quoteAsset", "marginAsset", "contractType", "status"):
-            value = row.get(field)
-            if not isinstance(value, str) or not value.strip():
-                raise MarketDataUnavailableError(
-                    "market_data_invalid_response",
-                    "公开合约信息字段无效",
-                )
-            values[field] = value.strip()
-        return values
+        filters = _exchange_filters(row.get("filters"))
+        order_types = _string_tuple(row.get("orderTypes"), "公开合约订单类型")
+        time_in_force = _string_tuple(row.get("timeInForce"), "公开合约有效期类型")
+        return PublicExchangeSymbol(
+            symbol=_required_string(row, "symbol"),
+            contract_type=_required_string(row, "contractType"),
+            status=_required_string(row, "status"),
+            base_asset=_required_string(row, "baseAsset"),
+            quote_asset=_required_string(row, "quoteAsset"),
+            margin_asset=_required_string(row, "marginAsset"),
+            price_precision=_optional_non_negative_int(row, "pricePrecision"),
+            quantity_precision=_optional_non_negative_int(row, "quantityPrecision"),
+            filters=filters,
+            order_types=order_types,
+            time_in_force=time_in_force,
+        )
 
     # 并发获取多个白名单标的的缓存行情摘要。
     async def get_summaries(
@@ -555,6 +607,82 @@ def _closed_candles_from_payload(
             "公开行情未提供已收盘 K 线",
         )
     return tuple(sorted(candles, key=lambda candle: candle.open_at))
+
+
+# 提取公开合约过滤器，只保留字符串字段；缺失或结构异常按公开响应无效拒绝。
+def _exchange_filters(value: object) -> tuple[PublicExchangeFilter, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise MarketDataUnavailableError(
+            "market_data_invalid_response",
+            "公开合约过滤器格式无效",
+        )
+    filters: list[PublicExchangeFilter] = []
+    for item in cast(list[object], value):
+        if not isinstance(item, Mapping):
+            raise MarketDataUnavailableError(
+                "market_data_invalid_response",
+                "公开合约过滤器格式无效",
+            )
+        row = cast(Mapping[str, object], item)
+        filter_type = row.get("filterType")
+        if not isinstance(filter_type, str) or not filter_type.strip():
+            raise MarketDataUnavailableError(
+                "market_data_invalid_response",
+                "公开合约过滤器类型无效",
+            )
+        # 仅保留字符串值；布尔/数值字段不进入规则解析，避免上游结构漂移被误读。
+        values = {
+            key: candidate.strip()
+            for key, candidate in row.items()
+            if key != "filterType" and isinstance(candidate, str) and candidate.strip()
+        }
+        filters.append(PublicExchangeFilter(filter_type=filter_type.strip(), values=values))
+    return tuple(filters)
+
+
+# 提取公开合约的订单类型/有效期类型数组，并保持上游顺序去重。
+def _string_tuple(value: object, label: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise MarketDataUnavailableError("market_data_invalid_response", f"{label}格式无效")
+    items: list[str] = []
+    seen: set[str] = set()
+    for candidate in cast(list[object], value):
+        if not isinstance(candidate, str) or not candidate.strip():
+            raise MarketDataUnavailableError("market_data_invalid_response", f"{label}格式无效")
+        normalized = candidate.strip()
+        if normalized not in seen:
+            seen.add(normalized)
+            items.append(normalized)
+    return tuple(items)
+
+
+# 读取非空字符串字段；公开合约身份字段缺失时拒绝，不能用空值继续准入。
+def _required_string(payload: Mapping[str, object], field: str) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise MarketDataUnavailableError(
+            "market_data_invalid_response",
+            "公开合约信息字段无效",
+        )
+    return value.strip()
+
+
+# 读取可选非负整数字段；旧目录准入只要求六个字段，精度字段不是规则来源。
+# 若上游提供精度但类型异常仍拒绝，避免把结构漂移静默带入后续解析。
+def _optional_non_negative_int(payload: Mapping[str, object], field: str) -> int | None:
+    value = payload.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise MarketDataUnavailableError(
+            "market_data_invalid_response",
+            "公开合约信息字段无效",
+        )
+    return value
 
 
 # 将上游响应限定为映射结构，结构错误转换成安全行情错误。

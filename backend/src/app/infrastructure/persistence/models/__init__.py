@@ -28,6 +28,14 @@ from app.infrastructure.persistence.models.paper_trading import (
     PaperOrderRecord,
     PaperPositionRecord,
 )
+from app.infrastructure.persistence.models.planning_inputs import (
+    PlanningCostRecord,
+    PlanningInputRequestRecord,
+    PlanningPoolRecord,
+    PlanningProfileRecord,
+    PlanningRiskPolicyRecord,
+    PlanningVenueRuleRecord,
+)
 from app.infrastructure.persistence.models.research_strategies import (
     StrategyCatalogRequestRecord,
     StrategyDefinitionRecord,
@@ -69,6 +77,12 @@ __all__ = [
     "PaperMarketSnapshotRecord",
     "PaperOrderRecord",
     "PaperPositionRecord",
+    "PlanningCostRecord",
+    "PlanningInputRequestRecord",
+    "PlanningPoolRecord",
+    "PlanningProfileRecord",
+    "PlanningRiskPolicyRecord",
+    "PlanningVenueRuleRecord",
     "ResearchNewsLinkRecord",
     "ResearchSymbolEventRecord",
     "ResearchSymbolRecord",
