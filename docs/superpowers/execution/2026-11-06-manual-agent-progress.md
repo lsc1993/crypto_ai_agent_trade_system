@@ -1,22 +1,23 @@
 # 实盘手动计划 Agent 开发进度
 
-- 记录日期：2026-11-08
+- 记录日期：2026-11-09
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 当前为 `verified`/`awaiting_review`，尚未取得正式审查结论。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T01 代码/复审文档已 fast-forward 合并，合并前 tip `e12de3a`；本条为合并后状态记录） |
-| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t01` |
-| 分支 | `task/manual-agent-t01` |
-| base | `6f293fec8d47541ae001afdd3bb4295f298f0cdb`（`main`，T01 开始时工作区干净） |
-| implementation tip | `159a43be3822e6f0fcbd314da67719187c06e610`（复审修复提交） |
-| tree | `6dc9d2f3bb0b1c8d7ab5f7e748a7fef7ff618ebd` |
-| reviewed_tip | `159a43be3822e6f0fcbd314da67719187c06e610`（用户于 2026-11-08 传回原审查助手正式通过结论） |
-| 上一轮受审 tip | `f870de19c8c1434ce6e089e970a67a46607572c7`（T00 正式通过） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T01 代码/复审文档已 fast-forward 合并，T02 从合并后的 `fed38bd` 建立隔离工作区） |
+| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t02` |
+| 分支 | `task/manual-agent-t02` |
+| base | `fed38bd97835a1325fd399d5334d10c853cae9e1`（`main`，T02 开始时工作区干净） |
+| implementation tip | `ed8e887cae1212f99808e0a381936decef66b6f7`（`feat: add governed keyword knowledge retrieval`） |
+| tree | `f6bd479930b9a1234d242457d16a4102576232a9` |
+| review_status | `awaiting_review`（待原审查助手审查；开发自测不等于正式通过） |
+| reviewed_tip | 未设置（尚未收到正式审查结论） |
+| 上一轮受审 tip | `159a43be3822e6f0fcbd314da67719187c06e610`（T01 正式通过） |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -114,9 +115,47 @@
 - 前端未在本轮改动；本轮 full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build，也未执行浏览器 e2e 或 http-e2e。
 - 未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易请求。
 
+## T02：可用的关键词 RAG（D1）
+
+| 项目 | 记录 |
+| --- | --- |
+| 任务 | T02；版本化关键词知识库、确定性分块/词项/评分、GIN 检索、请求幂等、归档与历史可得性 |
+| FR/AC/HN | FR-04；AC-04、AC-05（本轮只交付检索与引用基础，上下文裁剪/预算在 T08/T09）；HN-09、HN-10。未实现 FR-05 的上下文管理、T08/T09 工具循环或真实知识质量评估 |
+| 时间 | 2026-11-09 |
+| 任务状态 | `verified`（实现、聚焦、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
+| review_status | `awaiting_review`（待原审查助手审查） |
+| reviewed_tip | 未设置 |
+| 改动 | 13 个文件，+3067 / -0；新增 `research/knowledge/` 契约/纯索引/端口/服务、SQL 知识索引、ORM 模型、`0020_research_knowledge` 迁移和 3 个测试文件 |
+| 公共接口 | `KnowledgeImport`、`KnowledgeVersion`、`KnowledgeQuery`、`KnowledgeHit`、`KnowledgeStatus`、`KnowledgeAccess`；`KnowledgeIndex`、`KnowledgeService`；`tokenize`、`chunk_text`、`prepare_chunks`、`score_chunk`；`SqlAlchemyKnowledgeIndex` |
+| 依赖/迁移 | 无新增依赖；新增前向迁移 `0020_research_knowledge`（knowledge_documents/versions/chunks/index_requests、词项 GIN、正文/分块不可变触发器）；迁移 head 为 `0020_research_knowledge`；未迁移业务库 |
+| 验证 | 首轮缺模块 3 collection errors；纯契约 15 passed；聚焦（含真实 SQL 并发/历史/触发器）30 passed；阶段回归 126 passed；后端 full 1079 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿 |
+| 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实知识库召回质量、T08/T09 上下文与工具接入、T03/T18 产品规则、业务库迁移；未执行真实策略算法或收益评估 |
+| 遗留 | T02 待原审查助手审查；本轮停止新增模块开发，不自动开始 T03。正式结论只能由用户传回原审查助手结论后记录 |
+
+### T02 测试证据
+
+| 检查 | 目录 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 首轮预期红（缺模块） | `backend/` | `uv run --locked --no-sync pytest tests/research/knowledge tests/persistence/test_knowledge_index.py -q --basetemp=../../.tmp/pytest/t02-red-20261109` | 3 collection errors（缺少新模块），退出 1；符合预期 |
+| 纯契约首轮（测试断言修正） | `backend/` | `uv run --locked --no-sync pytest tests/research/knowledge -q --basetemp=../../.tmp/pytest/t02-pure1-20261109` | 12 passed / 3 failed，退出 1；失败为中文双字词计数、分块长度和 4:1 评分期望写错，已修正测试断言，非实现缺陷 |
+| 纯契约复跑 | `backend/` | `uv run --locked --no-sync pytest tests/research/knowledge -q --basetemp=../../.tmp/pytest/t02-pure2-20261109` | 15 passed，退出 0 |
+| 聚焦绿（含真实 SQL） | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/persistence/test_knowledge_index.py -q --basetemp=../../.tmp/pytest/t02-fourth-green-20261109` | 30 passed，退出 0；含请求并发、历史时点、范围/工作台、六块上限、内容去重、不可变触发器 |
+| 阶段回归 | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/research/strategies tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/persistence/test_strategy_catalog.py tests/agent/test_technical_engine.py -q --basetemp=../../.tmp/pytest/t02-stage-20261109` | 126 passed，退出 0；含 T01 策略目录与既有技术引擎回归 |
+| 后端 full | 仓库根目录 | 临时 PostgreSQL 17 + `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t02-full-backend.json` | `verification=passed`；后端 1079 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t02-full-backend.json` |
+| 架构门禁 | `backend/` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=38`，`findings=[]`，退出 0 |
+| 静态检查 | `backend/` | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 全部通过，退出 0 |
+| 迁移链 | `backend/` | `uv run --locked --no-sync alembic heads` | `0020_research_knowledge (head)`，退出 0 |
+
+### 环境说明
+
+- 验证进程继承宿主的生产环境变量（仅列变量名：`APP_ENV`、`CORS_ALLOWED_ORIGINS`、`DEEPSEEK_MODEL`、`DATABASE_URL`、`NODE_ENV`）以及缺失键的 `GIT_CONFIG_COUNT`。为复现项目测试默认值，只在验证进程内移除这些变量，未修改 `.env` 或业务配置。
+- 专用测试库为临时 PostgreSQL 17 容器（tmpfs、本机回环随机端口、仅容器内 trust 认证、受限角色 `crypto_research_test_runner`），通过项目 `check_test_database` 身份与权限预检后使用；未指向业务库，未修改业务库。验证完成后回收容器与临时数据。
+- 前端未在本轮改动；本轮 full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build，也未执行浏览器 e2e 或 http-e2e。
+- 未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易请求；未接收真实用户知识资料。
+
 ## 后续接续规则
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-3. 下一审查单元（T02）须等待用户明确指定；不得因 T01 通过而自动推进。
-4. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
+3. T02 已实现并完成本轮自测，implementation tip 为 `ed8e887`；`review_status=awaiting_review`，尚未取得原审查助手正式结论。不得因开发自测通过而自行标记 approved 或开始 T03。
+4. 收到审查意见后先核对/复现，再逐条修复并补回归；修复后记录新 tip、变更与验证，再次交审。只有用户传回原审查助手对当前版本的通过结论，且本轮必需验证完成，才可放行下一审查单元。

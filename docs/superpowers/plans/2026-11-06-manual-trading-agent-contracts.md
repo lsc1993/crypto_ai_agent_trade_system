@@ -1,6 +1,6 @@
 # 实盘手动计划 Agent：实施契约清单
 
-- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-08）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；其余接口尚未实现。
+- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-09）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，完成聚焦、SQL 并发/历史回归和后端 full（1079 passed），当前 `review_status=awaiting_review`，等待原审查助手正式审查；其余接口尚未实现。
 - 主计划：[实施任务与验证](2026-11-06-manual-trading-agent-implementation.md)。
 - 依据：[需求 v2.0](../specs/2026-11-06-manual-trading-agent-requirements.md)、[架构 v2.0](../specs/2026-11-06-manual-trading-agent-design.md)。
 
