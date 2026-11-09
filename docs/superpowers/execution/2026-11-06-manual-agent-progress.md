@@ -2,22 +2,22 @@
 
 - 记录日期：2026-11-09
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 当前为 `verified`/`awaiting_review`，尚未取得正式审查结论。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T01 代码/复审文档已 fast-forward 合并，T02 从合并后的 `fed38bd` 建立隔离工作区） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T02 代码/复审文档已 fast-forward 合并，合并前 tip `26e5741`；本条为合并后状态记录） |
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t02` |
 | 分支 | `task/manual-agent-t02` |
 | base | `fed38bd97835a1325fd399d5334d10c853cae9e1`（`main`，T02 开始时工作区干净） |
 | 原 implementation tip | `ed8e887cae1212f99808e0a381936decef66b6f7`（首轮正式审查不通过） |
 | 复审修复 tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`（`fix: harden T02 knowledge chunk freezing and timestamps`） |
 | tree | `daf6f394aa9125183af4a847f8bc96b34119f748` |
-| review_status | `awaiting_review`（待原审查助手复审；开发自测不等于正式通过） |
-| reviewed_tip | 未设置（尚未收到正式审查结论） |
+| review_status | `approved`（用户于 2026-11-09 传回原审查助手正式通过结论） |
+| reviewed_tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9` |
 | 上一轮受审 tip | `159a43be3822e6f0fcbd314da67719187c06e610`（T01 正式通过） |
 
 ## T00：治理内核与规范迁移（D0）
@@ -123,15 +123,15 @@
 | 任务 | T02；版本化关键词知识库、确定性分块/词项/评分、GIN 检索、请求幂等、归档与历史可得性 |
 | FR/AC/HN | FR-04；AC-04、AC-05（本轮只交付检索与引用基础，上下文裁剪/预算在 T08/T09）；HN-09、HN-10。未实现 FR-05 的上下文管理、T08/T09 工具循环或真实知识质量评估 |
 | 时间 | 2026-11-09；首轮实现 `ed8e887`，复审修复 `8835a1d` |
-| 任务状态 | `verified`（实现、复审修复、聚焦、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（待原审查助手复审） |
-| reviewed_tip | 未设置 |
+| 任务状态 | `verified`（实现、复审修复、聚焦、迁移/并发回归、静态检查和后端 full 已完成） |
+| review_status | `approved`（用户于 2026-11-09 传回原审查助手正式通过结论） |
+| reviewed_tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9` |
 | 改动 | 首轮 13 个文件，+3067 / -0；复审修复 5 个文件，+744 / -33（分块 INSERT 防护、锁后时间采样、发布/检索一致性校验及回归测试） |
 | 公共接口 | `KnowledgeImport`、`KnowledgeVersion`、`KnowledgeQuery`、`KnowledgeHit`、`KnowledgeStatus`、`KnowledgeAccess`；`KnowledgeIndex`、`KnowledgeService`；`tokenize`、`chunk_text`、`chunk_at`、`chunk_id_for`、`prepare_chunks`、`score_chunk`；`SqlAlchemyKnowledgeIndex` |
 | 依赖/迁移 | 无新增依赖；新增前向迁移 `0020_research_knowledge`（knowledge_documents/versions/chunks/index_requests、词项 GIN、正文/分块 UPDATE/DELETE 与 INSERT 防护触发器）；迁移 head 为 `0020_research_knowledge`；未迁移业务库 |
 | 验证 | 复审修复前 7 failed / 15 passed（新回归精确暴露 P1/P2）；修复后聚焦 40 passed；阶段回归 136 passed；后端 full 1089 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿 |
 | 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实知识库召回质量、T08/T09 上下文与工具接入、T03/T18 产品规则、业务库迁移；未执行真实策略算法或收益评估；未宣称严格数据库提交时可得 |
-| 遗留 | T02 复审修复已完成，等待原审查助手复审；本轮停止新增模块开发，不自动开始 T03。正式结论只能由用户传回原审查助手结论后记录 |
+| 遗留 | T02 已通过正式复审并以 fast-forward 合并到 `main`；不自动开始 T03，等待用户指定下一审查单元 |
 
 ### T02 测试证据
 
@@ -158,6 +158,12 @@
 
 迁移兼容：`0020_research_knowledge` 仍在 T02 未合并分支，未应用到任何业务库；审查方此前也未进行数据库实测。因此复审修复直接补齐 `0020` 的分块 INSERT 防护，不新增 `0021`、不改变迁移 head。若某个临时 schema 已执行旧版 `0020`，重建该临时 schema 即可；业务库没有需要前向修补的已应用迁移。
 
+### T02 复审结论
+
+- 2026-11-09 用户传回原审查助手正式通过结论；`reviewed_tip` 为 `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`，审查请求中的正式状态已改为 `approved`。
+- T02 代码与复审文档以 fast-forward 从 `fed38bd` 合并到 `main`；本条状态记录是合并后的 docs 提交，具体 hash 见最终回复。
+- T02 状态为 `verified`/`approved`。不自动开始 T03；下一审查单元须等待用户明确指定。
+
 ### 环境说明
 
 - 验证进程继承宿主的生产环境变量（仅列变量名：`APP_ENV`、`CORS_ALLOWED_ORIGINS`、`DEEPSEEK_MODEL`、`DATABASE_URL`、`NODE_ENV`）以及缺失键的 `GIT_CONFIG_COUNT`。为复现项目测试默认值，只在验证进程内移除这些变量，未修改 `.env` 或业务配置。
@@ -169,5 +175,6 @@
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-3. T02 首轮实现 `ed8e887` 经独立审查判定不通过；P1/P2 修复提交为 `8835a1d`，`review_status=awaiting_review`，尚未取得原审查助手正式结论。不得因开发自测通过而自行标记 approved 或开始 T03。
-4. 收到审查意见后先核对/复现，再逐条修复并补回归；修复后记录新 tip、变更与验证，再次交审。只有用户传回原审查助手对当前版本的通过结论，且本轮必需验证完成，才可放行下一审查单元。
+3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
+4. 下一审查单元（T03）须等待用户明确指定；不得因 T02 通过而自动推进。
+5. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
