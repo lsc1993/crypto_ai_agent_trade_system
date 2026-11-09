@@ -2,23 +2,22 @@
 
 - 记录日期：2026-11-09
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 自测为 `verified`，正式审查为 `awaiting_review`，未获通过前不得进入 T04。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T02 代码/复审文档已 fast-forward 合并，合并前 tip `26e5741`；本条为合并后状态记录） |
-| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t02` |
-| 分支 | `task/manual-agent-t02` |
-| base | `fed38bd97835a1325fd399d5334d10c853cae9e1`（`main`，T02 开始时工作区干净） |
-| 原 implementation tip | `ed8e887cae1212f99808e0a381936decef66b6f7`（首轮正式审查不通过） |
-| 复审修复 tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`（`fix: harden T02 knowledge chunk freezing and timestamps`） |
-| tree | `daf6f394aa9125183af4a847f8bc96b34119f748` |
-| review_status | `approved`（用户于 2026-11-09 传回原审查助手正式通过结论） |
-| reviewed_tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9` |
-| 上一轮受审 tip | `159a43be3822e6f0fcbd314da67719187c06e610`（T01 正式通过） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T02 代码/复审文档已 fast-forward 合并，合并前 tip `26e5741`；T03 未合并） |
+| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t03` |
+| 分支 | `task/manual-agent-t03` |
+| base | `6fb08b5d455cfb6bca40e636a932e1edc46c855c`（`main`，T02 合并后；T03 开始时工作区干净） |
+| implementation tip | `144e5019b904a7194d42bac9eaf55dab4d8c6162`（`feat: add local planning inputs and venue rule snapshots`） |
+| tree | `979dfe32d0711030d5a0784a88f7848666d758cb` |
+| review_status | `awaiting_review`（等待原审查助手正式审查） |
+| reviewed_tip | 未填写（开发模型不得预填正式通过） |
+| 上一轮受审 tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`（T02 正式通过） |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -171,10 +170,49 @@
 - 前端未在本轮改动；本轮 full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build，也未执行浏览器 e2e 或 http-e2e。
 - 未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易请求；未接收真实用户知识资料。
 
+## T03：规划资料、政策与受支持产品规则（D1）
+
+| 项目 | 记录 |
+| --- | --- |
+| 任务 | T03；C3 本地财务资料/风险政策/成本/保证金证据/公开规则快照、单池 generation、请求幂等、BTC/ETH USDT 线性永续逐仓支持目录与 `0021_planning_inputs` 迁移 |
+| FR/AC/HN | FR-14、FR-15；AC-21 至 AC-25、AC-29、AC-30 的输入/规则/时效基础；HN-13、HN-14、HN-15。T03 不实现完成数量/风险/保证金计算、可实施状态、采纳占用或释放流程，这些仍由 T12/T13 完成 |
+| 时间 | 2026-11-09 |
+| 任务状态 | `verified`（实现、聚焦、阶段回归、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
+| review_status | `awaiting_review`（尚未收到原审查助手结论） |
+| implementation tip | `144e5019b904a7194d42bac9eaf55dab4d8c6162`（`feat: add local planning inputs and venue rule snapshots`） |
+| tree | `979dfe32d0711030d5a0784a88f7848666d758cb` |
+| 改动 | 17 个文件，+4108 / -15；新增 `trade_planning/` 五个模块、`market_rules/binance_usdm.py`、规划输入 ORM/仓储、`0021_planning_inputs.py` 及四组测试；修改公开行情网关和模型注册 |
+| 公共接口 | `PlanningProfileDraft`/`PlanningProfileSnapshot`、`PlanningRiskPolicyDraft`/`PlanningRiskPolicy`、`CostAssumptionsDraft`/`CostAssumptions`、`MarginEvidenceDraft`/`MarginEvidence`、`VenueRuleSnapshot`、`PlanningRefs`、`MarginMode`/`PositionMode`/`QuantityUnit`、规划错误码；`PlanningInputService.create_profile/create_policy/refresh_venue_rules/resolve_refs/get_pool`；`PlanningInputRepository`、`PublicRuleReader`；`BinanceUsdmPublicRuleReader`；`SqlAlchemyPlanningInputRepository`；公开网关新增 `PublicExchangeFilter`/`PublicExchangeSymbol`/`get_exchange_symbol_rules` |
+| 依赖/迁移 | 无新增依赖；新增前向迁移 `0021_planning_inputs`（planning_pools、planning_profiles、planning_risk_policies、planning_costs、planning_venue_rules、planning_input_requests、唯一工作台池、版本/请求不可变触发器）；迁移 head 为 `0021_planning_inputs`；未迁移业务库 |
+| 验证 | 首轮纯契约预期红 3 collection errors、SQL 预期红 1 collection error；最终纯契约 15 passed、SQL 9 passed、D1 阶段回归 168 passed、后端 full 1113 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿；迁移链 head `0021_planning_inputs` |
+| 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实公开源持续可用性、真实产品规则发布/官方复验、业务库迁移；未实现 T12/T13 的数量/风险/保证金计算、可实施状态、采纳互斥和未知占用释放 |
+| 遗留 | T03 等待原审查助手审查；未获通过前不开始 T04。审查请求见 `docs/superpowers/reviews/manual-agent/T03-review-request.md` |
+
+### T03 测试证据
+
+| 检查 | 目录 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 首轮纯契约预期红 | `backend/`（隔离工作区） | `uv run --locked --no-sync pytest tests/trade_planning/test_inputs.py tests/trade_planning/test_product_support.py tests/market/test_planning_rules.py -q --basetemp=../.tmp/pytest/t03-red-pure-20261109` | 3 collection errors（缺少 `app.trade_planning`/`app.infrastructure.market_rules`），退出 1；符合测试先行预期 |
+| 首轮 SQL 预期红 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py -q --basetemp=../.tmp/pytest/t03-red-db-20261109` | 1 collection error（缺少 `models.planning_inputs`），退出 1；符合测试先行预期 |
+| 最终纯契约/规则聚焦 | `backend/`（隔离工作区） | `uv run --locked --no-sync pytest tests/trade_planning/test_inputs.py tests/trade_planning/test_product_support.py tests/market/test_planning_rules.py -q --basetemp=../.tmp/pytest/t03-final-pure-20261109` | 15 passed，退出 0；含十进制拒绝、未知占用、时效、嵌套指纹、产品目录、tick/step/最小名义额解析 |
+| 最终 SQL 聚焦 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py -q --basetemp=../.tmp/pytest/t03-final-db-20261109` | 9 passed，退出 0；含单池代次、请求重放、并发首建、资料/政策/规则/成本组合、规则刷新重放、过期/跨日与不可变触发器 |
+| D1 阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/persistence/test_planning_inputs.py tests/persistence/test_migrations.py tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t03-stage2-20261109` | 168 passed，退出 0；含 T01 策略目录、T02 知识索引、迁移链和既有技术引擎回归 |
+| 后端 full（tip） | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t03-full-backend-tip2.json` | `verification=passed`；后端 1113 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t03-full-backend-tip2.json` |
+| 架构门禁 | `backend/`（隔离工作区） | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=38`，`findings=[]`，退出 0 |
+| 静态检查 | `backend/`（隔离工作区） | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 全部通过，退出 0；pyright 0 errors / 0 warnings |
+| 迁移链 | `backend/`（隔离工作区） | `uv run --locked --no-sync alembic heads` | `0021_planning_inputs (head)`，退出 0 |
+
+### T03 环境说明
+
+- 隔离工作区从 `main` 的 `6fb08b5` 创建；初始代码改动复制到工作区后 `main` 恢复干净。工作区使用独立 `.venv`（锁定依赖 68 包）和专用临时 PostgreSQL 17 容器；`TEST_DATABASE_URL` 仅指向固定测试库/受限角色，通过 `check_test_database` 身份与权限预检，未指向业务库。
+- 验证进程内移除宿主 `APP_ENV`、`CORS_ALLOWED_ORIGINS`、`DEEPSEEK_MODEL`、`DATABASE_URL`、`NODE_ENV`、`GIT_CONFIG_COUNT`，未修改 `.env` 或业务配置。
+- 前端未在本轮改动；full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build、浏览器 e2e 或 http-e2e。
+- 未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易请求；测试资金/费率/保证金/规则全部为合成资料。
+
 ## 后续接续规则
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-4. 下一审查单元（T03）须等待用户明确指定；不得因 T02 通过而自动推进。
+4. T03 当前为 `verified`/`awaiting_review`，`implementation tip` 为 `144e501`；等待原审查助手正式审查，未获通过前不得启动 T04 或后续依赖开发。
 5. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
