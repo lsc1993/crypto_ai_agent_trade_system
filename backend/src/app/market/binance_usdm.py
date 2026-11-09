@@ -99,6 +99,7 @@ class PublicExchangeSymbol:
     filters: tuple[PublicExchangeFilter, ...]
     order_types: tuple[str, ...]
     time_in_force: tuple[str, ...]
+    fetched_at: datetime
 
 
 # Binance USDⓈ-M 公共 REST 的唯一只读边界。
@@ -158,6 +159,8 @@ class BinanceUsdmPublicMarketGateway:
     # 从公开合约列表定位唯一标的并校验基础结构；缺失返回空值，重复或字段异常拒绝。
     async def _fetch_exchange_symbol(self, symbol: str) -> PublicExchangeSymbol | None:
         payload = _mapping_payload(await self._get_public_json("/fapi/v1/exchangeInfo", {}))
+        # 来源时间在真实 HTTP 响应返回后采样；缓存命中不会重新执行本方法。
+        fetched_at = self._now()
         rows = payload.get("symbols")
         if not isinstance(rows, list):
             raise MarketDataUnavailableError("market_data_invalid_response", "公开合约信息响应无效")
@@ -192,6 +195,7 @@ class BinanceUsdmPublicMarketGateway:
             filters=filters,
             order_types=order_types,
             time_in_force=time_in_force,
+            fetched_at=fetched_at,
         )
 
     # 并发获取多个白名单标的的缓存行情摘要。

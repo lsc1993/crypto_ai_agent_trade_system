@@ -72,6 +72,14 @@ class PlanningInputRepository(Protocol):
         request_id: UUID,
     ) -> VenueRuleSnapshot: ...
 
+    async def replay_venue_rules(
+        self,
+        workspace_id: UUID,
+        product: ProductKey,
+        *,
+        request_id: UUID,
+    ) -> VenueRuleSnapshot | None: ...
+
     async def resolve_current(
         self,
         workspace_id: UUID,

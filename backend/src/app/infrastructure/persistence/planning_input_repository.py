@@ -26,6 +26,7 @@ from app.infrastructure.persistence.models.planning_inputs import (
 )
 from app.shared.agent_types import (
     JsonObject,
+    ProductKey,
     VersionRef,
     require_utc,
     sha256_json,
@@ -257,6 +258,32 @@ class SqlAlchemyPlanningInputRepository:
         except SQLAlchemyError:
             raise PlanningRepositoryError("风险政策写入不可用") from None
 
+    # 在重新读取公开源之前检查已提交请求；锁与请求冲突检查保持和首次写入一致。
+    # 该方法不替代 record_venue_rules 的写入锁，只用于避免已提交请求依赖当前上游可用性。
+    async def replay_venue_rules(
+        self,
+        workspace_id: UUID,
+        product: ProductKey,
+        *,
+        request_id: UUID,
+    ) -> VenueRuleSnapshot | None:
+        request_sha = _rule_request_sha(workspace_id, product)
+        try:
+            async with self._factory() as session, session.begin():
+                await _lock_request(session, request_id)
+                replay = await _load_request(
+                    session,
+                    request_id,
+                    workspace_id,
+                    _ACTION_REFRESH_RULES,
+                    request_sha,
+                )
+                if replay is None:
+                    return None
+                return _rule_result(replay)
+        except SQLAlchemyError:
+            raise PlanningRepositoryError("公开规则重放读取不可用") from None
+
     # 冻结公开规则快照；新规则推进共享代次，使旧核验在读取时立即过期。
     async def record_venue_rules(
         self,
@@ -266,13 +293,7 @@ class SqlAlchemyPlanningInputRepository:
         request_id: UUID,
     ) -> VenueRuleSnapshot:
         snapshot_payload = _snapshot_payload(snapshot)
-        # 请求指纹只覆盖产品，不覆盖每次重新抓取得到的 version_id/observed_at；
-        # 同一 request_id 的重试应复用首次已提交快照，而不是因时间变化误判为冲突。
-        request_sha = _request_sha(
-            _ACTION_REFRESH_RULES,
-            workspace_id,
-            {"product": snapshot.product.model_dump(mode="json", by_alias=False)},
-        )
+        request_sha = _rule_request_sha(workspace_id, snapshot.product)
         try:
             async with self._factory() as session, session.begin():
                 await _lock_request(session, request_id)
@@ -784,6 +805,15 @@ def _request_sha(action: str, workspace_id: UUID, payload: JsonObject) -> str:
         "payload": payload,
     }
     return sha256_json(cast(JsonValue, body))
+
+
+# 规则刷新请求指纹只覆盖产品；重新抓取得到的 version_id/observed_at 不参与幂等键。
+def _rule_request_sha(workspace_id: UUID, product: ProductKey) -> str:
+    return _request_sha(
+        _ACTION_REFRESH_RULES,
+        workspace_id,
+        {"product": product.model_dump(mode="json", by_alias=False)},
+    )
 
 
 # 快照持久化载荷；深拷贝避免调用方后续修改嵌套对象影响事务数据。

@@ -4,13 +4,12 @@
 # 不使用 pricePrecision/quantityPrecision 推断 tick/step，不读取账户、仓位、杠杆档位或签名接口。
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 from uuid import uuid4
 
 from app.market.binance_usdm import PublicExchangeFilter, PublicExchangeSymbol
+from app.market.contracts import MarketDataUnavailableError
 from app.shared.agent_types import ProductKey, parse_decimal_text, require_utc
 from app.trade_planning.inputs import (
     VENUE_RULE_VALIDITY,
@@ -26,21 +25,19 @@ class ExchangeSymbolGateway(Protocol):
     async def get_exchange_symbol_rules(self, symbol: str) -> PublicExchangeSymbol | None: ...
 
 
-# 规则读取器；clock 可注入以稳定观测时刻和有效期测试。
+# 规则读取器；观测时间来自网关真实抓取时间，不按本地读取时刻重算。
 class BinanceUsdmPublicRuleReader:
-    def __init__(
-        self,
-        *,
-        gateway: ExchangeSymbolGateway,
-        clock: Callable[[], datetime] | None = None,
-    ) -> None:
+    def __init__(self, *, gateway: ExchangeSymbolGateway) -> None:
         self._gateway = gateway
-        self._clock = clock or (lambda: datetime.now(UTC))
 
     # 读取并冻结一个产品的公开规则快照；缺失、重复或不支持的字段明确失败。
     async def load(self, product: ProductKey) -> VenueRuleSnapshot:
         symbol = str(product.symbol)
-        typed = await self._gateway.get_exchange_symbol_rules(symbol)
+        try:
+            typed = await self._gateway.get_exchange_symbol_rules(symbol)
+        except MarketDataUnavailableError as error:
+            # 网关只把受控公开读取的类型化失败抛到这里；不吞掉未知异常或回显上游正文。
+            raise PlanningRuleUnavailableError("公开规则读取不可用") from error
         if typed is None:
             raise PlanningRuleUnavailableError("公开 exchangeInfo 未提供该产品")
         _validate_product(product, typed)
@@ -64,7 +61,7 @@ class BinanceUsdmPublicRuleReader:
             "notional" if "notional" in notional.values else "minNotional",
         )
 
-        observed_at = require_utc(self._clock())
+        observed_at = require_utc(typed.fetched_at)
         try:
             return VenueRuleSnapshot.build(
                 version_id=uuid4(),

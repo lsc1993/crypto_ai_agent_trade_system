@@ -84,7 +84,7 @@ class PlanningInputService:
             expected_generation=expected_generation,
         )
 
-    # 读取并冻结当前公开规则快照；规则读取失败不写入任何版本，也不回退旧规则冒充当前。
+    # 读取并冻结当前公开规则快照；已提交请求先重放，不能因上游暂不可用而失败。
     async def refresh_venue_rules(
         self,
         workspace_id: UUID,
@@ -93,6 +93,14 @@ class PlanningInputService:
         request_id: UUID,
     ) -> VenueRuleSnapshot:
         self._catalog.require_supported(product)
+        # 先做带请求锁的重放检查；它不替代 record 的首次写入锁与事务。
+        replay = await self._repository.replay_venue_rules(
+            workspace_id,
+            product,
+            request_id=request_id,
+        )
+        if replay is not None:
+            return replay
         if self._rule_reader is None:
             raise PlanningRuleUnavailableError("公开规则读取端口未配置")
         snapshot = await self._rule_reader.load(product)

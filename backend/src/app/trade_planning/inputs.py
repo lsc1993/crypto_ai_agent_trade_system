@@ -47,6 +47,12 @@ class QuantityUnit(StrEnum):
     CONTRACT = "contract"
 
 
+# 冷却状态必须显式声明；None 表示未知，不能由 cooldown_until=None 推断为“无冷却”。
+class CooldownStatus(StrEnum):
+    NONE = "none"
+    ACTIVE = "active"
+
+
 # C3 领域错误携带稳定原因码；API/调用方据此返回安全提示，不回显财务正文或上游细节。
 class PlanningInputError(AgentContractError):
     def __init__(self, message: str, *, code: str = "planning_input_invalid") -> None:
@@ -397,6 +403,7 @@ class PlanningProfileFields(AgentModel):
     open_order_margin: DecimalText | None = None
     open_order_risk: DecimalText | None = None
     daily_risk_as_of: date | None = None
+    cooldown_status: CooldownStatus | None = None
     cooldown_until: UtcDateTime | None = None
     circuit_breaker_active: bool | None = None
     leverage: DecimalText | None = None
@@ -429,6 +436,15 @@ class PlanningProfileFields(AgentModel):
             raise ValueError("首期规划只支持逐仓保证金模式")
         if self.position_mode is not None and self.position_mode is not PositionMode.ONE_WAY:
             raise ValueError("首期规划只支持单向持仓模式")
+        # 冷却状态与截止时间必须成对：未知/明确无冷却不能携带截止时间，active 必须有截止时间。
+        if self.cooldown_status is None:
+            if self.cooldown_until is not None:
+                raise ValueError("未知冷却状态不能携带冷却截止时间")
+        elif self.cooldown_status is CooldownStatus.NONE:
+            if self.cooldown_until is not None:
+                raise ValueError("已确认无冷却时不能携带冷却截止时间")
+        elif self.cooldown_until is None:
+            raise ValueError("存在冷却时必须提供冷却截止时间")
         return self
 
     # 资料完整所必需的显式字段；None 表示未知，不参与“未知当零”的推断。
@@ -447,6 +463,7 @@ class PlanningProfileFields(AgentModel):
             "open_order_margin",
             "open_order_risk",
             "daily_risk_as_of",
+            "cooldown_status",
             "circuit_breaker_active",
             "leverage",
             "margin_mode",
@@ -504,6 +521,12 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
             raise ValueError("规划资料有效期不能超过保证金证据有效期")
         if self.daily_risk_as_of is not None and self.daily_risk_as_of > self.declared_at.date():
             raise ValueError("当日损益资料日期不能晚于声明日")
+        if (
+            self.cooldown_status is CooldownStatus.ACTIVE
+            and self.cooldown_until is not None
+            and self.cooldown_until <= self.declared_at
+        ):
+            raise ValueError("冷却截止时间必须晚于资料声明时间")
         return self
 
     # 完整资料必须包含成本版本和完整保证金证据；缺失只标记待补。
@@ -807,6 +830,7 @@ __all__ = [
     "CostAssumptions",
     "CostAssumptionsDraft",
     "CostAssumptionsFields",
+    "CooldownStatus",
     "MarginEvidence",
     "MarginEvidenceDraft",
     "MarginEvidenceFields",

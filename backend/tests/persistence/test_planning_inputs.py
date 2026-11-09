@@ -26,6 +26,7 @@ from app.infrastructure.persistence.planning_input_repository import (
     SqlAlchemyPlanningInputRepository,
 )
 from app.shared.agent_types import ProductKey
+from app.trade_planning.input_repository import PublicRuleReader
 from app.trade_planning.input_service import PlanningInputService
 from app.trade_planning.inputs import (
     CostAssumptionsDraft,
@@ -36,6 +37,7 @@ from app.trade_planning.inputs import (
     PlanningRequestConflictError,
     PlanningRiskPolicy,
     PlanningRiskPolicyDraft,
+    PlanningRuleUnavailableError,
     VenueRuleSnapshot,
 )
 
@@ -114,6 +116,8 @@ def _profile_draft(
     *,
     cost_entry_fee_rate: str = "0.0004",
     daily_risk_as_of: date | None = None,
+    cooldown_status: str | None = "none",
+    cooldown_until: datetime | None = None,
     include_costs: bool = True,
     include_margin: bool = True,
 ) -> PlanningProfileDraft:
@@ -134,7 +138,8 @@ def _profile_draft(
             "daily_risk_as_of": (
                 clock.value.date() if daily_risk_as_of is None else daily_risk_as_of
             ),
-            "cooldown_until": None,
+            "cooldown_status": cooldown_status,
+            "cooldown_until": cooldown_until,
             "circuit_breaker_active": False,
             "leverage": "2",
             "margin_mode": "isolated",
@@ -214,12 +219,25 @@ class QueueRuleReader:
         return _rule_snapshot(self.clock, price_tick=self.ticks[index], product=product)
 
 
+# 首次成功、之后上游不可用的替身；用于证明同键重放先于公开源重读。
+@dataclass
+class FailingAfterFirstReader:
+    clock: MutableClock
+    calls: int = 0
+
+    async def load(self, product: ProductKey) -> VenueRuleSnapshot:
+        self.calls += 1
+        if self.calls > 1:
+            raise PlanningRuleUnavailableError("合成上游不可用")
+        return _rule_snapshot(self.clock, price_tick="0.10", product=product)
+
+
 # 组装使用同一时钟的仓储与领域服务；规则读取器只用于 refresh 入口。
 def _service(
     database: Database,
     clock: MutableClock,
     *,
-    reader: QueueRuleReader | None = None,
+    reader: PublicRuleReader | None = None,
 ) -> tuple[PlanningInputService, SqlAlchemyPlanningInputRepository]:
     repository = SqlAlchemyPlanningInputRepository(database.session_factory, clock=clock)
     service = PlanningInputService(
@@ -234,7 +252,7 @@ async def _prepare_complete_refs(
     database: Database,
     clock: MutableClock,
     *,
-    reader: QueueRuleReader | None = None,
+    reader: PublicRuleReader | None = None,
 ) -> tuple[
     PlanningInputService,
     SqlAlchemyPlanningInputRepository,
@@ -397,6 +415,45 @@ async def test_resolve_refs_requires_complete_current_versions(
 
 
 @pytest.mark.asyncio
+async def test_unknown_cooldown_blocks_refs_until_explicitly_declared(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    service, _ = _service(migrated_database, clock)
+    workspace_id = uuid4()
+    unknown = await service.create_profile(
+        workspace_id,
+        _profile_draft(clock, cooldown_status=None),
+        request_id=uuid4(),
+        expected_generation=0,
+    )
+    assert unknown.cooldown_status is None
+    assert unknown.is_complete is False
+    await service.create_policy(
+        workspace_id,
+        _policy_draft(),
+        request_id=uuid4(),
+        expected_generation=1,
+    )
+    await service.refresh_venue_rules(
+        workspace_id,
+        _product(),
+        request_id=uuid4(),
+    )
+    assert await service.resolve_refs(workspace_id) is None
+
+    # 显式“无冷却”才形成完整资料；未知状态不能因 deadline 为空自动通过。
+    complete = await service.create_profile(
+        workspace_id,
+        _profile_draft(clock, cooldown_status="none"),
+        request_id=uuid4(),
+        expected_generation=await _generation(service, workspace_id),
+    )
+    assert complete.is_complete is True
+    assert await service.resolve_refs(workspace_id) is not None
+
+
+@pytest.mark.asyncio
 async def test_resolve_rejects_expired_profile_and_stale_daily_declaration(
     migrated_database: Database,
 ) -> None:
@@ -550,6 +607,102 @@ async def test_duplicate_rule_refresh_request_replays_first_snapshot(
     assert replay.price_tick == Decimal("0.10")
     pool = await repository.get_pool(workspace_id)
     assert pool is not None and pool.generation == 3
+
+
+@pytest.mark.asyncio
+async def test_rule_refresh_replay_precedes_public_reader(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    reader = FailingAfterFirstReader(clock)
+    service, repository = _service(migrated_database, clock, reader=reader)
+    workspace_id = uuid4()
+    await service.create_profile(
+        workspace_id,
+        _profile_draft(clock),
+        request_id=uuid4(),
+        expected_generation=0,
+    )
+    await service.create_policy(
+        workspace_id,
+        _policy_draft(),
+        request_id=uuid4(),
+        expected_generation=1,
+    )
+    request_id = uuid4()
+    first = await service.refresh_venue_rules(
+        workspace_id,
+        _product(),
+        request_id=request_id,
+    )
+    assert reader.calls == 1
+
+    # 上游第二次不可用，但已提交请求必须先重放，不能重新采集。
+    replay = await service.refresh_venue_rules(
+        workspace_id,
+        _product(),
+        request_id=request_id,
+    )
+    assert replay.ref == first.ref
+    assert reader.calls == 1
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 3
+
+    # 同键不同产品在读取公开源前按请求冲突拒绝。
+    with pytest.raises(PlanningRequestConflictError):
+        await service.refresh_venue_rules(
+            workspace_id,
+            _product("ETHUSDT"),
+            request_id=request_id,
+        )
+    assert reader.calls == 1
+
+    # 新请求键仍须真实刷新；上游失败时不写入版本或推进代次。
+    with pytest.raises(PlanningRuleUnavailableError):
+        await service.refresh_venue_rules(
+            workspace_id,
+            _product(),
+            request_id=uuid4(),
+        )
+    assert reader.calls == 2
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 3
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_key_rule_refresh_is_single_commit(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    reader = QueueRuleReader(clock, ticks=["0.10"])
+    service, repository = _service(migrated_database, clock, reader=reader)
+    workspace_id = uuid4()
+    await service.create_profile(
+        workspace_id,
+        _profile_draft(clock),
+        request_id=uuid4(),
+        expected_generation=0,
+    )
+    await service.create_policy(
+        workspace_id,
+        _policy_draft(),
+        request_id=uuid4(),
+        expected_generation=1,
+    )
+    request_id = uuid4()
+    results = await asyncio.gather(
+        service.refresh_venue_rules(workspace_id, _product(), request_id=request_id),
+        service.refresh_venue_rules(workspace_id, _product(), request_id=request_id),
+        return_exceptions=True,
+    )
+    snapshots = [item for item in results if isinstance(item, VenueRuleSnapshot)]
+    assert len(snapshots) == 2
+    assert snapshots[0].ref == snapshots[1].ref
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 3
+    async with migrated_database.session_factory() as session:
+        count = await session.scalar(select(func.count()).select_from(PlanningInputRequestRecord))
+    assert count == 3
 
 
 @pytest.mark.asyncio

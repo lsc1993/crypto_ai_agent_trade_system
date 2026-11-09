@@ -52,6 +52,7 @@ def _profile_draft(**overrides: object) -> PlanningProfileDraft:
         "open_order_margin": "0",
         "open_order_risk": "0",
         "daily_risk_as_of": NOW.date(),
+        "cooldown_status": "none",
         "cooldown_until": None,
         "circuit_breaker_active": False,
         "leverage": "2",
@@ -212,6 +213,48 @@ def test_unknown_occupancy_preserved_as_none_not_zero() -> None:
     assert complete.is_complete is True
 
 
+def test_cooldown_state_must_be_explicit() -> None:
+    # 省略冷却状态时必须保持未知，不能因 cooldown_until 为 None 就判为“无冷却”。
+    omitted_payload = _profile_draft().model_dump(mode="python", by_alias=False)
+    omitted_payload.pop("cooldown_status")
+    omitted = PlanningProfileDraft.model_validate(omitted_payload)
+    assert omitted.cooldown_status is None
+    assert "cooldown_status" in omitted.missing_fields
+    omitted_profile = _profile_snapshot(omitted)
+    assert omitted_profile.is_complete is False
+
+    # 明确无冷却必须显式声明；此时 deadline 必须为空且资料可完整。
+    no_cooldown = _profile_snapshot(_profile_draft(cooldown_status="none"))
+    assert no_cooldown.is_complete is True
+
+    # 有效冷却必须有显式状态和晚于声明时间的截止时间。
+    active = _profile_snapshot(
+        _profile_draft(
+            cooldown_status="active",
+            cooldown_until=NOW + timedelta(minutes=10),
+        )
+    )
+    assert active.is_complete is True
+    assert active.cooldown_until == NOW + timedelta(minutes=10)
+
+    # 状态与截止时间不一致、未知状态携带截止时间都拒绝，避免隐式推断安全。
+    for payload in (
+        {"cooldown_status": "active", "cooldown_until": None},
+        {"cooldown_status": "none", "cooldown_until": NOW + timedelta(minutes=10)},
+        {"cooldown_status": None, "cooldown_until": NOW + timedelta(minutes=10)},
+    ):
+        with pytest.raises(ValidationError):
+            _profile_draft(**payload)
+
+    with pytest.raises(ValidationError):
+        _profile_snapshot(
+            _profile_draft(
+                cooldown_status="active",
+                cooldown_until=NOW - timedelta(minutes=1),
+            )
+        )
+
+
 def test_profile_and_cost_expiry_use_earlier_bound() -> None:
     # 用户声明 30 分钟有效，但本地资料最多 15 分钟；快照取较早者。
     profile = _profile_snapshot()
@@ -273,12 +316,12 @@ def test_policy_missing_fields_and_explicit_limits() -> None:
     assert complete.stop_loss_required is True
 
     # 首期手动计划必须强制止损；缺项政策可以保存，但显式关闭止损不是合法政策。
-    disabled_payload = _policy_draft().model_dump(mode="python")
+    disabled_payload = _policy_draft().model_dump(mode="python", by_alias=False)
     disabled_payload["stop_loss_required"] = False
     with pytest.raises(ValidationError):
         PlanningRiskPolicyDraft.model_validate(disabled_payload)
     for field in ("enforce_cooldown", "enforce_circuit_breaker"):
-        hard_constraint_payload = _policy_draft().model_dump(mode="python")
+        hard_constraint_payload = _policy_draft().model_dump(mode="python", by_alias=False)
         hard_constraint_payload[field] = False
         with pytest.raises(ValidationError):
             PlanningRiskPolicyDraft.model_validate(hard_constraint_payload)
