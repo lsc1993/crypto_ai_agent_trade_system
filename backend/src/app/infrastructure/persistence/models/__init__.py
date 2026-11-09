@@ -11,6 +11,12 @@ from app.infrastructure.persistence.models.harness import (
     HarnessAuditRunRecord,
     HarnessEvaluationRecord,
 )
+from app.infrastructure.persistence.models.knowledge import (
+    KnowledgeChunkRecord,
+    KnowledgeDocumentRecord,
+    KnowledgeIndexRequestRecord,
+    KnowledgeVersionRecord,
+)
 from app.infrastructure.persistence.models.news import NewsItemRecord
 from app.infrastructure.persistence.models.paper_trading import (
     PaperAccountRecord,
@@ -50,6 +56,10 @@ __all__ = [
     "HarnessAuditEventRecord",
     "HarnessAuditRunRecord",
     "HarnessEvaluationRecord",
+    "KnowledgeChunkRecord",
+    "KnowledgeDocumentRecord",
+    "KnowledgeIndexRequestRecord",
+    "KnowledgeVersionRecord",
     "NewsItemRecord",
     "PaperAccountRecord",
     "PaperAccountValuationRecord",
