@@ -13,9 +13,10 @@
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t02` |
 | 分支 | `task/manual-agent-t02` |
 | base | `fed38bd97835a1325fd399d5334d10c853cae9e1`（`main`，T02 开始时工作区干净） |
-| implementation tip | `ed8e887cae1212f99808e0a381936decef66b6f7`（`feat: add governed keyword knowledge retrieval`） |
-| tree | `f6bd479930b9a1234d242457d16a4102576232a9` |
-| review_status | `awaiting_review`（待原审查助手审查；开发自测不等于正式通过） |
+| 原 implementation tip | `ed8e887cae1212f99808e0a381936decef66b6f7`（首轮正式审查不通过） |
+| 复审修复 tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`（`fix: harden T02 knowledge chunk freezing and timestamps`） |
+| tree | `daf6f394aa9125183af4a847f8bc96b34119f748` |
+| review_status | `awaiting_review`（待原审查助手复审；开发自测不等于正式通过） |
 | reviewed_tip | 未设置（尚未收到正式审查结论） |
 | 上一轮受审 tip | `159a43be3822e6f0fcbd314da67719187c06e610`（T01 正式通过） |
 
@@ -121,16 +122,16 @@
 | --- | --- |
 | 任务 | T02；版本化关键词知识库、确定性分块/词项/评分、GIN 检索、请求幂等、归档与历史可得性 |
 | FR/AC/HN | FR-04；AC-04、AC-05（本轮只交付检索与引用基础，上下文裁剪/预算在 T08/T09）；HN-09、HN-10。未实现 FR-05 的上下文管理、T08/T09 工具循环或真实知识质量评估 |
-| 时间 | 2026-11-09 |
-| 任务状态 | `verified`（实现、聚焦、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（待原审查助手审查） |
+| 时间 | 2026-11-09；首轮实现 `ed8e887`，复审修复 `8835a1d` |
+| 任务状态 | `verified`（实现、复审修复、聚焦、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
+| review_status | `awaiting_review`（待原审查助手复审） |
 | reviewed_tip | 未设置 |
-| 改动 | 13 个文件，+3067 / -0；新增 `research/knowledge/` 契约/纯索引/端口/服务、SQL 知识索引、ORM 模型、`0020_research_knowledge` 迁移和 3 个测试文件 |
-| 公共接口 | `KnowledgeImport`、`KnowledgeVersion`、`KnowledgeQuery`、`KnowledgeHit`、`KnowledgeStatus`、`KnowledgeAccess`；`KnowledgeIndex`、`KnowledgeService`；`tokenize`、`chunk_text`、`prepare_chunks`、`score_chunk`；`SqlAlchemyKnowledgeIndex` |
-| 依赖/迁移 | 无新增依赖；新增前向迁移 `0020_research_knowledge`（knowledge_documents/versions/chunks/index_requests、词项 GIN、正文/分块不可变触发器）；迁移 head 为 `0020_research_knowledge`；未迁移业务库 |
-| 验证 | 首轮缺模块 3 collection errors；纯契约 15 passed；聚焦（含真实 SQL 并发/历史/触发器）30 passed；阶段回归 126 passed；后端 full 1079 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿 |
-| 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实知识库召回质量、T08/T09 上下文与工具接入、T03/T18 产品规则、业务库迁移；未执行真实策略算法或收益评估 |
-| 遗留 | T02 待原审查助手审查；本轮停止新增模块开发，不自动开始 T03。正式结论只能由用户传回原审查助手结论后记录 |
+| 改动 | 首轮 13 个文件，+3067 / -0；复审修复 5 个文件，+744 / -33（分块 INSERT 防护、锁后时间采样、发布/检索一致性校验及回归测试） |
+| 公共接口 | `KnowledgeImport`、`KnowledgeVersion`、`KnowledgeQuery`、`KnowledgeHit`、`KnowledgeStatus`、`KnowledgeAccess`；`KnowledgeIndex`、`KnowledgeService`；`tokenize`、`chunk_text`、`chunk_at`、`chunk_id_for`、`prepare_chunks`、`score_chunk`；`SqlAlchemyKnowledgeIndex` |
+| 依赖/迁移 | 无新增依赖；新增前向迁移 `0020_research_knowledge`（knowledge_documents/versions/chunks/index_requests、词项 GIN、正文/分块 UPDATE/DELETE 与 INSERT 防护触发器）；迁移 head 为 `0020_research_knowledge`；未迁移业务库 |
+| 验证 | 复审修复前 7 failed / 15 passed（新回归精确暴露 P1/P2）；修复后聚焦 40 passed；阶段回归 136 passed；后端 full 1089 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿 |
+| 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实知识库召回质量、T08/T09 上下文与工具接入、T03/T18 产品规则、业务库迁移；未执行真实策略算法或收益评估；未宣称严格数据库提交时可得 |
+| 遗留 | T02 复审修复已完成，等待原审查助手复审；本轮停止新增模块开发，不自动开始 T03。正式结论只能由用户传回原审查助手结论后记录 |
 
 ### T02 测试证据
 
@@ -139,12 +140,23 @@
 | 首轮预期红（缺模块） | `backend/` | `uv run --locked --no-sync pytest tests/research/knowledge tests/persistence/test_knowledge_index.py -q --basetemp=../../.tmp/pytest/t02-red-20261109` | 3 collection errors（缺少新模块），退出 1；符合预期 |
 | 纯契约首轮（测试断言修正） | `backend/` | `uv run --locked --no-sync pytest tests/research/knowledge -q --basetemp=../../.tmp/pytest/t02-pure1-20261109` | 12 passed / 3 failed，退出 1；失败为中文双字词计数、分块长度和 4:1 评分期望写错，已修正测试断言，非实现缺陷 |
 | 纯契约复跑 | `backend/` | `uv run --locked --no-sync pytest tests/research/knowledge -q --basetemp=../../.tmp/pytest/t02-pure2-20261109` | 15 passed，退出 0 |
-| 聚焦绿（含真实 SQL） | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/persistence/test_knowledge_index.py -q --basetemp=../../.tmp/pytest/t02-fourth-green-20261109` | 30 passed，退出 0；含请求并发、历史时点、范围/工作台、六块上限、内容去重、不可变触发器 |
-| 阶段回归 | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/research/strategies tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/persistence/test_strategy_catalog.py tests/agent/test_technical_engine.py -q --basetemp=../../.tmp/pytest/t02-stage-20261109` | 126 passed，退出 0；含 T01 策略目录与既有技术引擎回归 |
-| 后端 full | 仓库根目录 | 临时 PostgreSQL 17 + `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t02-full-backend.json` | `verification=passed`；后端 1079 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t02-full-backend.json` |
+| 聚焦绿（含真实 SQL） | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/persistence/test_knowledge_index.py -q --basetemp=../../.tmp/pytest/t02-fourth-green-20261109` | 30 passed，退出 0；首轮实现证据，含请求并发、历史时点、范围/工作台、六块上限、内容去重 |
+| 复审修复前红 | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/persistence/test_knowledge_index.py -q --tb=short --basetemp=../../.tmp/pytest/t02-fix-red-20261109` | 7 failed / 15 passed，退出 1；发布后追加、锁等待时间、伪造命中、插入/发布并发和缺失分块集合用例失败，符合预期 |
+| 复审修复后聚焦 | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/persistence/test_knowledge_index.py -q --basetemp=../../.tmp/pytest/t02-fix-green5-20261109` | 40 passed，退出 0；含追加拒绝、触发器等锁、伪造命中拒绝、分块集合校验和锁后时间采样 |
+| 复审修复后阶段回归 | `backend/` | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/research/knowledge tests/research/strategies tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/persistence/test_strategy_catalog.py tests/agent/test_technical_engine.py -q --basetemp=../../.tmp/pytest/t02-fix-stage2-20261109` | 136 passed，退出 0；含 T01 策略目录、迁移链和既有技术引擎回归 |
+| 复审修复后后端 full | 仓库根目录 | 临时 PostgreSQL 17 + `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t02-fix2-full-backend.json` | `verification=passed`；后端 1089 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t02-fix2-full-backend.json` |
 | 架构门禁 | `backend/` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=38`，`findings=[]`，退出 0 |
 | 静态检查 | `backend/` | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 全部通过，退出 0 |
 | 迁移链 | `backend/` | `uv run --locked --no-sync alembic heads` | `0020_research_knowledge (head)`，退出 0 |
+
+### T02 复审修复（第 2 轮）
+
+| 审查问题 | 根因 | 修复与回归 |
+| --- | --- | --- |
+| P1 已发布版本仍可追加分块 | `knowledge_chunks` 触发器只覆盖 UPDATE/DELETE；发布路径未核对完整分块集合；检索只校验分块自身哈希，没有绑定版本正文切片和稳定块 ID | 新增 `BEFORE INSERT` 防护：先对父版本 `FOR KEY SHARE`（与 publish 的 `FOR UPDATE` 串行化），拒绝非 draft 父版本、跨工作台、越界序号、与版本正文切片不一致的正文和不匹配 SHA-256。publish 在版本行锁内执行 `_verify_chunk_set`，逐块核对数量、序号、稳定 ID、正文、指纹、词项、标题词项和工作台；search 的 `_row_to_hit` 重新核对版本正文切片、块 ID、工作台和词项。回归覆盖发布后追加、强制发布后未占用范围内序号、插入等待发布锁、并发插入后缺失集合、以及触发器被绕过时伪造命中拒绝。 |
+| P2 锁等待之前采样发布时间 | import/publish/archive 在事务和业务行锁之前调用 `_now()`，等锁时间被保存为可得/发布/归档时间 | 把时间采样移到请求锁、版本/文档行锁和分块集合校验之后、首次状态写入之前；`first_available_at`、`published_at`、`archived_at` 均使用锁后时间。回归用受控版本/文档行锁等待 5 分钟：等待期间的历史截止点不得在发布后追溯命中，import/archive 时间同样验证。`published_at` 是发布决策时间而非 PostgreSQL 提交时间；采样到提交的极短窗口不宣称严格提交时可得。 |
+
+迁移兼容：`0020_research_knowledge` 仍在 T02 未合并分支，未应用到任何业务库；审查方此前也未进行数据库实测。因此复审修复直接补齐 `0020` 的分块 INSERT 防护，不新增 `0021`、不改变迁移 head。若某个临时 schema 已执行旧版 `0020`，重建该临时 schema 即可；业务库没有需要前向修补的已应用迁移。
 
 ### 环境说明
 
@@ -157,5 +169,5 @@
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-3. T02 已实现并完成本轮自测，implementation tip 为 `ed8e887`；`review_status=awaiting_review`，尚未取得原审查助手正式结论。不得因开发自测通过而自行标记 approved 或开始 T03。
+3. T02 首轮实现 `ed8e887` 经独立审查判定不通过；P1/P2 修复提交为 `8835a1d`，`review_status=awaiting_review`，尚未取得原审查助手正式结论。不得因开发自测通过而自行标记 approved 或开始 T03。
 4. 收到审查意见后先核对/复现，再逐条修复并补回归；修复后记录新 tip、变更与验证，再次交审。只有用户传回原审查助手对当前版本的通过结论，且本轮必需验证完成，才可放行下一审查单元。
