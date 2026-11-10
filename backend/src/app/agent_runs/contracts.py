@@ -3,6 +3,7 @@
 # 请求键与内容指纹分离：同一 request_id 只能对应同一有效输入，不同请求键不按币种合并。
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal, cast
@@ -176,7 +177,42 @@ class RunSnapshot(AgentModel):
 
 
 # 请求内容指纹覆盖工作台和除 request_id 外的规范化输入；默认值在解析后自然进入指纹。
-def run_input_sha256(workspace_id: UUID, data: RunInput) -> str:
+# 关键：指纹必须基于 PostgreSQL JSONB 的规范文本计算，而不是 Python 首次 JSON 文本。
+# JSONB 会把 1e20 规范成整数、把 -0.0 规范成 0.0；若按首次序列化哈希，合法请求在重读时
+# 会被误判为篡改。仓储先由 PostgreSQL 生成规范文本，本函数再移除请求键并稳定哈希。
+def canonical_run_input_json(data: RunInput) -> str:
+    payload = data.model_dump(mode="json", by_alias=False)
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+# 从 JSONB 规范文本计算请求指纹；request_id 是幂等键，不属于内容指纹。
+# 文本来自 PostgreSQL 时数值已经归一化；这里重新解析再压缩只为移除 request_id 并稳定键序。
+def run_input_sha256(workspace_id: UUID, canonical_input_text: str) -> str:
+    try:
+        parsed = json.loads(canonical_input_text)
+    except (TypeError, ValueError) as error:
+        raise ValueError("请求指纹文本不是有效 JSON") from error
+    if not isinstance(parsed, dict):
+        raise ValueError("请求指纹文本必须是 JSON 对象")
+    payload = cast(dict[str, JsonValue], parsed)
+    payload.pop("request_id", None)
+    content: dict[str, JsonValue] = {
+        "workspaceId": str(workspace_id),
+        "runInput": payload,
+    }
+    return sha256_json(content)
+
+
+# 兼容 T04 首轮已提交行：旧算法直接哈希 Python JSON 文本。
+# 仅用于读取/重放旧的稳定数值；若旧行含 JSONB 会规范化的数值，原表示已不可恢复，
+# 仍必须按 integrity_violation 拒绝，不能为了兼容放宽完整性校验。
+def legacy_run_input_sha256(workspace_id: UUID, data: RunInput) -> str:
     payload = data.model_dump(mode="json", by_alias=False, exclude={"request_id"})
     content: dict[str, JsonValue] = {
         "workspaceId": str(workspace_id),
@@ -197,5 +233,7 @@ __all__ = [
     "RunQuality",
     "RunSnapshot",
     "RunStatus",
+    "canonical_run_input_json",
+    "legacy_run_input_sha256",
     "run_input_sha256",
 ]

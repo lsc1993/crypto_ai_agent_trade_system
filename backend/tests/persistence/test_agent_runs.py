@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,7 +15,14 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent_runs.contracts import AgentRunError, RunInput, RunStatus, run_input_sha256
+from app.agent_runs.contracts import (
+    AgentRunError,
+    RunInput,
+    RunStatus,
+    canonical_run_input_json,
+    legacy_run_input_sha256,
+    run_input_sha256,
+)
 from app.agent_runs.events import RunEventType
 from app.infrastructure.persistence import agent_run_repository
 from app.infrastructure.persistence.agent_run_repository import (
@@ -104,6 +111,74 @@ async def _update_run(
         await session.execute(
             update(AgentRunRecord).where(AgentRunRecord.id == run_id).values(**values)
         )
+
+
+# 构造 T04 首轮格式的已提交行：修订/请求使用旧 Python JSON 指纹，不新增事件。
+# 仅使用稳定数值（0.5）验证兼容读取，不伪造 JSONB 已规范化的历史表示。
+async def _seed_legacy_hashed_run(
+    session_factory: async_sessionmaker[AsyncSession],
+    data: RunInput,
+    legacy_sha: str,
+) -> UUID:
+    run_id = uuid4()
+    thread_id = uuid4()
+    async with session_factory() as session, session.begin():
+        session.add(
+            AgentThreadRecord(
+                id=thread_id,
+                workspace_id=WORKSPACE_ID,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        session.add(
+            AgentRunRecord(
+                id=run_id,
+                workspace_id=WORKSPACE_ID,
+                thread_id=thread_id,
+                parent_run_id=None,
+                revision=1,
+                status=RunStatus.QUEUED.value,
+                state_version=0,
+                received_message_seq=0,
+                applied_message_seq=0,
+                current_interaction_id=None,
+                result_refs=[],
+                result_quality=None,
+                error_code=None,
+                owner=None,
+                lease_epoch=0,
+                lease_expires_at=None,
+                created_at=NOW,
+                updated_at=NOW,
+                started_at=None,
+                finished_at=None,
+            )
+        )
+        await session.flush()
+        session.add(
+            AgentRunRevisionRecord(
+                run_id=run_id,
+                revision=1,
+                input=cast(
+                    dict[str, object],
+                    data.model_dump(mode="json", by_alias=False),
+                ),
+                sha256=legacy_sha,
+                created_at=NOW,
+            )
+        )
+        session.add(
+            AgentRunRequestRecord(
+                workspace_id=WORKSPACE_ID,
+                request_id=data.request_id,
+                run_id=run_id,
+                request_sha256=legacy_sha,
+                created_at=NOW,
+            )
+        )
+    return run_id
 
 
 @pytest.mark.asyncio
@@ -195,6 +270,88 @@ async def test_concurrent_same_request_creates_one_task_and_event_sequence(
 
 
 @pytest.mark.asyncio
+async def test_jsonb_numeric_normalization_keeps_fingerprint_stable_for_reload_and_replay(
+    migrated_database: Database,
+) -> None:
+    # PostgreSQL JSONB 会把 1e20 输出为整数、把 -0.0 输出为 0.0；指纹必须基于持久化后的
+    # 规范表示，而不是首次 Python JSON 文本，否则合法请求会在入队/重读/重放时被误判篡改。
+    parameters: dict[str, JsonValue] = {
+        "big": 1e20,
+        "negative_zero": -0.0,
+        "fraction": 0.5,
+        "nested": {
+            "big": 1e20,
+            "negative_zero": -0.0,
+            "fraction": 0.5,
+        },
+    }
+    data = _input(parameters=parameters)
+    repository = _repository(migrated_database.session_factory)
+
+    first = await repository.enqueue(WORKSPACE_ID, data)
+    reloaded = await _repository(migrated_database.session_factory).get(WORKSPACE_ID, first.run_id)
+    assert reloaded is not None
+    assert reloaded.run_id == first.run_id
+
+    # 同键同参重放不得新增任务或事件。
+    replay = await repository.enqueue(WORKSPACE_ID, data)
+    assert replay.run_id == first.run_id
+    assert await _count(migrated_database.session_factory, AgentRunRecord) == 1
+    events = await repository.list_events(WORKSPACE_ID, first.run_id)
+    assert [item.sequence for item in events.items] == [1, 2]
+
+    # 同键异参仍必须冲突，不能因数值规范化而错误放行。
+    changed = data.model_copy(update={"parameters": {**parameters, "fraction": 0.6}})
+    with pytest.raises(AgentRunError) as conflict:
+        await repository.enqueue(WORKSPACE_ID, changed)
+    assert conflict.value.code == "request_conflict"
+
+
+@pytest.mark.asyncio
+async def test_legacy_stable_hash_rows_stay_readable_without_rewriting_history(
+    migrated_database: Database,
+) -> None:
+    # 首轮已提交行的 Python JSON 指纹仍应可读；只接受精确旧哈希，不重写修订/请求映射。
+    data = _input(parameters={"fraction": 0.5, "nested": {"fraction": 0.5}})
+    legacy_sha = legacy_run_input_sha256(WORKSPACE_ID, data)
+    run_id = await _seed_legacy_hashed_run(
+        migrated_database.session_factory,
+        data,
+        legacy_sha,
+    )
+    repository = _repository(migrated_database.session_factory)
+
+    loaded = await repository.get(WORKSPACE_ID, run_id)
+    assert loaded is not None
+    assert loaded.run_id == run_id
+
+    replay = await repository.enqueue(WORKSPACE_ID, data)
+    assert replay.run_id == run_id
+    assert await _count(migrated_database.session_factory, AgentRunRecord) == 1
+    assert await _count(migrated_database.session_factory, AgentRunRevisionRecord) == 1
+    assert await _count(migrated_database.session_factory, AgentRunRequestRecord) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_normalized_numeric_rows_fail_closed_instead_of_replaying(
+    migrated_database: Database,
+) -> None:
+    # 旧行写入前 Python 文本含 1e20，但 JSONB 只保留规范整数；原始表示不可恢复。
+    # 兼容逻辑不得用当前重读值重算旧哈希后放行，否则等于取消完整性校验。
+    data = _input(parameters={"big": 1e20})
+    legacy_sha = legacy_run_input_sha256(WORKSPACE_ID, data)
+    run_id = await _seed_legacy_hashed_run(
+        migrated_database.session_factory,
+        data,
+        legacy_sha,
+    )
+
+    with pytest.raises(AgentRunError) as rejected:
+        await _repository(migrated_database.session_factory).get(WORKSPACE_ID, run_id)
+    assert rejected.value.code == "integrity_violation"
+
+
+@pytest.mark.asyncio
 async def test_default_resolution_replays_before_thread_creation(
     migrated_database: Database,
 ) -> None:
@@ -212,7 +369,9 @@ async def test_default_resolution_replays_before_thread_creation(
     explicit_payload["budget_profile"] = "standard"
     explicit = RunInput.model_validate(explicit_payload)
 
-    assert run_input_sha256(WORKSPACE_ID, implicit) == run_input_sha256(WORKSPACE_ID, explicit)
+    assert run_input_sha256(WORKSPACE_ID, canonical_run_input_json(implicit)) == run_input_sha256(
+        WORKSPACE_ID, canonical_run_input_json(explicit)
+    )
     replay = await repository.enqueue(WORKSPACE_ID, explicit)
     assert replay.run_id == first.run_id
     assert replay.thread_id == first.thread_id

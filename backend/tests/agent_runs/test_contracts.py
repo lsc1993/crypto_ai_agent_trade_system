@@ -13,6 +13,7 @@ from app.agent_runs.contracts import (
     RunInput,
     RunSnapshot,
     RunStatus,
+    canonical_run_input_json,
     run_input_sha256,
 )
 from app.agent_runs.events import RunEvent, RunEventType
@@ -56,6 +57,11 @@ def _payload(*, request_id: UUID | None = None) -> dict[str, object]:
         "parameters": {"lookback": 20, "enabled": True},
         "planning": _planning_refs().model_dump(mode="json"),
     }
+
+
+# 纯契约测试使用 Python 规范文本；真实 JSONB 数值归一化由持久化测试覆盖。
+def _fingerprint(data: RunInput, workspace_id: UUID = WORKSPACE_ID) -> str:
+    return run_input_sha256(workspace_id, canonical_run_input_json(data))
 
 
 def test_run_input_rejects_extra_fields_and_financial_payloads() -> None:
@@ -102,7 +108,7 @@ def test_request_fingerprint_ignores_request_key_and_resolves_defaults() -> None
     base_payload = _payload(request_id=uuid4())
     first = RunInput.model_validate(base_payload)
     second = RunInput.model_validate({**base_payload, "request_id": uuid4()})
-    assert run_input_sha256(WORKSPACE_ID, first) == run_input_sha256(WORKSPACE_ID, second)
+    assert _fingerprint(first) == _fingerprint(second)
 
     # 省略默认值与显式写出默认值必须得到同一指纹，便于首次解析后的重试复用任务。
     explicit_payload = {
@@ -111,16 +117,14 @@ def test_request_fingerprint_ignores_request_key_and_resolves_defaults() -> None
         "budget_profile": "standard",
     }
     explicit = RunInput.model_validate(explicit_payload)
-    assert run_input_sha256(WORKSPACE_ID, first) == run_input_sha256(WORKSPACE_ID, explicit)
+    assert _fingerprint(first) == _fingerprint(explicit)
 
     # 策略参数、策略版本或工作台变化必须改变指纹，不能被错误合并。
     changed_parameters = first.model_copy(update={"parameters": {"lookback": 21}})
     changed_strategy = first.model_copy(update={"strategy": _version_ref()})
-    assert run_input_sha256(WORKSPACE_ID, first) != run_input_sha256(
-        WORKSPACE_ID, changed_parameters
-    )
-    assert run_input_sha256(WORKSPACE_ID, first) != run_input_sha256(WORKSPACE_ID, changed_strategy)
-    assert run_input_sha256(WORKSPACE_ID, first) != run_input_sha256(uuid4(), first)
+    assert _fingerprint(first) != _fingerprint(changed_parameters)
+    assert _fingerprint(first) != _fingerprint(changed_strategy)
+    assert _fingerprint(first) != run_input_sha256(uuid4(), canonical_run_input_json(first))
 
 
 def test_run_snapshot_enforces_status_watermarks_and_terminal_time() -> None:

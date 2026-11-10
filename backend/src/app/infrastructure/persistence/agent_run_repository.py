@@ -10,7 +10,8 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from pydantic import JsonValue, ValidationError
-from sqlalchemy import func, select, text
+from sqlalchemy import Text, func, select, text
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -23,6 +24,8 @@ from app.agent_runs.contracts import (
     RunQuality,
     RunSnapshot,
     RunStatus,
+    canonical_run_input_json,
+    legacy_run_input_sha256,
     run_input_sha256,
 )
 from app.agent_runs.events import (
@@ -63,14 +66,27 @@ class SqlAlchemyAgentRunRepository:
     async def enqueue(self, workspace_id: UUID, data: RunInput) -> RunSnapshot:
         # 深度复制，避免调用方在事务提交后修改嵌套参数字典影响已保存请求。
         normalized = data.model_copy(deep=True)
-        request_sha = run_input_sha256(workspace_id, normalized)
+        input_payload = cast(
+            dict[str, object],
+            normalized.model_dump(mode="json", by_alias=False),
+        )
+        # 旧行使用 Python JSON 哈希；新行使用 PostgreSQL JSONB 规范文本。
+        legacy_sha = legacy_run_input_sha256(workspace_id, normalized)
+        request_sha: str | None = None
         now = self._now()
         try:
             async with self._factory() as session, session.begin():
                 await _lock_request(session, workspace_id, normalized.request_id)
+                # 先由 PostgreSQL 生成 JSONB 规范文本，确保 1e20/-0.0 等数值的指纹
+                # 与随后持久化、重读的表示完全一致；不能只依赖首次 Python JSON。
+                canonical_text = await _canonical_jsonb_text(
+                    session,
+                    canonical_run_input_json(normalized),
+                )
+                request_sha = run_input_sha256(workspace_id, canonical_text)
                 replay = await _load_request(session, workspace_id, normalized.request_id)
                 if replay is not None:
-                    if replay.request_sha256 != request_sha:
+                    if replay.request_sha256 not in {request_sha, legacy_sha}:
                         raise AgentRunError("request_conflict")
                     snapshot = await _load_snapshot(session, workspace_id, replay.run_id)
                     if snapshot is None:
@@ -124,10 +140,7 @@ class SqlAlchemyAgentRunRepository:
                     AgentRunRevisionRecord(
                         run_id=run_id,
                         revision=1,
-                        input=cast(
-                            dict[str, object],
-                            normalized.model_dump(mode="json", by_alias=False),
-                        ),
+                        input=input_payload,
                         sha256=request_sha,
                         created_at=now,
                     )
@@ -165,7 +178,12 @@ class SqlAlchemyAgentRunRepository:
             raise
         except IntegrityError:
             # 唯一约束兜底并发同键；请求锁已提交读取后仍失败时只接受同内容重放。
-            replayed = await self._replay(workspace_id, normalized.request_id, request_sha)
+            replayed = await self._replay(
+                workspace_id,
+                normalized.request_id,
+                request_sha,
+                legacy_sha,
+            )
             if replayed is not None:
                 return replayed
             raise AgentRunError("storage_unavailable") from None
@@ -229,14 +247,18 @@ class SqlAlchemyAgentRunRepository:
         self,
         workspace_id: UUID,
         request_id: UUID,
-        request_sha: str,
+        request_sha: str | None,
+        legacy_sha: str,
     ) -> RunSnapshot | None:
         try:
             async with self._factory() as session:
                 replay = await _load_request(session, workspace_id, request_id)
                 if replay is None:
                     return None
-                if replay.request_sha256 != request_sha:
+                expected = {legacy_sha}
+                if request_sha is not None:
+                    expected.add(request_sha)
+                if replay.request_sha256 not in expected:
                     raise AgentRunError("request_conflict")
                 return await _load_snapshot(session, workspace_id, replay.run_id)
         except AgentRunError:
@@ -322,6 +344,18 @@ async def _lock_queue(session: AsyncSession) -> None:
         raise AgentRunError("integrity_violation")
 
 
+# 由 PostgreSQL 生成 JSONB 规范文本；1e20、-0.0 等合法数值的表示由此固定。
+# 该查询不改业务数据，只把同一 JSON 输入转换为后续持久化和重读都会得到的文本。
+async def _canonical_jsonb_text(session: AsyncSession, raw_json: str) -> str:
+    canonical = await session.scalar(
+        text("SELECT CAST(:payload AS jsonb)::text"),
+        {"payload": raw_json},
+    )
+    if not isinstance(canonical, str):
+        raise AgentRunError("integrity_violation")
+    return canonical
+
+
 # 从任务行和当前修订构造对外快照；任何正文/指纹/引用不一致按不变量破坏处理。
 async def _load_snapshot(
     session: AsyncSession,
@@ -331,21 +365,33 @@ async def _load_snapshot(
     run = await session.get(AgentRunRecord, run_id)
     if run is None or run.workspace_id != workspace_id:
         return None
-    revision = await session.scalar(
-        select(AgentRunRevisionRecord).where(
-            AgentRunRevisionRecord.run_id == run_id,
-            AgentRunRevisionRecord.revision == run.revision,
+    row = (
+        await session.execute(
+            select(
+                AgentRunRevisionRecord,
+                sql_cast(AgentRunRevisionRecord.input, Text).label("canonical_text"),
+            ).where(
+                AgentRunRevisionRecord.run_id == run_id,
+                AgentRunRevisionRecord.revision == run.revision,
+            )
         )
-    )
-    if revision is None:
+    ).one_or_none()
+    if row is None:
+        raise AgentRunError("integrity_violation")
+    revision, canonical_text = row
+    if not isinstance(canonical_text, str):
         raise AgentRunError("integrity_violation")
     try:
         run_input = RunInput.model_validate(revision.input)
         status = RunStatus(run.status)
         result_refs = tuple(ArtifactRef.model_validate(item) for item in run.result_refs)
+        canonical_sha = run_input_sha256(workspace_id, canonical_text)
+        legacy_sha = legacy_run_input_sha256(workspace_id, run_input)
     except (ValueError, TypeError) as error:
         raise AgentRunError("integrity_violation") from error
-    if run_input_sha256(workspace_id, run_input) != revision.sha256:
+    # 新行校验 PostgreSQL 规范文本哈希；首轮已提交的稳定数值行允许旧算法兼容。
+    # 旧行若含 JSONB 已规范化的数值，旧表示无法恢复，仍必须拒绝而非放宽校验。
+    if revision.sha256 not in {canonical_sha, legacy_sha}:
         raise AgentRunError("integrity_violation")
     try:
         return RunSnapshot(

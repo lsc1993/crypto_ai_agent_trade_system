@@ -10,6 +10,8 @@ from app.agent_runs.contracts import (
     RunQuality,
     RunSnapshot,
     RunStatus,
+    canonical_run_input_json,
+    legacy_run_input_sha256,
     run_input_sha256,
 )
 from app.agent_runs.events import RunEvent, RunEventPage, RunEventType
@@ -29,5 +31,7 @@ __all__ = [
     "RunQuality",
     "RunSnapshot",
     "RunStatus",
+    "canonical_run_input_json",
+    "legacy_run_input_sha256",
     "run_input_sha256",
 ]
