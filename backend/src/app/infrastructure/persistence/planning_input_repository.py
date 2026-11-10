@@ -107,7 +107,7 @@ class SqlAlchemyPlanningInputRepository:
         request_id: UUID,
         expected_generation: int,
     ) -> PlanningProfileSnapshot:
-        draft_payload = _draft_payload(draft)
+        draft_payload = _profile_draft_request_payload(draft)
         request_sha = _request_sha(
             _ACTION_CREATE_PROFILE,
             workspace_id,
@@ -816,10 +816,12 @@ def _rule_request_sha(workspace_id: UUID, product: ProductKey) -> str:
     )
 
 
-# 快照持久化载荷；深拷贝避免调用方后续修改嵌套对象影响事务数据。
+# 快照持久化载荷；资料快照使用 versioned_payload 保持历史字段集合。
 def _snapshot_payload(
     value: PlanningProfileSnapshot | PlanningRiskPolicy | CostAssumptions | VenueRuleSnapshot,
 ) -> JsonObject:
+    if isinstance(value, PlanningProfileSnapshot):
+        return copy.deepcopy(value.versioned_payload())
     dumped = value.model_dump(mode="json", by_alias=False)
     return cast(JsonObject, copy.deepcopy(dumped))
 
@@ -828,6 +830,15 @@ def _snapshot_payload(
 def _draft_payload(value: PlanningProfileDraft | PlanningRiskPolicyDraft) -> JsonObject:
     dumped = value.model_dump(mode="json", by_alias=False)
     return cast(JsonObject, copy.deepcopy(dumped))
+
+
+# 首轮资料请求指纹没有 cooldown_status；未知状态（None）不进入请求内容。
+# 明确 none/active 仍保留，因此新语义不会被旧请求误重放。
+def _profile_draft_request_payload(draft: PlanningProfileDraft) -> JsonObject:
+    payload = _draft_payload(draft)
+    if payload.get("cooldown_status") is None:
+        payload.pop("cooldown_status", None)
+    return payload
 
 
 __all__ = ["SqlAlchemyPlanningInputRepository"]

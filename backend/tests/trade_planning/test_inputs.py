@@ -2,8 +2,11 @@
 # 所有数值均为合成资料；测试不访问数据库、公开网络、模型或真实账户。
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -24,6 +27,13 @@ from app.trade_planning.inputs import (
 )
 
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
+
+
+# 读取首轮 tip 144e501 实际生成的合成快照及原始指纹；用于证明历史载荷可读。
+def _legacy_fixture(name: str) -> tuple[dict[str, object], str]:
+    path = Path(__file__).resolve().parents[1] / "fixtures" / name
+    document = json.loads(path.read_text(encoding="utf-8"))
+    return document["payload"], document["sha256"]
 
 
 # 构造首期支持的 Binance USDT 线性永续产品键；测试组合不扩展生产支持目录。
@@ -211,6 +221,62 @@ def test_unknown_occupancy_preserved_as_none_not_zero() -> None:
     complete = _profile_snapshot()
     assert complete.existing_position_risk == Decimal("0")
     assert complete.is_complete is True
+
+
+def test_legacy_profile_snapshot_reads_original_ref_and_serializes() -> None:
+    # 首轮 tip 的实际载荷没有 cooldown_status；必须按旧字段集合校验原指纹。
+    payload, expected_sha = _legacy_fixture("v1_planning_profile.json")
+    assert "cooldown_status" not in payload
+    legacy = PlanningProfileSnapshot.model_validate(payload)
+    assert legacy.ref.sha256 == expected_sha
+    assert legacy.cooldown_status is None
+    assert "cooldown_status" in legacy.missing_fields
+    assert legacy.is_complete is False
+
+    # 历史序列化必须保留旧字段集合，不能把默认 None 写成新字段后破坏原 ref。
+    serialized = legacy.versioned_payload()
+    assert "cooldown_status" not in serialized
+    roundtripped = PlanningProfileSnapshot.model_validate(serialized)
+    assert roundtripped.ref == legacy.ref
+    assert roundtripped.is_complete is False
+
+
+def test_legacy_profile_with_cooldown_deadline_keeps_unknown_status() -> None:
+    # 旧载荷允许只有 cooldown_until；读取时必须保持状态未知，不能推断为 none/active。
+    payload, expected_sha = _legacy_fixture("v1_planning_profile_with_cooldown.json")
+    assert "cooldown_status" not in payload
+    legacy = PlanningProfileSnapshot.model_validate(payload)
+    assert legacy.ref.sha256 == expected_sha
+    assert legacy.cooldown_status is None
+    assert legacy.cooldown_until == NOW + timedelta(minutes=10)
+    assert "cooldown_status" in legacy.missing_fields
+    assert legacy.is_complete is False
+
+    serialized = legacy.versioned_payload()
+    assert "cooldown_status" not in serialized
+    assert serialized["cooldown_until"] == "2026-11-09T12:10:00Z"
+    roundtripped = PlanningProfileSnapshot.model_validate(serialized)
+    assert roundtripped.ref == legacy.ref
+    assert roundtripped.cooldown_status is None
+    assert roundtripped.is_complete is False
+
+
+def test_legacy_profile_rejects_tampered_financial_and_nested_content() -> None:
+    # 版本感知校验只忽略历史缺失字段，不跳过财务正文或嵌套保证金的指纹检查。
+    payload, _ = _legacy_fixture("v1_planning_profile.json")
+    tampered_financial = {**payload, "planning_capital": "10001"}
+    with pytest.raises(ValidationError):
+        PlanningProfileSnapshot.model_validate(tampered_financial)
+
+    margin = payload["margin_evidence"]
+    assert isinstance(margin, dict)
+    margin_payload = cast(dict[str, object], margin)
+    tampered_nested = {
+        **payload,
+        "margin_evidence": {**margin_payload, "leverage": "3"},
+    }
+    with pytest.raises(ValidationError):
+        PlanningProfileSnapshot.model_validate(tampered_nested)
 
 
 def test_cooldown_state_must_be_explicit() -> None:

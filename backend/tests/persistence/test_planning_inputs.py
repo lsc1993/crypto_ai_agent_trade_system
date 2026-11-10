@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Protocol
+from pathlib import Path
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.infrastructure.persistence.models.planning_inputs import (
     PlanningCostRecord,
     PlanningInputRequestRecord,
+    PlanningPoolRecord,
     PlanningProfileRecord,
     PlanningRiskPolicyRecord,
     PlanningVenueRuleRecord,
@@ -25,10 +28,11 @@ from app.infrastructure.persistence.models.planning_inputs import (
 from app.infrastructure.persistence.planning_input_repository import (
     SqlAlchemyPlanningInputRepository,
 )
-from app.shared.agent_types import ProductKey
+from app.shared.agent_types import ProductKey, VersionRef
 from app.trade_planning.input_repository import PublicRuleReader
 from app.trade_planning.input_service import PlanningInputService
 from app.trade_planning.inputs import (
+    CostAssumptions,
     CostAssumptionsDraft,
     MarginEvidenceDraft,
     PlanningGenerationConflictError,
@@ -42,6 +46,18 @@ from app.trade_planning.inputs import (
 )
 
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
+
+
+# 读取首轮 tip 实际生成的资料快照和请求结果；只用于历史兼容回归。
+def _fixture(name: str) -> dict[str, object]:
+    path = Path(__file__).resolve().parents[1] / "fixtures" / name
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+# 解析 fixture 中的 UTC ISO 时间，避免测试依赖本机时区。
+def _fixture_time(value: object) -> datetime:
+    assert isinstance(value, str)
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 class Database(Protocol):
@@ -412,6 +428,107 @@ async def test_resolve_refs_requires_complete_current_versions(
     assert refs.pool_generation == 4
     pool = await repository.get_pool(workspace_id)
     assert pool is not None and pool.generation == 4
+
+
+@pytest.mark.asyncio
+async def test_legacy_profile_and_request_replay_are_version_aware(
+    migrated_database: Database,
+) -> None:
+    profile_fixture = _fixture("v1_planning_profile.json")
+    request_fixture = _fixture("v1_planning_request.json")
+    payload_value = profile_fixture["payload"]
+    assert isinstance(payload_value, dict)
+    payload = cast(dict[str, object], payload_value)
+    request_draft_value = request_fixture["draft"]
+    assert isinstance(request_draft_value, dict)
+    request_draft = cast(dict[str, object], request_draft_value)
+    cost_payload_value = request_fixture["cost"]
+    assert isinstance(cost_payload_value, dict)
+    cost_payload = cast(dict[str, object], cost_payload_value)
+    workspace_id = UUID(str(request_fixture["workspace_id"]))
+    request_id = UUID(str(request_fixture["request_id"]))
+    request_sha = str(request_fixture["request_sha"])
+    profile_sha = str(request_fixture["profile_sha"])
+    ref = VersionRef.model_validate(payload["ref"])
+    pool_id = UUID(str(payload["pool_id"]))
+    cost = CostAssumptions.model_validate(cost_payload)
+
+    async with migrated_database.session_factory() as session, session.begin():
+        session.add(
+            PlanningPoolRecord(
+                id=pool_id,
+                workspace_id=workspace_id,
+                generation=1,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        # 先显式写入资金池，满足成本/资料行的外键，不依赖 ORM 隐式排序。
+        await session.flush()
+        session.add(
+            PlanningCostRecord(
+                id=cost.ref.version_id,
+                workspace_id=workspace_id,
+                pool_id=pool_id,
+                pool_generation=1,
+                document=cost_payload,
+                sha256=cost.ref.sha256,
+                declared_at=cost.declared_at,
+                expires_at=cost.expires_at,
+                created_at=NOW,
+            )
+        )
+        session.add(
+            PlanningProfileRecord(
+                id=ref.version_id,
+                workspace_id=workspace_id,
+                pool_id=pool_id,
+                pool_generation=1,
+                document=payload,
+                sha256=profile_sha,
+                declared_at=_fixture_time(payload["declared_at"]),
+                expires_at=_fixture_time(payload["expires_at"]),
+                created_at=NOW,
+            )
+        )
+        session.add(
+            PlanningInputRequestRecord(
+                request_id=request_id,
+                workspace_id=workspace_id,
+                action="create_profile",
+                request_sha256=request_sha,
+                result=payload,
+                created_at=NOW,
+            )
+        )
+
+    clock = MutableClock()
+    repository = SqlAlchemyPlanningInputRepository(migrated_database.session_factory, clock=clock)
+    service = PlanningInputService(repository, clock=clock)
+    stored = await repository.get_profile(workspace_id, ref)
+    assert stored is not None
+    assert stored.ref == ref
+    assert stored.cooldown_status is None
+    assert stored.is_complete is False
+
+    current = await repository.resolve_current(workspace_id)
+    assert current is not None
+    assert current.profile.ref == ref
+    assert current.profile.is_complete is False
+    assert current.costs is not None and current.costs.ref == cost.ref
+    assert await service.resolve_refs(workspace_id) is None
+
+    # 旧请求指纹不含 cooldown_status；同键同参重放必须命中旧结果并保留 generation。
+    replayed = await service.create_profile(
+        workspace_id,
+        PlanningProfileDraft.model_validate(request_draft),
+        request_id=request_id,
+        expected_generation=0,
+    )
+    assert replayed.ref == ref
+    assert replayed.is_complete is False
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 1
 
 
 @pytest.mark.asyncio

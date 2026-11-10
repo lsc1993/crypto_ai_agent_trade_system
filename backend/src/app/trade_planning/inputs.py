@@ -436,16 +436,19 @@ class PlanningProfileFields(AgentModel):
             raise ValueError("首期规划只支持逐仓保证金模式")
         if self.position_mode is not None and self.position_mode is not PositionMode.ONE_WAY:
             raise ValueError("首期规划只支持单向持仓模式")
-        # 冷却状态与截止时间必须成对：未知/明确无冷却不能携带截止时间，active 必须有截止时间。
+        return self
+
+    # 冷却状态与截止时间必须成对；历史快照允许保留旧载荷“只有截止时间、没有状态”的形态，
+    # 但读取后状态仍为未知，missing_fields 不通过，绝不推断为无冷却。
+    def _validate_cooldown_consistency(self, *, allow_legacy_unknown: bool = False) -> None:
         if self.cooldown_status is None:
-            if self.cooldown_until is not None:
+            if self.cooldown_until is not None and not allow_legacy_unknown:
                 raise ValueError("未知冷却状态不能携带冷却截止时间")
         elif self.cooldown_status is CooldownStatus.NONE:
             if self.cooldown_until is not None:
                 raise ValueError("已确认无冷却时不能携带冷却截止时间")
         elif self.cooldown_until is None:
             raise ValueError("存在冷却时必须提供冷却截止时间")
-        return self
 
     # 资料完整所必需的显式字段；None 表示未知，不参与“未知当零”的推断。
     @property
@@ -479,6 +482,7 @@ class PlanningProfileDraft(PlanningProfileFields):
     @model_validator(mode="after")
     def validate_nested_inputs(self) -> Self:
         _validate_profile_margin(self.margin_mode, self.leverage, self.margin_evidence)
+        self._validate_cooldown_consistency()
         return self
 
     # 草稿缺失项包括基础字段、成本/保证金资料及其内部待补项。
@@ -503,6 +507,31 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
     expires_at: UtcDateTime
     source: Literal["user_declared"] = "user_declared"
 
+    # 首轮快照没有 cooldown_status 字段；Pydantic 的 fields_set 保留该字段是否实际出现。
+    # 仅凭字段缺失进入历史兼容分支，不能把新版显式 null 或篡改后的载荷当作旧版。
+    @property
+    def is_legacy_profile(self) -> bool:
+        return "cooldown_status" not in self.model_fields_set
+
+    # 历史快照按旧字段集合校验原始指纹；新版按完整字段集合校验。
+    # 这不是跳过校验：历史财务/嵌套字段仍参与旧字段集合的哈希。
+    def content_sha256(self) -> str:
+        excluded = {"ref", "cooldown_status"} if self.is_legacy_profile else {"ref"}
+        payload = self.model_dump(mode="json", by_alias=False, exclude=excluded)
+        return sha256_json(cast(JsonValue, payload))
+
+    # 历史归档序列化保留原字段集合，避免把默认 None 物化后破坏旧 ref；
+    # 新版快照仍序列化全部字段。
+    def versioned_payload(self) -> JsonObject:
+        return cast(
+            JsonObject,
+            self.model_dump(
+                mode="json",
+                by_alias=False,
+                exclude_unset=self.is_legacy_profile,
+            ),
+        )
+
     @field_validator("declared_at", "expires_at")
     @classmethod
     def validate_times(cls, value: datetime) -> datetime:
@@ -517,6 +546,8 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
         if self.expires_at > self.declared_at + PROFILE_VALIDITY:
             raise ValueError("规划资料有效期不能超过声明后 15 分钟")
         _validate_profile_margin(self.margin_mode, self.leverage, self.margin_evidence)
+        # 首轮历史载荷允许只有 cooldown_until 而没有状态；读取后仍为未知/不完整。
+        self._validate_cooldown_consistency(allow_legacy_unknown=self.is_legacy_profile)
         if self.margin_evidence is not None and self.expires_at > self.margin_evidence.expires_at:
             raise ValueError("规划资料有效期不能超过保证金证据有效期")
         if self.daily_risk_as_of is not None and self.daily_risk_as_of > self.declared_at.date():
