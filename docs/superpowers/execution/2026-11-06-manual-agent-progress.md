@@ -1,26 +1,24 @@
 # 实盘手动计划 Agent 开发进度
 
-- 记录日期：2026-11-09
+- 记录日期：2026-11-10
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、聚焦/SQL/阶段/静态检查和后端 full，任务状态为 `verified`，`review_status=awaiting_review`，尚未取得正式审查结论。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T03 代码/复审文档以 fast-forward 合并，合并前 tip `6fb08b5`） |
-| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t03` |
-| 分支 | `task/manual-agent-t03` |
-| base | `6fb08b5d455cfb6bca40e636a932e1edc46c855c`（`main`，T02 合并后；T03 开始时工作区干净） |
-| implementation tip | `8d75a7a14471c36e4a168c166e3f94b659ceb9e7`（`fix: replay legacy T03 profile requests`） |
-| tree | `f19f00022a4c7aabb5cfe145e73afedbd0534b3d` |
-| review_status | `approved`（用户于 2026-11-10 传回原审查助手正式通过结论） |
-| reviewed_tip | `8d75a7a14471c36e4a168c166e3f94b659ceb9e7` |
-| 首轮受审 tip | `144e5019b904a7194d42bac9eaf55dab4d8c6162`（4 项 P2 不通过） |
-| 第二轮受审 tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（1 项历史快照 P2 不通过） |
-| 第三轮受审 tip | `023e5a20425d674a72d96614417aa4eea2820b03`（1 项旧请求重放 P2 不通过） |
-| 上一轮受审 tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`（T02 正式通过） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T03 合并后 tip `9e45d77`，T04 开始时工作区干净） |
+| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t04` |
+| 分支 | `task/manual-agent-t04` |
+| base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`，T03 复审/合并文档之后） |
+| implementation tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
+| tree | `7ee06515bed978b9a419e9fefc096a0426fc8cba` |
+| review_status | `awaiting_review`（等待用户转交原审查助手；开发自测不等于正式审查） |
+| reviewed_tip | 无（尚未取得正式审查结论） |
+| 受审实现范围 | `9e45d77..2e17368`，13 个文件，+2182 / -0 |
+| 审查请求 | `docs/superpowers/reviews/manual-agent/T04-review-request.md`（文档提交在实现 tip 之后，避免自身提交号循环引用） |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -266,10 +264,57 @@
 - 前端未在本轮改动；full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build、浏览器 e2e 或 http-e2e。
 - 未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易请求；测试资金/费率/保证金/规则全部为合成资料。
 
+## T04：持久任务、修订与安全事件（D2）
+
+| 项目 | 记录 |
+| --- | --- |
+| 任务 | T04；C4 `RunInput`/`RunSnapshot`/`RunStatus`、请求幂等、不可变修订、单工作台/全局队列容量、任务内安全事件分页、owner/lease 字段与 `0022_agent_tasks` 迁移 |
+| FR/AC/HN | FR-01、FR-12；AC-07、AC-18；HN-02、HN-08、HN-11、HN-12。T04 只建立持久任务与事件基础，不实现消费者、领取/心跳、人工审核、消息应用、证据冻结或产物提交 |
+| 时间 | 2026-11-10 |
+| 任务状态 | `verified`（实现、聚焦、SQL、阶段、静态、迁移链和最终后端 full 均完成） |
+| review_status | `awaiting_review`（等待用户转交原审查助手；未预填通过） |
+| implementation tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
+| base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`） |
+| 改动 | 13 个文件，+2182 / -0：新增 `agent_runs/` 契约、事件、端口与服务；`agent_run_repository.py`；`models/agent_runs.py` 与模型注册；`0022_agent_tasks.py`；三组 T04 测试 |
+| 公共接口 | `RunInput`、`RunSnapshot`、`RunStatus`、`AgentRunError`、`run_input_sha256`；`AgentRunRepository.enqueue/get/list_events`；`AgentRunService.start`；`RunEvent`、`RunEventPage`、`RunEventType`；`SqlAlchemyAgentRunRepository` |
+| 依赖/迁移 | 无新增依赖；新增前向迁移 `0022_agent_tasks`（线程、任务、不可变修订/请求映射/事件、证据/产物前向表、队列单例、owner/lease/终态/删除触发器）；迁移 head 为 `0022_agent_tasks`；未迁移业务库 |
+| 验证 | 预期红 3 个 collection error（退出 2）；最终聚焦 18 passed；阶段回归 315 passed；后端 full collected 1146 / passed 1146 / failed 0 / skipped 0 / collection_errors 0；Ruff、格式、Pyright、架构门禁（38 文件 0 findings）全部通过 |
+| 未验证 | 前端、HTTP API、浏览器 e2e、实际 worker/租约/心跳（T07）、交互与消息（T06）、证据/上下文（T08）、产物与规划（T12–T14）、真实模型质量、业务库迁移；T04 未写入 evidence/artifacts 行 |
+| 遗留 | 审查请求为 `docs/superpowers/reviews/manual-agent/T04-review-request.md`；不自动开始 T05，等待原审查助手正式结论 |
+
+### T04 测试证据
+
+| 检查 | 目录 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 预期红 | `backend/`（隔离工作区） | `uv run --locked --no-sync pytest tests/agent_runs/test_contracts.py tests/agent_runs/test_service.py tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-red-20261110` | 3 collection errors（缺少 `app.agent_runs`），退出 2；符合测试先行预期 |
+| 最终聚焦 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-final-focus` | 18 passed，退出 0；含请求重放/冲突/并发、默认值重放、线程/父任务、容量 20、等待 100 不占并发、事件分页、回滚无残留、终态/不可变约束 |
+| 阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t04-stage-2` | 315 passed，退出 0；证据 `.tmp/quality/t04-stage-2.log` |
+| 最终后端 full | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t04-full-backend-final.json` | `verification=passed`；1146 collected / 1146 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t04-full-backend-final.json` |
+| 静态检查 | `backend/`（隔离工作区） | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 全部通过；Pyright 0 errors / 0 warnings |
+| 架构门禁 | `backend/`（隔离工作区） | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=38`，`findings=[]`，退出 0 |
+| 迁移链 | `backend/`（隔离工作区） | `uv run --locked --no-sync alembic heads` | `0022_agent_tasks (head)`，退出 0 |
+
+### T04 关键实现结果
+
+- 请求键按 `(workspace_id, request_id)` 隔离；相同请求键和相同规范化输入重放原任务，内容不同返回 `request_conflict`；不同请求键即使币种/策略参数一致也建立新任务，不复用旧按币种合并队列。
+- 请求指纹覆盖工作台和除 `request_id` 外的全部输入；Pydantic 解析后的默认值进入指纹，因此隐式默认字段与显式默认值重试可复用同一任务。策略参数拒绝 NaN/Infinity，避免指纹不可复现。
+- 全局可运行任务容量为 20，在同一队列单例行锁内检查；请求重放先于容量检查，满队列时仍可安全重试原请求；等待态不计入运行容量。线程/父任务必须同工作台，父任务必须终态且同一会话，终态后的新工作通过 `parent_run_id` 关联。
+- 修订、请求映射、事件、证据与产物行由触发器禁止 UPDATE/DELETE；任务终态禁止重新打开，任务/线程禁止删除；owner/lease 字段只允许在 `running` 状态下成对存在。
+- T04 事件只有 `run.queued` 与 `revision.created`，载荷按类型精确白名单校验，不内嵌目标原文、策略参数或财务值；事件按任务内 `seq=1..n` 排序并支持游标分页。
+- `agent_evidence_epochs` 与 `agent_artifacts` 按 C9 在 0022 预留，但 T04 不写占位成功行；T08/T14 再实现实际保存和投影，避免把“表已存在”误报为能力已交付。
+
+### T04 环境说明
+
+- 隔离工作区从 `main` 的 `9e45d77` 创建；`main` 工作区保持干净。工作区使用独立 `.venv`（锁定依赖 68 包）和专用临时 PostgreSQL 17 容器（本机回环临时端口、受限角色、只读身份预检通过），未指向业务库。
+- 验证进程内移除宿主 `APP_ENV`、`CORS_ALLOWED_ORIGINS`、`DEEPSEEK_MODEL`、`DATABASE_URL`、`NODE_ENV`，未修改 `.env` 或业务配置；未打印连接串。
+- 前端未改动；full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build、浏览器 e2e 或 http-e2e。
+- 未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易请求；测试只使用合成 UUID/币种/参数和临时 schema。
+
 ## 后续接续规则
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。T04 须等待用户明确指定，不得自动推进。
-5. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
+4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。
+5. T04 已实现并完成自测（`implementation tip=2e17368`，`review_status=awaiting_review`）；等待用户把 `T04-review-request.md` 转交原审查助手。开发模型不得自行标记正式审查通过，也不得在结论返回前开始 T05。
+6. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
