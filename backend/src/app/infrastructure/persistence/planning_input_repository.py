@@ -107,12 +107,13 @@ class SqlAlchemyPlanningInputRepository:
         request_id: UUID,
         expected_generation: int,
     ) -> PlanningProfileSnapshot:
-        draft_payload = _profile_draft_request_payload(draft)
-        request_sha = _request_sha(
-            _ACTION_CREATE_PROFILE,
+        draft_payload = _draft_payload(draft)
+        request_shas = _profile_request_shas(
             workspace_id,
-            {"draft": draft_payload, "expectedGeneration": expected_generation},
+            draft_payload,
+            expected_generation,
         )
+        request_sha = request_shas[0]
         try:
             async with self._factory() as session, session.begin():
                 await _lock_request(session, request_id)
@@ -121,10 +122,12 @@ class SqlAlchemyPlanningInputRepository:
                     request_id,
                     workspace_id,
                     _ACTION_CREATE_PROFILE,
-                    request_sha,
+                    request_shas,
                 )
                 if replay is not None:
                     return _profile_result(replay)
+                # 重放未命中才进入新版首次写入；这里执行严格冷却语义。
+                draft.require_current_semantics()
                 pool = await _ensure_pool(session, workspace_id, self._now())
                 if pool.generation != expected_generation:
                     raise PlanningGenerationConflictError("规划资金池代次已变化，请重新读取")
@@ -178,7 +181,7 @@ class SqlAlchemyPlanningInputRepository:
                 request_id,
                 workspace_id,
                 _ACTION_CREATE_PROFILE,
-                request_sha,
+                request_shas,
             )
             if replayed is not None:
                 return _profile_result(replayed)
@@ -481,7 +484,7 @@ class SqlAlchemyPlanningInputRepository:
         request_id: UUID,
         workspace_id: UUID,
         action: str,
-        request_sha: str,
+        request_sha: str | tuple[str, ...],
     ) -> _RequestSnapshot | None:
         try:
             async with self._factory() as session:
@@ -760,15 +763,16 @@ async def _load_request(
     request_id: UUID,
     workspace_id: UUID,
     action: str,
-    request_sha: str,
+    request_sha: str | tuple[str, ...],
 ) -> _RequestSnapshot | None:
     record = await session.get(PlanningInputRequestRecord, request_id)
     if record is None:
         return None
+    candidates = (request_sha,) if isinstance(request_sha, str) else request_sha
     if (
         record.workspace_id != workspace_id
         or record.action != action
-        or record.request_sha256 != request_sha
+        or record.request_sha256 not in candidates
     ):
         raise PlanningRequestConflictError("请求键已用于不同操作或内容")
     return _RequestSnapshot(record.result)
@@ -832,13 +836,30 @@ def _draft_payload(value: PlanningProfileDraft | PlanningRiskPolicyDraft) -> Jso
     return cast(JsonObject, copy.deepcopy(dumped))
 
 
-# 首轮资料请求指纹没有 cooldown_status；未知状态（None）不进入请求内容。
-# 明确 none/active 仍保留，因此新语义不会被旧请求误重放。
-def _profile_draft_request_payload(draft: PlanningProfileDraft) -> JsonObject:
-    payload = _draft_payload(draft)
-    if payload.get("cooldown_status") is None:
-        payload.pop("cooldown_status", None)
-    return payload
+# 资料请求指纹兼容两代历史格式：
+# - 第二轮请求显式包含 cooldown_status（未知时为 null）；
+# - 首轮请求没有该字段。
+# 当前新写入使用显式字段格式；重放同时接受旧格式，其他内容变化仍由 SHA 拒绝。
+def _profile_request_shas(
+    workspace_id: UUID,
+    draft_payload: JsonObject,
+    expected_generation: int,
+) -> tuple[str, ...]:
+    candidates: list[JsonObject] = [draft_payload]
+    if draft_payload.get("cooldown_status") is None:
+        candidates.append(
+            {key: value for key, value in draft_payload.items() if key != "cooldown_status"}
+        )
+    hashes: list[str] = []
+    for candidate in candidates:
+        digest = _request_sha(
+            _ACTION_CREATE_PROFILE,
+            workspace_id,
+            {"draft": candidate, "expectedGeneration": expected_generation},
+        )
+        if digest not in hashes:
+            hashes.append(digest)
+    return tuple(hashes)
 
 
 __all__ = ["SqlAlchemyPlanningInputRepository"]

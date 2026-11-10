@@ -36,6 +36,7 @@ from app.trade_planning.inputs import (
     CostAssumptionsDraft,
     MarginEvidenceDraft,
     PlanningGenerationConflictError,
+    PlanningInputError,
     PlanningProfileDraft,
     PlanningProfileSnapshot,
     PlanningRequestConflictError,
@@ -58,6 +59,77 @@ def _fixture(name: str) -> dict[str, object]:
 def _fixture_time(value: object) -> datetime:
     assert isinstance(value, str)
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+# 写入首轮/第二轮实际生成的请求、结果、资金池、成本和资料行；返回重放所需引用。
+async def _seed_request_fixture(
+    database: Database,
+    name: str,
+) -> tuple[UUID, UUID, VersionRef, dict[str, object]]:
+    fixture = _fixture(name)
+    payload_value = fixture["result"]
+    assert isinstance(payload_value, dict)
+    payload = cast(dict[str, object], payload_value)
+    draft_value = fixture["draft"]
+    assert isinstance(draft_value, dict)
+    draft = cast(dict[str, object], draft_value)
+    cost_value = fixture["cost"]
+    assert isinstance(cost_value, dict)
+    cost_payload = cast(dict[str, object], cost_value)
+    workspace_id = UUID(str(fixture["workspace_id"]))
+    request_id = UUID(str(fixture["request_id"]))
+    ref = VersionRef.model_validate(payload["ref"])
+    pool_id = UUID(str(payload["pool_id"]))
+    cost = CostAssumptions.model_validate(cost_payload)
+
+    async with database.session_factory() as session, session.begin():
+        session.add(
+            PlanningPoolRecord(
+                id=pool_id,
+                workspace_id=workspace_id,
+                generation=1,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        session.add(
+            PlanningCostRecord(
+                id=cost.ref.version_id,
+                workspace_id=workspace_id,
+                pool_id=pool_id,
+                pool_generation=1,
+                document=cost_payload,
+                sha256=cost.ref.sha256,
+                declared_at=cost.declared_at,
+                expires_at=cost.expires_at,
+                created_at=NOW,
+            )
+        )
+        session.add(
+            PlanningProfileRecord(
+                id=ref.version_id,
+                workspace_id=workspace_id,
+                pool_id=pool_id,
+                pool_generation=1,
+                document=payload,
+                sha256=str(fixture["profile_sha"]),
+                declared_at=_fixture_time(payload["declared_at"]),
+                expires_at=_fixture_time(payload["expires_at"]),
+                created_at=NOW,
+            )
+        )
+        session.add(
+            PlanningInputRequestRecord(
+                request_id=request_id,
+                workspace_id=workspace_id,
+                action="create_profile",
+                request_sha256=str(fixture["request_sha"]),
+                result=payload,
+                created_at=NOW,
+            )
+        )
+    return workspace_id, request_id, ref, draft
 
 
 class Database(Protocol):
@@ -529,6 +601,172 @@ async def test_legacy_profile_and_request_replay_are_version_aware(
     assert replayed.is_complete is False
     pool = await repository.get_pool(workspace_id)
     assert pool is not None and pool.generation == 1
+
+
+@pytest.mark.asyncio
+async def test_v1_request_with_cooldown_deadline_replays_then_strictly_rejects_new_key(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    workspace_id, request_id, ref, draft_payload = await _seed_request_fixture(
+        migrated_database,
+        "v1_planning_request_with_cooldown.json",
+    )
+    service, repository = _service(migrated_database, clock)
+    draft = PlanningProfileDraft.model_validate(draft_payload)
+
+    # 已提交首轮请求必须绕过新版首次写入严格校验，按旧格式重放。
+    replayed = await service.create_profile(
+        workspace_id,
+        draft,
+        request_id=request_id,
+        expected_generation=0,
+    )
+    assert replayed.ref == ref
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 1
+
+    # 同一旧载荷使用新请求键首次写入时，仍必须执行新版严格冷却校验。
+    with pytest.raises(PlanningInputError):
+        await service.create_profile(
+            workspace_id,
+            draft,
+            request_id=uuid4(),
+            expected_generation=1,
+        )
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 1
+
+
+@pytest.mark.asyncio
+async def test_v2_request_with_explicit_null_status_replays_and_conflicts(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    workspace_id, request_id, ref, draft_payload = await _seed_request_fixture(
+        migrated_database,
+        "v2_planning_request_null_cooldown.json",
+    )
+    service, repository = _service(migrated_database, clock)
+    draft = PlanningProfileDraft.model_validate(draft_payload)
+    assert draft.cooldown_status is None
+
+    # 第二轮指纹显式包含 cooldown_status:null；不能按首轮缺字段格式误判冲突。
+    replayed = await service.create_profile(
+        workspace_id,
+        draft,
+        request_id=request_id,
+        expected_generation=0,
+    )
+    assert replayed.ref == ref
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 1
+
+    # 财务值、嵌套资料或显式状态变化都改变请求参数，同键必须冲突。
+    changed_financial = PlanningProfileDraft.model_validate(
+        {**draft_payload, "planning_capital": "10001"}
+    )
+    with pytest.raises(PlanningRequestConflictError):
+        await service.create_profile(
+            workspace_id,
+            changed_financial,
+            request_id=request_id,
+            expected_generation=0,
+        )
+    margin = draft_payload["margin_evidence"]
+    assert isinstance(margin, dict)
+    margin_payload = cast(dict[str, object], margin)
+    changed_nested = PlanningProfileDraft.model_validate(
+        {
+            **draft_payload,
+            "margin_evidence": {**margin_payload, "source": "改变后的合成来源"},
+        }
+    )
+    with pytest.raises(PlanningRequestConflictError):
+        await service.create_profile(
+            workspace_id,
+            changed_nested,
+            request_id=request_id,
+            expected_generation=0,
+        )
+    changed_status = PlanningProfileDraft.model_validate(
+        {**draft_payload, "cooldown_status": "none"}
+    )
+    with pytest.raises(PlanningRequestConflictError):
+        await service.create_profile(
+            workspace_id,
+            changed_status,
+            request_id=request_id,
+            expected_generation=0,
+        )
+
+    # 工作台或操作不同也必须拒绝，不能因 request_id 相同而串用。
+    with pytest.raises(PlanningRequestConflictError):
+        await service.create_profile(
+            uuid4(),
+            draft,
+            request_id=request_id,
+            expected_generation=0,
+        )
+    with pytest.raises(PlanningRequestConflictError):
+        await service.create_policy(
+            workspace_id,
+            _policy_draft(),
+            request_id=request_id,
+            expected_generation=1,
+        )
+
+    # 相同载荷使用新请求键仍是合法的新版首次写入；未知状态保持不完整。
+    new_profile = await service.create_profile(
+        workspace_id,
+        draft,
+        request_id=uuid4(),
+        expected_generation=1,
+    )
+    assert new_profile.ref != ref
+    assert new_profile.is_complete is False
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_request_replay_keeps_single_commit(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    workspace_id, request_id, ref, draft_payload = await _seed_request_fixture(
+        migrated_database,
+        "v2_planning_request_null_cooldown.json",
+    )
+    service, repository = _service(migrated_database, clock)
+    draft = PlanningProfileDraft.model_validate(draft_payload)
+    results = await asyncio.gather(
+        service.create_profile(
+            workspace_id,
+            draft,
+            request_id=request_id,
+            expected_generation=0,
+        ),
+        service.create_profile(
+            workspace_id,
+            draft,
+            request_id=request_id,
+            expected_generation=0,
+        ),
+        return_exceptions=True,
+    )
+    replayed = [item for item in results if isinstance(item, PlanningProfileSnapshot)]
+    assert len(replayed) == 2
+    assert all(item.ref == ref for item in replayed)
+    pool = await repository.get_pool(workspace_id)
+    assert pool is not None and pool.generation == 1
+    async with migrated_database.session_factory() as session:
+        count = await session.scalar(
+            select(func.count())
+            .select_from(PlanningInputRequestRecord)
+            .where(PlanningInputRequestRecord.workspace_id == workspace_id)
+        )
+    assert count == 1
 
 
 @pytest.mark.asyncio

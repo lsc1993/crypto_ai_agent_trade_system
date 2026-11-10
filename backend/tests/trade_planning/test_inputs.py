@@ -18,6 +18,7 @@ from app.trade_planning.inputs import (
     CostAssumptionsDraft,
     MarginEvidence,
     MarginEvidenceDraft,
+    PlanningInputError,
     PlanningProfileDraft,
     PlanningProfileSnapshot,
     PlanningRefs,
@@ -303,14 +304,24 @@ def test_cooldown_state_must_be_explicit() -> None:
     assert active.is_complete is True
     assert active.cooldown_until == NOW + timedelta(minutes=10)
 
-    # 状态与截止时间不一致、未知状态携带截止时间都拒绝，避免隐式推断安全。
+    # 新旧业务语义分离：未知状态携带截止时间是首轮历史请求形态，Draft 可读但
+    # 首次写入/新快照必须通过严格语义校验；none/active 自身不一致仍在模型边界拒绝。
     for payload in (
         {"cooldown_status": "active", "cooldown_until": None},
         {"cooldown_status": "none", "cooldown_until": NOW + timedelta(minutes=10)},
-        {"cooldown_status": None, "cooldown_until": NOW + timedelta(minutes=10)},
     ):
         with pytest.raises(ValidationError):
             _profile_draft(**payload)
+
+    legacy_draft = _profile_draft(
+        cooldown_status=None,
+        cooldown_until=NOW + timedelta(minutes=10),
+    )
+    assert legacy_draft.cooldown_status is None
+    with pytest.raises(PlanningInputError):
+        legacy_draft.require_current_semantics()
+    with pytest.raises(PlanningInputError):
+        _profile_snapshot(legacy_draft)
 
     with pytest.raises(ValidationError):
         _profile_snapshot(

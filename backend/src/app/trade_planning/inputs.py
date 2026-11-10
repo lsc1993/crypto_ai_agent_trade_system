@@ -482,8 +482,17 @@ class PlanningProfileDraft(PlanningProfileFields):
     @model_validator(mode="after")
     def validate_nested_inputs(self) -> Self:
         _validate_profile_margin(self.margin_mode, self.leverage, self.margin_evidence)
-        self._validate_cooldown_consistency()
+        # 草稿需要能读出首轮“只有 cooldown_until、没有状态”的请求形态；
+        # 首次新写/新快照仍由 require_current_semantics 执行严格检查。
+        self._validate_cooldown_consistency(allow_legacy_unknown=True)
         return self
+
+    # 新版首次写入/新快照的严格冷却语义；历史请求重放可在仓储重放命中后跳过。
+    def require_current_semantics(self) -> None:
+        try:
+            self._validate_cooldown_consistency()
+        except ValueError as error:
+            raise PlanningInputError(str(error), code="planning_input_invalid") from error
 
     # 草稿缺失项包括基础字段、成本/保证金资料及其内部待补项。
     @property
@@ -594,6 +603,7 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
         declared_at: datetime,
         expires_at: datetime,
     ) -> PlanningProfileSnapshot:
+        draft.require_current_semantics()
         content = draft.model_dump(
             mode="json",
             by_alias=False,
