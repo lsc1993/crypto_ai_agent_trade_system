@@ -2,21 +2,21 @@
 
 - 记录日期：2026-11-09
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过，旧请求重放修复后自测为 `verified`、正式审查为 `awaiting_review`，未获复审通过前不得进入 T04。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T02 代码/复审文档已 fast-forward 合并，合并前 tip `26e5741`；T03 未合并） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T03 代码/复审文档以 fast-forward 合并，合并前 tip `6fb08b5`） |
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t03` |
 | 分支 | `task/manual-agent-t03` |
 | base | `6fb08b5d455cfb6bca40e636a932e1edc46c855c`（`main`，T02 合并后；T03 开始时工作区干净） |
 | implementation tip | `8d75a7a14471c36e4a168c166e3f94b659ceb9e7`（`fix: replay legacy T03 profile requests`） |
 | tree | `f19f00022a4c7aabb5cfe145e73afedbd0534b3d` |
-| review_status | `awaiting_review`（首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过；旧请求重放修复后等待复审） |
-| reviewed_tip | 未填写（开发模型不得预填正式通过） |
+| review_status | `approved`（用户于 2026-11-10 传回原审查助手正式通过结论） |
+| reviewed_tip | `8d75a7a14471c36e4a168c166e3f94b659ceb9e7` |
 | 首轮受审 tip | `144e5019b904a7194d42bac9eaf55dab4d8c6162`（4 项 P2 不通过） |
 | 第二轮受审 tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（1 项历史快照 P2 不通过） |
 | 第三轮受审 tip | `023e5a20425d674a72d96614417aa4eea2820b03`（1 项旧请求重放 P2 不通过） |
@@ -180,8 +180,9 @@
 | 任务 | T03；C3 本地财务资料/风险政策/成本/保证金证据/公开规则快照、单池 generation、请求幂等、BTC/ETH USDT 线性永续逐仓支持目录与 `0021_planning_inputs` 迁移 |
 | FR/AC/HN | FR-14、FR-15；AC-21 至 AC-25、AC-29、AC-30 的输入/规则/时效基础；HN-13、HN-14、HN-15。T03 不实现完成数量/风险/保证金计算、可实施状态、采纳占用或释放流程，这些仍由 T12/T13 完成 |
 | 时间 | 2026-11-09 至 2026-11-10 |
-| 任务状态 | `verified`（实现、三轮修复、聚焦、阶段回归、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过；旧请求重放修复后等待复审） |
+| 任务状态 | `verified`（实现、三轮修复、聚焦、阶段回归、迁移/并发回归、静态检查、后端 full 和正式复审均已完成） |
+| review_status | `approved`（用户于 2026-11-10 传回原审查助手正式通过结论） |
+| reviewed_tip | `8d75a7a14471c36e4a168c166e3f94b659ceb9e7` |
 | implementation tip | `8d75a7a14471c36e4a168c166e3f94b659ceb9e7`（`fix: replay legacy T03 profile requests`） |
 | tree | `f19f00022a4c7aabb5cfe145e73afedbd0534b3d` |
 | 改动 | 首轮 17 个文件，+4108 / -15；第二轮修复 9 个文件，+508 / -51（`efae1dd..4f0e7ae`）；历史兼容修复 7 个文件，+235 / -7（`127c247..023e5a2`）；旧请求重放修复 6 个文件，+301 / -19（`6592f98..8d75a7a`，含 2 个首轮/第二轮实际生成的请求 fixture）；新增 `trade_planning/` 五个模块、`market_rules/binance_usdm.py`、规划输入 ORM/仓储、`0021_planning_inputs.py` 及四组测试；修改公开行情网关和模型注册 |
@@ -189,7 +190,7 @@
 | 依赖/迁移 | 无新增依赖；新增前向迁移 `0021_planning_inputs`（planning_pools、planning_profiles、planning_risk_policies、planning_costs、planning_venue_rules、planning_input_requests、唯一工作台池、版本/请求不可变触发器）；迁移 head 为 `0021_planning_inputs`；未迁移业务库；冷却状态、历史字段集合和请求格式兼容均存于 JSONB 文档/请求记录，无 schema 变更 |
 | 验证 | 首轮纯契约预期红 3 collection errors、SQL 预期红 1 collection error；首轮 green 15 + 9、阶段 168、full 1113；第二轮修复前 11 项纯契约/规则失败、旧 tip 重放红基线 1 failed，修复后 17 + 12、阶段 176、full 1121；历史兼容修复前纯契约 2 failed、SQL 旧行 1 failed，修复后 23 + 13、阶段 180、full 1125；旧请求重放修复前纯契约 1 failed、SQL 2 failed，修复后纯契约/规则 23、SQL 16、阶段 183、full 1128；架构门禁 38 文件 0 findings；静态检查全绿；迁移链 head `0021_planning_inputs` |
 | 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实公开源持续可用性、真实产品规则发布/官方复验、业务库迁移；未实现 T12/T13 的数量/风险/保证金计算、可实施状态、采纳互斥和未知占用释放 |
-| 遗留 | T03 等待原审查助手复审；首轮带截止时间与第二轮显式 null 的已提交请求可按原格式重放，新请求键首次写入仍执行严格冷却校验；未获通过前不开始 T04 |
+| 遗留 | T03 已通过正式复审并以 fast-forward 合并到 `main`；不自动开始 T04，等待用户指定下一审查单元 |
 
 ### T03 测试证据
 
@@ -252,6 +253,12 @@
 
 迁移兼容：无 schema 变更；历史请求记录、结果和快照不重写。已提交首轮/第二轮请求按原格式重放；不存在已提交映射时仍执行新版严格冷却校验。
 
+### T03 复审结论
+
+- 2026-11-10 用户传回原审查助手正式通过结论；`reviewed_tip` 为 `8d75a7a14471c36e4a168c166e3f94b659ceb9e7`，审查请求中的正式状态已改为 `approved`。
+- T03 代码与复审文档以 fast-forward 从 `6fb08b5` 合并到 `main`；本条状态记录是合并后的 docs 提交，具体 hash 见最终回复。
+- T03 状态为 `verified`/`approved`。不自动开始 T04；下一审查单元须等待用户明确指定。
+
 ### T03 环境说明
 
 - 隔离工作区从 `main` 的 `6fb08b5` 创建；初始代码改动复制到工作区后 `main` 恢复干净。工作区使用独立 `.venv`（锁定依赖 68 包）和专用临时 PostgreSQL 17 容器；`TEST_DATABASE_URL` 仅指向固定测试库/受限角色，通过 `check_test_database` 身份与权限预检，未指向业务库。
@@ -264,5 +271,5 @@
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-4. T03 首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过；旧请求重放修复 tip 为 `8d75a7a`，当前为 `verified`/`awaiting_review`，等待原审查助手复审。未获通过前不得启动 T04 或后续依赖开发。
+4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。T04 须等待用户明确指定，不得自动推进。
 5. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
