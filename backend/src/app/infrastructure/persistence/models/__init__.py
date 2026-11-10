@@ -6,6 +6,16 @@ from app.infrastructure.persistence.models.agent_research import (
     AgentAnalysisRunRecord,
     AgentReportDetailRecord,
 )
+from app.infrastructure.persistence.models.agent_runs import (
+    AgentArtifactRecord,
+    AgentEvidenceEpochRecord,
+    AgentRunEventRecord,
+    AgentRunQueueRecord,
+    AgentRunRecord,
+    AgentRunRequestRecord,
+    AgentRunRevisionRecord,
+    AgentThreadRecord,
+)
 from app.infrastructure.persistence.models.harness import (
     HarnessAuditEventRecord,
     HarnessAuditRunRecord,
@@ -61,6 +71,14 @@ __all__ = [
     "TechnicalReportRecord",
     "AgentAnalysisRunRecord",
     "AgentReportDetailRecord",
+    "AgentArtifactRecord",
+    "AgentEvidenceEpochRecord",
+    "AgentRunEventRecord",
+    "AgentRunQueueRecord",
+    "AgentRunRecord",
+    "AgentRunRequestRecord",
+    "AgentRunRevisionRecord",
+    "AgentThreadRecord",
     "HarnessAuditEventRecord",
     "HarnessAuditRunRecord",
     "HarnessEvaluationRecord",
