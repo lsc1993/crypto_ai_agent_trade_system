@@ -2,24 +2,25 @@
 
 - 记录日期：2026-11-10
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、P2 修复、聚焦/SQL/阶段/静态检查和后端 full，任务状态为 `verified`，`review_status=awaiting_review`（P2 修复 tip `0df86fe`），尚未取得正式审查结论。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、P2 修复、聚焦/SQL/阶段/静态检查和后端 full；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），T04 当前为 `verified`/`approved`。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T03 合并后 tip `9e45d77`，T04 开始时工作区干净） |
-| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t04` |
-| 分支 | `task/manual-agent-t04` |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T04 合并后 tip `35617bf`，approval/merge 文档提交随后） |
+| 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t04`（合并后删除） |
+| 分支 | `task/manual-agent-t04`（已合并到 `main`，保留用于审查追踪） |
 | base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`，T03 复审/合并文档之后） |
 | implementation tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f`（`fix: stabilize agent request fingerprints across jsonb`，P2 修复 tip） |
 | 首轮实现 tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
 | tree | `0b99b60f684264374ae080ef321fb215217ab428`（P2 修复 tip） |
-| review_status | `awaiting_review`（等待用户转交原审查助手复审；开发自测不等于正式审查） |
-| reviewed_tip | 无（尚未取得复审结论） |
+| review_status | `approved`（用户于 2026-11-10 传回原审查助手正式通过结论） |
+| reviewed_tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f` |
+| 合并 tip | `35617bfe55370b1369525adcb0d214a5147490cf`（fast-forward 到 `main`） |
 | 复审范围 | `2e17368..0df86fe`，5 个文件，+279 / -28；累计代码 `9e45d77..0df86fe` 为 13 个文件，+2433 / -0 |
-| 审查请求 | `docs/superpowers/reviews/manual-agent/T04-review-request.md`（文档提交在实现 tip 之后，避免自身提交号循环引用） |
+| 审查请求 | `docs/superpowers/reviews/manual-agent/T04-review-request.md`（已记录正式通过结论与合并信息） |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -273,7 +274,9 @@
 | FR/AC/HN | FR-01、FR-12；AC-07、AC-18；HN-02、HN-08、HN-11、HN-12。T04 只建立持久任务与事件基础，不实现消费者、领取/心跳、人工审核、消息应用、证据冻结或产物提交 |
 | 时间 | 2026-11-10 |
 | 任务状态 | `verified`（实现、P2 修复、聚焦、SQL、阶段、静态、迁移链和最终后端 full 均完成） |
-| review_status | `awaiting_review`（等待用户转交原审查助手复审；未预填通过） |
+| review_status | `approved`（用户于 2026-11-10 传回原审查助手正式通过结论） |
+| reviewed_tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f` |
+| 合并 tip | `35617bfe55370b1369525adcb0d214a5147490cf`（fast-forward 到 `main`） |
 | implementation tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f`（`fix: stabilize agent request fingerprints across jsonb`，P2 修复 tip） |
 | 首轮实现 tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
 | base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`） |
@@ -282,7 +285,7 @@
 | 依赖/迁移 | 无新增依赖；`0022_agent_tasks` 未修改、无新迁移（修复不改变 schema）；迁移 head 仍为 `0022_agent_tasks`；未迁移业务库 |
 | 验证 | 首轮预期红 3 个 collection error；P2 预期红 1 failed（`integrity_violation`）；最终聚焦 21 passed；最终后端 full collected 1149 / passed 1149 / failed 0 / skipped 0 / collection_errors 0；Ruff、格式、Pyright、架构门禁（38 文件 0 findings）全部通过 |
 | 未验证 | 前端、HTTP API、浏览器 e2e、实际 worker/租约/心跳（T07）、交互与消息（T06）、证据/上下文（T08）、产物与规划（T12–T14）、真实模型质量、业务库迁移；T04 未写入 evidence/artifacts 行 |
-| 遗留 | 审查请求为 `docs/superpowers/reviews/manual-agent/T04-review-request.md`；不自动开始 T05，等待原审查助手复审结论 |
+| 遗留 | T04 已通过正式复审并以 fast-forward 合并到 `main`；不自动开始 T05，等待用户指定下一审查单元 |
 
 ### T04 测试证据
 
@@ -327,6 +330,13 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 
 结果：3 passed，退出 0。读取后的 `RunSnapshot.parameters` 可能采用 JSONB 解码类型（如 `1e20` 变整数、`-0.0` 变 `0.0`），数值语义不变；下游不得依赖 Python 具体数值类型。
 
+### T04 复审结论
+
+- 2026-11-10 用户传回原审查助手正式通过结论：T04 P2 修复版本通过，`reviewed_tip` 为 `0df86fe7bbe4dc96062822404dfe45f5f675c06f`。
+- T04 首轮审查的 1 项 P2 已按第 2 轮记录修复；复审通过后任务状态为 `verified`，正式审查状态为 `approved`。
+- T04 代码/复审文档以 fast-forward 从 `9e45d77` 合并到 `main`，合并 tip 为 `35617bfe55370b1369525adcb0d214a5147490cf`；本 approval/merge 记录为合并后的 docs 提交。
+- 不自动开始 T05；下一审查单元须等待用户明确指定。
+
 ### T04 环境说明
 
 - 隔离工作区从 `main` 的 `9e45d77` 创建；`main` 工作区保持干净。工作区使用独立 `.venv`（锁定依赖 68 包）和专用临时 PostgreSQL 17 容器（本机回环临时端口、受限角色、只读身份预检通过），未指向业务库。
@@ -340,5 +350,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。
-5. T04 首轮审查 P2 已修复并完成自测（P2 修复 `implementation tip=0df86fe`，`review_status=awaiting_review`）；等待用户把更新后的 `T04-review-request.md` 转交原审查助手复审。开发模型不得自行标记正式审查通过，也不得在结论返回前开始 T05。
+5. T04 首轮审查 P2 修复后，用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`）；代码/复审文档以 fast-forward 合并到 `main`，合并 tip 为 `35617bf`，当前为 `verified`/`approved`。不自动开始 T05；下一审查单元须等待用户明确指定。
 6. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
