@@ -2,7 +2,7 @@
 
 - 记录日期：2026-11-10
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、聚焦/SQL/阶段/静态检查和后端 full，任务状态为 `verified`，`review_status=awaiting_review`，尚未取得正式审查结论。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、P2 修复、聚焦/SQL/阶段/静态检查和后端 full，任务状态为 `verified`，`review_status=awaiting_review`（P2 修复 tip `0df86fe`），尚未取得正式审查结论。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
@@ -13,11 +13,12 @@
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t04` |
 | 分支 | `task/manual-agent-t04` |
 | base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`，T03 复审/合并文档之后） |
-| implementation tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
-| tree | `7ee06515bed978b9a419e9fefc096a0426fc8cba` |
-| review_status | `awaiting_review`（等待用户转交原审查助手；开发自测不等于正式审查） |
-| reviewed_tip | 无（尚未取得正式审查结论） |
-| 受审实现范围 | `9e45d77..2e17368`，13 个文件，+2182 / -0 |
+| implementation tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f`（`fix: stabilize agent request fingerprints across jsonb`，P2 修复 tip） |
+| 首轮实现 tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
+| tree | `0b99b60f684264374ae080ef321fb215217ab428`（P2 修复 tip） |
+| review_status | `awaiting_review`（等待用户转交原审查助手复审；开发自测不等于正式审查） |
+| reviewed_tip | 无（尚未取得复审结论） |
+| 复审范围 | `2e17368..0df86fe`，5 个文件，+279 / -28；累计代码 `9e45d77..0df86fe` 为 13 个文件，+2433 / -0 |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T04-review-request.md`（文档提交在实现 tip 之后，避免自身提交号循环引用） |
 
 ## T00：治理内核与规范迁移（D0）
@@ -271,25 +272,27 @@
 | 任务 | T04；C4 `RunInput`/`RunSnapshot`/`RunStatus`、请求幂等、不可变修订、单工作台/全局队列容量、任务内安全事件分页、owner/lease 字段与 `0022_agent_tasks` 迁移 |
 | FR/AC/HN | FR-01、FR-12；AC-07、AC-18；HN-02、HN-08、HN-11、HN-12。T04 只建立持久任务与事件基础，不实现消费者、领取/心跳、人工审核、消息应用、证据冻结或产物提交 |
 | 时间 | 2026-11-10 |
-| 任务状态 | `verified`（实现、聚焦、SQL、阶段、静态、迁移链和最终后端 full 均完成） |
-| review_status | `awaiting_review`（等待用户转交原审查助手；未预填通过） |
-| implementation tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
+| 任务状态 | `verified`（实现、P2 修复、聚焦、SQL、阶段、静态、迁移链和最终后端 full 均完成） |
+| review_status | `awaiting_review`（等待用户转交原审查助手复审；未预填通过） |
+| implementation tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f`（`fix: stabilize agent request fingerprints across jsonb`，P2 修复 tip） |
+| 首轮实现 tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
 | base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`） |
-| 改动 | 13 个文件，+2182 / -0：新增 `agent_runs/` 契约、事件、端口与服务；`agent_run_repository.py`；`models/agent_runs.py` 与模型注册；`0022_agent_tasks.py`；三组 T04 测试 |
-| 公共接口 | `RunInput`、`RunSnapshot`、`RunStatus`、`AgentRunError`、`run_input_sha256`；`AgentRunRepository.enqueue/get/list_events`；`AgentRunService.start`；`RunEvent`、`RunEventPage`、`RunEventType`；`SqlAlchemyAgentRunRepository` |
-| 依赖/迁移 | 无新增依赖；新增前向迁移 `0022_agent_tasks`（线程、任务、不可变修订/请求映射/事件、证据/产物前向表、队列单例、owner/lease/终态/删除触发器）；迁移 head 为 `0022_agent_tasks`；未迁移业务库 |
-| 验证 | 预期红 3 个 collection error（退出 2）；最终聚焦 18 passed；阶段回归 315 passed；后端 full collected 1146 / passed 1146 / failed 0 / skipped 0 / collection_errors 0；Ruff、格式、Pyright、架构门禁（38 文件 0 findings）全部通过 |
+| 改动 | 累计代码 13 个文件，+2433 / -0；P2 修复 `2e17368..0df86fe` 为 5 个文件，+279 / -28。新增 `agent_runs/` 契约、事件、端口与服务；`agent_run_repository.py`；`models/agent_runs.py` 与模型注册；`0022_agent_tasks.py`；三组 T04 测试 |
+| 公共接口 | `RunInput`、`RunSnapshot`、`RunStatus`、`AgentRunError`、`canonical_run_input_json`、`run_input_sha256`（按 JSONB 规范文本）、`legacy_run_input_sha256`；`AgentRunRepository.enqueue/get/list_events`；`AgentRunService.start`；`RunEvent`、`RunEventPage`、`RunEventType`；`SqlAlchemyAgentRunRepository` |
+| 依赖/迁移 | 无新增依赖；`0022_agent_tasks` 未修改、无新迁移（修复不改变 schema）；迁移 head 仍为 `0022_agent_tasks`；未迁移业务库 |
+| 验证 | 首轮预期红 3 个 collection error；P2 预期红 1 failed（`integrity_violation`）；最终聚焦 21 passed；最终后端 full collected 1149 / passed 1149 / failed 0 / skipped 0 / collection_errors 0；Ruff、格式、Pyright、架构门禁（38 文件 0 findings）全部通过 |
 | 未验证 | 前端、HTTP API、浏览器 e2e、实际 worker/租约/心跳（T07）、交互与消息（T06）、证据/上下文（T08）、产物与规划（T12–T14）、真实模型质量、业务库迁移；T04 未写入 evidence/artifacts 行 |
-| 遗留 | 审查请求为 `docs/superpowers/reviews/manual-agent/T04-review-request.md`；不自动开始 T05，等待原审查助手正式结论 |
+| 遗留 | 审查请求为 `docs/superpowers/reviews/manual-agent/T04-review-request.md`；不自动开始 T05，等待原审查助手复审结论 |
 
 ### T04 测试证据
 
 | 检查 | 目录 | 命令 | 结果 |
 | --- | --- | --- | --- |
 | 预期红 | `backend/`（隔离工作区） | `uv run --locked --no-sync pytest tests/agent_runs/test_contracts.py tests/agent_runs/test_service.py tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-red-20261110` | 3 collection errors（缺少 `app.agent_runs`），退出 2；符合测试先行预期 |
-| 最终聚焦 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-final-focus` | 18 passed，退出 0；含请求重放/冲突/并发、默认值重放、线程/父任务、容量 20、等待 100 不占并发、事件分页、回滚无残留、终态/不可变约束 |
-| 阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t04-stage-2` | 315 passed，退出 0；证据 `.tmp/quality/t04-stage-2.log` |
-| 最终后端 full | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t04-full-backend-final.json` | `verification=passed`；1146 collected / 1146 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t04-full-backend-final.json` |
+| P2 预期红 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_jsonb_numeric_normalization_keeps_fingerprint_stable_for_reload_and_replay -q --tb=short --basetemp=../.tmp/pytest/t04-p2-red-20261111` | 1 failed：首次 enqueue 在 `_load_snapshot` 抛 `integrity_violation`，退出 1；复现 JSONB 数值规范化导致指纹漂移 |
+| 最终聚焦 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-p2-focus-3` | 21 passed，退出 0；含 JSONB 数值往返、旧稳定数值兼容、旧规范化数值 fail-closed、请求重放/冲突/并发、默认值重放、线程/父任务、容量 20、等待 100 不占并发、事件分页、回滚无残留、终态/不可变约束 |
+| 阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t04-stage-2` | 315 passed，退出 0；首轮实现证据，P2 后完整覆盖由最终 full 提供；证据 `.tmp/quality/t04-stage-2.log` |
+| 最终后端 full | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t04-p2-full-backend-final.json` | `verification=passed`；1149 collected / 1149 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t04-p2-full-backend-final.json` |
 | 静态检查 | `backend/`（隔离工作区） | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 全部通过；Pyright 0 errors / 0 warnings |
 | 架构门禁 | `backend/`（隔离工作区） | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=38`，`findings=[]`，退出 0 |
 | 迁移链 | `backend/`（隔离工作区） | `uv run --locked --no-sync alembic heads` | `0022_agent_tasks (head)`，退出 0 |
@@ -302,6 +305,27 @@
 - 修订、请求映射、事件、证据与产物行由触发器禁止 UPDATE/DELETE；任务终态禁止重新打开，任务/线程禁止删除；owner/lease 字段只允许在 `running` 状态下成对存在。
 - T04 事件只有 `run.queued` 与 `revision.created`，载荷按类型精确白名单校验，不内嵌目标原文、策略参数或财务值；事件按任务内 `seq=1..n` 排序并支持游标分页。
 - `agent_evidence_epochs` 与 `agent_artifacts` 按 C9 在 0022 预留，但 T04 不写占位成功行；T08/T14 再实现实际保存和投影，避免把“表已存在”误报为能力已交付。
+
+### T04 P2 修复：请求指纹跨 JSONB 稳定性
+
+| 项目 | 记录 |
+| --- | --- |
+| 审查问题 | 正式审查判定 1 项 P2：请求指纹在 PostgreSQL JSONB 往返后不稳定（`1e20` → 整数、`-0.0` → `0.0`），导致首次入队重读、`get`、同键重放可能误报 `integrity_violation` |
+| 根因 | 首轮 `run_input_sha256` 基于 Python 首次 `json.dumps` 文本；修订列是 JSONB，PostgreSQL 会规范化数值，重读后 Python 表示与首次文本不同 |
+| 修复 | 仓储在同一事务内用 `SELECT CAST(:payload AS jsonb)::text` 取得 PostgreSQL 规范文本；`run_input_sha256` 从该文本解析、移除 `request_id`、稳定键序后哈希。读取时从 `agent_run_revisions.input::text` 使用同一算法校验。不修改 schema/迁移、不回写历史 |
+| 兼容性 | 新行使用 JSONB 规范文本哈希；旧稳定数值行接受精确旧 Python JSON 哈希；旧行含已规范化数值时原文本不可恢复，仍 fail-closed。新增 `legacy_run_input_sha256`，未新增迁移；`0022_agent_tasks` 不变 |
+| 接口 | `run_input_sha256` 参数由 `RunInput` 改为规范文本；新增 `canonical_run_input_json`（提交 JSON 文本）和 `legacy_run_input_sha256`（旧行兼容） |
+| 修复 tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f`（`fix: stabilize agent request fingerprints across jsonb`）；修复 tree `0b99b60f684264374ae080ef321fb215217ab428` |
+| 修复范围 | `2e17368..0df86fe`，5 个文件，+279 / -28 |
+| 验证 | P2 专项+兼容 3 passed；最终聚焦 21 passed；最终后端 full 1149 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁通过 |
+
+P2 专项命令（`backend/` + 临时 PostgreSQL 17）：
+
+```powershell
+uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_jsonb_numeric_normalization_keeps_fingerprint_stable_for_reload_and_replay tests/persistence/test_agent_runs.py::test_legacy_stable_hash_rows_stay_readable_without_rewriting_history tests/persistence/test_agent_runs.py::test_legacy_normalized_numeric_rows_fail_closed_instead_of_replaying -q --basetemp=../.tmp/pytest/t04-p2-legacy
+```
+
+结果：3 passed，退出 0。读取后的 `RunSnapshot.parameters` 可能采用 JSONB 解码类型（如 `1e20` 变整数、`-0.0` 变 `0.0`），数值语义不变；下游不得依赖 Python 具体数值类型。
 
 ### T04 环境说明
 
@@ -316,5 +340,5 @@
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。
-5. T04 已实现并完成自测（`implementation tip=2e17368`，`review_status=awaiting_review`）；等待用户把 `T04-review-request.md` 转交原审查助手。开发模型不得自行标记正式审查通过，也不得在结论返回前开始 T05。
+5. T04 首轮审查 P2 已修复并完成自测（P2 修复 `implementation tip=0df86fe`，`review_status=awaiting_review`）；等待用户把更新后的 `T04-review-request.md` 转交原审查助手复审。开发模型不得自行标记正式审查通过，也不得在结论返回前开始 T05。
 6. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。

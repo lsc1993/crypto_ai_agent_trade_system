@@ -3,9 +3,9 @@
 - 任务/审查单元：T04（D2）
 - 执行模型：`deepseek-flash`（运行环境标识）；具体供应商构建、参数版本与上下文版本未在仓库内可确认，记为**未知**。执行载体为 DeepSeek Harness。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0（日期均为 2026-11-06）。
-- 自测状态：`verified`（实现、聚焦、SQL、阶段、静态、迁移链与最终后端 full 已完成）。
-- 正式审查状态：`awaiting_review`。本文件不是审查通过结论；开发模型自测或子 Agent 检查不能替代原审查助手结论。
-- 审查请求生成时间：2026-11-10（Asia/Shanghai）。
+- 自测状态：`verified`（首轮实现 + P2 修复、聚焦、SQL、静态、迁移链与最终后端 full 已完成）。
+- 正式审查状态：`awaiting_review`。本文件不是审查通过结论；开发模型自测或子 Agent 检查不能替代原审查助手结论。首轮正式审查已判定 P2 不通过（JSONB 数值规范化导致请求指纹漂移），本文件记录修复后版本，等待复审。
+- 审查请求生成/更新：2026-11-10（Asia/Shanghai）；P2 修复记录见第 8 节。
 
 ## 1. 工作区、分支与审查范围
 
@@ -15,9 +15,11 @@
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t04` |
 | 分支 | `task/manual-agent-t04` |
 | base | `9e45d77b1771efbc1e45eca9a1a414c623991c81`（`main`，T03 复审/合并文档之后） |
-| implementation tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
-| implementation tree | `7ee06515bed978b9a419e9fefc096a0426fc8cba` |
-| 代码审查范围 | `9e45d77..2e17368`，13 个文件，+2182 / -0 |
+| implementation tip | `0df86fe7bbe4dc96062822404dfe45f5f675c06f`（`fix: stabilize agent request fingerprints across jsonb`，P2 修复 tip） |
+| 首轮实现 tip | `2e173680a86184c4ea4e6d528e275f1fec3c34a7`（`feat: persist versioned agent tasks and events`） |
+| implementation tree | `7ee06515bed978b9a419e9fefc096a0426fc8cba`（首轮实现）；P2 修复 tree 见第 8 节 |
+| 复审范围（本轮重点） | `2e17368..0df86fe`，5 个文件，+279 / -28：请求指纹契约、仓储写入/读取、对应测试 |
+| 累计代码范围 | `9e45d77..0df86fe`（排除 docs 提交），13 个文件，+2433 / -0 |
 | 文档提交 | 本审查请求、进度/状态/契约注记位于实现 tip 之后的独立 docs 提交；该 docs 提交不属于代码审查范围，避免用自身提交号循环引用 |
 
 工作区在实现提交后只包含本任务文件；`main` 未合并 T04，未推送、未部署、未迁移业务库。本轮未使用或修改其他任务未提交改动，未阅读或写入 `.env`、凭证或真实账户资料。
@@ -105,7 +107,7 @@
 1. **重放先于容量检查。** 同一 `(workspace_id, request_id)` 先取事务级 advisory lock 并读取已提交映射；命中且内容指纹一致时直接返回原任务。这样队列已满时仍能安全重试原请求，不会被误报 `queue_full`。内容不同返回 `request_conflict`。
 2. **请求键按工作台隔离。** `agent_run_requests` 使用 `(workspace_id, request_id)` 复合主键；同一 UUID 在不同工作台可对应不同任务，避免跨工作台猜测/泄露。
 3. **不同请求键不合并。** 没有按币种/策略的活跃任务唯一索引；即使输入完全相同，不同 `request_id` 也建立独立任务，遵循“用户明确再次研究”的语义。
-4. **指纹覆盖规范化输入。** `run_input_sha256` 排除 `request_id`，包含工作台、产品、周期、目标、策略引用、参数、规划引用、分析模式、`as_of`、预算档和父/线程字段。Pydantic 默认值在解析后进入指纹，因此省略默认字段与显式写默认值可重放同一任务；策略参数拒绝 NaN/Infinity，避免指纹不可复现。
+4. **指纹覆盖规范化输入。** 首轮用 Python JSON 序列化哈希，未覆盖 JSONB 对 `1e20`、`-0.0` 等合法数值的规范化；P2 修复后，仓储先让 PostgreSQL 生成 JSONB 规范文本，再移除 `request_id`、稳定键序并哈希。指纹仍覆盖工作台、产品、周期、目标、策略引用、参数、规划引用、分析模式、`as_of`、预算档和父/线程字段；默认值在解析后进入指纹，因此省略默认字段与显式写默认值可重放同一任务。策略参数拒绝 NaN/Infinity，避免指纹不可复现。
 5. **修订保存提交输入，线程/父任务落在任务行。** 首次解析的默认字段随修订保存；服务端生成/继承的 `thread_id` 和父任务关系保存在 `agent_runs`。因此 `RunSnapshot.thread_id` 是有效会话，`RunSnapshot.input.thread_id` 仍是客户端提交值。若客户端在一次重试中把服务端生成的线程 ID 显式写回请求体，会形成不同内容并返回冲突，这是有意的“原请求重试”语义。
 6. **全局可运行容量 20。** 在 `agent_run_queue` 单例行锁内统计 `queued/running`；等待态不计入该容量。单工作台等待上限 100 的原子检查属于 T06/T07 的状态迁移，本轮只验证“100 个等待不占运行并发”。
 7. **父任务必须终态且同会话。** 终态后的新工作必须显式携带 `parent_run_id`；未终态父任务不能被并行子任务借用。父任务/线程跨工作台一律按不存在处理。
@@ -125,6 +127,7 @@
 - `RunStatus`：9 个状态；`TERMINAL_RUN_STATUSES` 等集合。
 - `AgentRunError`：稳定原因码（请求冲突、队列满、线程/父任务错误、事件分页、完整性问题、存储不可用）。
 - `AgentRunRepository`：`enqueue/get/list_events`；`AgentRunService.start`。
+- `canonical_run_input_json`：生成提交输入的稳定 JSON 文本；`run_input_sha256` 改为接收 PostgreSQL JSONB 规范文本；`legacy_run_input_sha256` 仅供首轮已提交稳定数值行的兼容读取。
 - `RunEvent`、`RunEventPage`、`RunEventType`、`build_enqueue_events`、`SqlAlchemyAgentRunRepository`。
 
 ### 5.2 依赖与边界
@@ -142,6 +145,7 @@
 - `agent_run_queue` 单例行并种入 `id=1`。
 - 任务状态/修订/消息水位/owner-lease/终态/父任务/结果引用检查约束；请求/事件/证据/产物不可变触发器；终态不可重开触发器；任务/线程禁删触发器。
 - 迁移头为 `0022_agent_tasks`；仅应用于专用临时测试库，未迁移业务库。`downgrade()` 明确拒绝，避免删除任务历史。
+- P2 修复不新增迁移、不修改 `0022_agent_tasks`、不重写修订/请求行：仍保存 JSONB，只把指纹来源改为 PostgreSQL JSONB 规范文本。旧行兼容与限制见第 8 节。
 
 ## 6. 测试执行与证据
 
@@ -150,9 +154,10 @@
 | 检查 | 目录 | 完整命令 | 退出码 | 实际结果 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 预期红（测试先行） | `backend/` | `uv run --locked --no-sync pytest tests/agent_runs/test_contracts.py tests/agent_runs/test_service.py tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-red-20261110` | 2 | 3 个 collection error：`ModuleNotFoundError: app.agent_runs`；符合测试先行预期 | 终端记录（代码已实现后不可原地复现）；提交历史与进度文档 |
-| 最终聚焦（契约+服务+SQL） | `backend/` | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-final-focus` | 0 | 18 passed / 0 failed / 0 skipped；含并发同键单任务、21 并发第 21 个拒绝、等待 100 不占运行容量、事件 1..2、失败回滚无残留、终态/不可变约束 | `.tmp/quality/t04-final-focus.log`（主工作区 `D:\project_git\crypto_ai_agent_trade_system\.tmp\quality\`；下同） |
-| 阶段回归 | `backend/` | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t04-stage-2` | 0 | 315 passed / 0 failed / 0 skipped | `.tmp/quality/t04-stage-2.log` |
-| 最终后端 full | 仓库根目录 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t04-full-backend-final.json` | 0 | `verification=passed`；backend-tests collected 1146 / passed 1146 / failed 0 / skipped 0 / collection_errors 0；含格式/lint/类型/架构/迁移头/离线评估/研究流程 | `.tmp/quality/manual-agent-t04-full-backend-final.json` |
+| P2 预期红（真实 PostgreSQL） | `backend/` | `uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_jsonb_numeric_normalization_keeps_fingerprint_stable_for_reload_and_replay -q --tb=short --basetemp=../.tmp/pytest/t04-p2-red-20261111` | 1 | 1 failed：首次 `enqueue` 在 `_load_snapshot` 抛 `integrity_violation`；复现 `1e20`/`-0.0` JSONB 规范化后指纹漂移 | 终端记录 |
+| 最终聚焦（契约+服务+SQL） | `backend/` | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-p2-focus-3` | 0 | 21 passed / 0 failed / 0 skipped；含 JSONB 数值往返、旧稳定数值兼容、旧规范化数值 fail-closed、并发同键单任务、21 并发第 21 个拒绝、等待 100 不占运行容量、事件 1..2、失败回滚无残留、终态/不可变约束 | `.tmp/quality/t04-p2-focus-3.log`（待归档；主工作区 `.tmp/quality/`） |
+| 首轮阶段回归 | `backend/` | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t04-stage-2` | 0 | 315 passed / 0 failed / 0 skipped（首轮实现）；P2 修复后的完整覆盖由最终后端 full 提供 | `.tmp/quality/t04-stage-2.log` |
+| 最终后端 full | 仓库根目录 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t04-p2-full-backend-final.json` | 0 | `verification=passed`；backend-tests collected 1149 / passed 1149 / failed 0 / skipped 0 / collection_errors 0；含格式/lint/类型/架构/迁移头/离线评估/研究流程 | `.tmp/quality/manual-agent-t04-p2-full-backend-final.json` |
 | Ruff | `backend/` | `uv run --locked --no-sync ruff check .` | 0 | All checks passed | 同上 full 检查项 |
 | 格式 | `backend/` | `uv run --locked --no-sync ruff format --check .` | 0 | 336 files already formatted | `.tmp/quality/t04-pyright.log` 同批终端记录；full 复核 |
 | Pyright | `backend/` | `uv run --locked --no-sync pyright` | 0 | 0 errors / 0 warnings / 0 informations | `.tmp/quality/t04-pyright.log` |
@@ -182,22 +187,90 @@
 
 1. **终态触发器较严格。** 任务一旦进入终态，任何 UPDATE 都被拒绝。T07/T13 必须把终态、完成时间、结果引用/质量等在一次 UPDATE 中提交；若后续需要“终态后补写”必须另行说明，而不是放宽触发器。
 2. **请求指纹与有效输入的双层语义。** 修订保存客户端提交的规范化输入；服务端生成/继承的线程与父任务只落在任务行。重试必须复用原请求体，不能把服务端返回的线程 ID 写回同一 `request_id`。请审查这是否符合 C1“首次解析后的有效输入快照”的期望。
-3. **容量口径。** 20 是全局可运行上限；等待 100 是单工作台上限但不占运行并发。T04 未在入队时拒绝“该工作台已有 100 个等待”的新任务；等待上限的原子检查留待 T06/T07 状态迁移。若产品要求入队即限制，需要另定语义。
-4. **证据/产物表预留。** 0022 建表但没有服务/投影/写入；审查时请确认这不被误读为 T08/T14 能力已交付。C9 将这两个表列在 T04 迁移中，本轮按契约保留。
-5. **事件载荷只做应用层白名单。** 数据库只约束 JSONB 与基本序号；绕过仓储直接 INSERT 仍可写入任意 JSON。后续所有事件写入必须经 `events.py`，SQL 权限/代码审查需继续约束。
-6. **无策略 Schema 校验。** T04 不读取 `StrategyCatalog`；参数是否匹配所选已发布版本要到 T08/T11/T14 才验证。T04 的“同键异参冲突”只比较规范化 JSON 指纹，不证明策略参数合法。
-7. **`result_refs` 已定型但无写入方。** 当前恒为空；T14 接入产物后需核对 `ArtifactRef` 与 `agent_artifacts` 的一致性，防止只存引用而无可读产物。
-8. **无真实迁移演练。** 只验证测试库随机 schema；业务库迁移、备份/恢复、旧应用回退未执行。
-9. **无前端/浏览器证据。** 本轮没有任何用户可见入口或开关；不能据此声称任务页面可用。
+3. **旧行已规范化数值不可恢复。** 首轮已提交且含 `1e20`/`-0.0` 等 JSONB 规范化数值的修订，原始 Python 表示从未单独保存，兼容逻辑无法重算旧哈希；此类行仍按 `integrity_violation` fail-closed，不重写历史、不放宽校验。稳定数值（如 `0.5`）的旧行可通过精确旧哈希继续读取/重放。T04 的 0022 未应用到业务库，测试 schema 每次重建；若存在本地旧测试行，应重建或按不可恢复处理。
+4. **容量口径。** 20 是全局可运行上限；等待 100 是单工作台上限但不占运行并发。T04 未在入队时拒绝“该工作台已有 100 个等待”的新任务；等待上限的原子检查留待 T06/T07 状态迁移。若产品要求入队即限制，需要另定语义。
+5. **证据/产物表预留。** 0022 建表但没有服务/投影/写入；审查时请确认这不被误读为 T08/T14 能力已交付。C9 将这两个表列在 T04 迁移中，本轮按契约保留。
+6. **事件载荷只做应用层白名单。** 数据库只约束 JSONB 与基本序号；绕过仓储直接 INSERT 仍可写入任意 JSON。后续所有事件写入必须经 `events.py`，SQL 权限/代码审查需继续约束。
+7. **无策略 Schema 校验。** T04 不读取 `StrategyCatalog`；参数是否匹配所选已发布版本要到 T08/T11/T14 才验证。T04 的“同键异参冲突”只比较规范化 JSON 指纹，不证明策略参数合法。
+8. **`result_refs` 已定型但无写入方。** 当前恒为空；T14 接入产物后需核对 `ArtifactRef` 与 `agent_artifacts` 的一致性，防止只存引用而无可读产物。
+9. **无真实迁移演练。** 只验证测试库随机 schema；业务库迁移、备份/恢复、旧应用回退未执行。
+10. **无前端/浏览器证据。** 本轮没有任何用户可见入口或开关；不能据此声称任务页面可用。
+11. **JSONB 规范文本查询成本。** 每次新入队和快照读取各增加一次轻量 `CAST(... AS jsonb)::text` 查询/表达式；它不写业务数据，但把指纹语义绑定到 PostgreSQL 表示。若未来更换存储类型，必须重新发布指纹版本，不能沿用当前哈希。
 
 ### 7.3 建议重点审查位置
 
-- `backend/src/app/agent_runs/contracts.py`：指纹排除字段、默认值重放、NaN/Infinity 拒绝、快照终态/水位校验。
-- `backend/src/app/infrastructure/persistence/agent_run_repository.py`：advisory lock 顺序、重放先于容量、父任务终态/同会话、flush/FK 顺序、IntegrityError 兜底、跨工作台读取。
+- `backend/src/app/agent_runs/contracts.py`：`canonical_run_input_json`/`run_input_sha256`/`legacy_run_input_sha256` 的边界、request_id 排除、默认值重放与 NaN/Infinity 拒绝。
+- `backend/src/app/infrastructure/persistence/agent_run_repository.py`：PostgreSQL 规范文本生成、写入/读取同源、旧哈希精确兼容与 fail-closed、advisory lock 顺序、重放先于容量、父任务终态/同会话、flush/FK 顺序、跨工作台读取。
 - `backend/alembic/versions/0022_agent_tasks.py`：owner/lease 成对约束、终态检查与触发器、不可变触发器、索引/复合主键、迁移回退拒绝。
 - `backend/src/app/agent_runs/events.py`：白名单是否真正阻止财务/参数/目标外泄，事件分页边界。
-- `backend/tests/persistence/test_agent_runs.py`：并发 21 个任务、100 个等待不占容量、失败回滚、终态重开与不可变约束是否覆盖真实 DB 行为。
+- `backend/tests/persistence/test_agent_runs.py`：JSONB `1e20`/`-0.0`/`0.5`/嵌套参数往返、默认值重放、旧稳定哈希兼容、旧规范化数值拒绝、并发 21 个任务、100 个等待不占容量、失败回滚、终态重开与不可变约束。
 
-## 8. 交回审查
+## 8. P2 修复记录（请求指纹跨 JSONB 稳定性）
 
-请用户将本文件与实现 tip `2e17368` 的 diff 交给此前负责方案设计的原审查助手。开发模型不会自行标记正式审查通过，不会在收到结论前开始 T05 或后续任务。若审查提出修复意见，下一轮将先复现/核对，再逐条修复、补充回归、记录新 tip 和验证结果后再次提交审查。
+### 8.1 正式审查问题
+
+- 结论：不通过，1 项 P2；待修复后复审。
+- 问题：请求指纹在 PostgreSQL JSONB 往返后不稳定。首轮用 Python `json.dumps` 文本计算指纹，但修订输入保存为 JSONB；PostgreSQL 会规范化合法数值。
+- 审查复现：`1e20` 经 JSONB 重读变为整数 `100000000000000000000`；`-0.0` 变为 `0.0`；`0.5` 往返一致。上述参数能通过 `RunInput` 校验，但首次入队重读、`get` 或同键重放会触发 `integrity_violation`。
+
+### 8.2 根因
+
+`RunInput.parameters` 允许任意合法 JSON 数值；Python `json.dumps` 保留 `1e+20`/`-0.0` 的原始文本，而 PostgreSQL JSONB 以数值本身存储，输出规范文本（如 `100000000000000000000`/`0.0`）。首轮修订行保存 JSONB，`run_input_sha256` 在读取时对 JSONB 解码后的 Python 值重新序列化，得到不同文本和哈希，完整性校验因此误报。
+
+### 8.3 复现与修复前红
+
+```powershell
+# backend/，专用临时 PostgreSQL 17
+uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_jsonb_numeric_normalization_keeps_fingerprint_stable_for_reload_and_replay -q --tb=short --basetemp=../.tmp/pytest/t04-p2-red-20261111
+```
+
+结果：1 failed；首次 `enqueue` 在 `_load_snapshot` 抛 `AgentRunError("integrity_violation")`，退出 1。复现了 `1e20`/`-0.0` 的 JSONB 规范化问题。
+
+### 8.4 修复方案与取舍
+
+采用**保留 PostgreSQL JSONB 精确规范文本**的方案，不改 schema、不新增迁移：
+
+1. 新增 `canonical_run_input_json(data)`：把已解析的 `RunInput` 稳定序列化为提交 JSON 文本。
+2. 仓储在同一事务内执行 `SELECT CAST(:payload AS jsonb)::text`，让 PostgreSQL 生成与持久化完全一致的 JSONB 规范文本。
+3. `run_input_sha256(workspace_id, canonical_input_text)` 从该规范文本解析、移除 `request_id`、排序键后哈希；写入和读取使用同一来源。
+4. `_load_snapshot` 通过 `cast(agent_run_revisions.input AS text)` 读取持久化 JSONB 的规范文本，再按同一算法校验；不再对 Python 首次序列化文本做假设。
+5. 保留 `legacy_run_input_sha256`，仅对首轮已提交行做精确旧哈希兼容；不重写修订/请求行。
+
+为什么不选择“在 Python 中规范化数字”：PostgreSQL JSONB 的数值输出规则（大整数、零、科学计数法、嵌套值）不应在应用层复制一份近似实现；复制会再次引入漂移风险。为什么不选择“把修订输入改成 TEXT”：那需要改 schema/迁移并处理已有 JSONB 行，超出本次最小修复范围；当前方案保持 JSONB 可查询性，且不改历史。
+
+### 8.5 兼容性说明
+
+- **新行**：写入 `revision.sha256`/`request_sha256` 的均为 JSONB 规范文本哈希；读取、重放、并发重放使用同一算法。读取后的 `RunSnapshot.parameters` 可能使用 JSONB 解码类型（如 `1e20` 变为整数、`-0.0` 变为 `0.0`），数值语义不变；后续消费者不得依赖 Python `float` 的具体类型。语义相同的数值（如 `1e20` 与等值大整数）在 JSONB 中不可区分，会得到同一指纹并视为同一内容。
+- **首轮已提交的稳定数值行**（如 `0.5`、普通字符串/整数）：读取和同键重放接受精确旧 Python JSON 哈希，不重写行；新增测试 `test_legacy_stable_hash_rows_stay_readable_without_rewriting_history` 覆盖。
+- **首轮已提交且含 JSONB 规范化数值的行**（如 `1e20`、`-0.0`）：旧原始文本未被单独保存，无法在不伪造历史的情况下恢复；读取仍按 `integrity_violation` fail-closed。新增测试 `test_legacy_normalized_numeric_rows_fail_closed_instead_of_replaying` 证明不会用重读值重算旧哈希后放行。
+- **迁移/业务库**：`0022_agent_tasks` 未修改、无新迁移；未应用到业务库。若本地已有首轮测试 schema，可重建；不提供回写历史脚本。
+- **接口变化**：`run_input_sha256` 参数从 `RunInput` 改为 PostgreSQL 规范文本；新增 `canonical_run_input_json` 与 `legacy_run_input_sha256`。这是 T04 审查范围内的契约调整，消费者尚未接入。
+
+### 8.6 修复后验证
+
+| 检查 | 命令/目录 | 结果 |
+| --- | --- | --- |
+| P2 专项 + 兼容回归 | `backend/`：`uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_jsonb_numeric_normalization_keeps_fingerprint_stable_for_reload_and_replay tests/persistence/test_agent_runs.py::test_legacy_stable_hash_rows_stay_readable_without_rewriting_history tests/persistence/test_agent_runs.py::test_legacy_normalized_numeric_rows_fail_closed_instead_of_replaying -q --basetemp=../.tmp/pytest/t04-p2-legacy` | 3 passed，退出 0 |
+| 最终聚焦 | `backend/`：`uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py -q --basetemp=../.tmp/pytest/t04-p2-focus-3` | 21 passed，退出 0 |
+| 静态 | `backend/`：`ruff check .`、`ruff format --check .`、`pyright` | 全部通过；Pyright 0 errors / 0 warnings |
+| 架构门禁 | `backend/`：`python -m scripts.check_architecture` | `files_scanned=38`，`findings=[]` |
+| 最终后端 full | 仓库根目录：`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t04-p2-full-backend-final.json` | `verification=passed`；1149 collected / 1149 passed / 0 failed / 0 skipped / 0 collection errors |
+
+### 8.7 修复提交与指纹
+
+- P2 修复 tip：`0df86fe7bbe4dc96062822404dfe45f5f675c06f`
+- P2 修复 tree：`0b99b60f684264374ae080ef321fb215217ab428`
+- 复审重点范围：`2e17368..0df86fe`，5 个文件，+279 / -28
+- 累计代码范围：`9e45d77..0df86fe`（排除 docs 提交），13 个文件，+2433 / -0
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `backend/src/app/agent_runs/__init__.py` | `a50503a5eefe5a1e541a314e2b031b11c247a5ee53d8ce565f0cfe7573b477f4` |
+| `backend/src/app/agent_runs/contracts.py` | `79be26da1b5353acc00e44fe801399ca14a1245f1aba20ded1fce65d9547fadb` |
+| `backend/src/app/infrastructure/persistence/agent_run_repository.py` | `f533cafba214c744c45c4df9e46cd948864dd2ef7634743df1509651e8362869` |
+| `backend/tests/agent_runs/test_contracts.py` | `c1681179c073f6a4f1d059ca19f396e9d9acc0c786452bc35afc1368c4d5b076` |
+| `backend/tests/persistence/test_agent_runs.py` | `f5d8801c6bc51ed53fa8c037637ef0c07b23faebd8a28bcf26023f654ae02647` |
+
+## 9. 交回审查
+
+请用户将本文件与 P2 修复 tip `0df86fe` 的 diff 交给此前负责方案设计的原审查助手复审，重点核对第 8 节的 JSONB 规范文本算法、旧行兼容与 fail-closed 行为。首轮范围 `9e45d77..2e17368` 的其余实现未在本轮改变。开发模型不会自行标记正式审查通过，不会在收到结论前开始 T05 或后续任务。若复审提出修复意见，下一轮将先复现/核对，再逐条修复、补充回归、记录新 tip 和验证结果后再次提交审查。
