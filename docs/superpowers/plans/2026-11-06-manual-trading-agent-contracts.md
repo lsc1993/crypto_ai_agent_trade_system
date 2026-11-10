@@ -1,6 +1,6 @@
 # 实盘手动计划 Agent：实施契约清单
 
-- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-09）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，首轮独立审查判定 P1/P2 不通过，修复提交 `8835a1d` 补充分块 INSERT 防护、发布/检索一致性校验和锁后时间采样，聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地资料/政策/成本/保证金/公开规则快照、单池 generation 与 `0021_planning_inputs` 迁移；首轮审查 4 项 P2 不通过后，修复提交 `4f0e7ae` 补齐冷却显式状态、规则刷新带锁重放、来源抓取时间和网关异常转换，聚焦 20 纯契约 + 12 SQL、阶段回归 176、后端 full 1121 passed，自测 `verified`，当前为 `awaiting_review`；其余接口尚未实现。
+- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-09）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，首轮独立审查判定 P1/P2 不通过，修复提交 `8835a1d` 补充分块 INSERT 防护、发布/检索一致性校验和锁后时间采样，聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地资料/政策/成本/保证金/公开规则快照、单池 generation 与 `0021_planning_inputs` 迁移；首轮 4 项、第二轮 1 项 P2 不通过后，修复提交 `4f0e7ae` 补齐冷却显式状态、规则刷新带锁重放、来源抓取时间和网关异常转换，提交 `023e5a2` 补齐版本感知历史快照指纹、历史序列化和旧请求指纹兼容；修复后纯契约/规则 23、SQL 13、阶段回归 180、后端 full 1125 passed，自测 `verified`，当前为 `awaiting_review`；其余接口尚未实现。
 - 主计划：[实施任务与验证](2026-11-06-manual-trading-agent-implementation.md)。
 - 依据：[需求 v2.0](../specs/2026-11-06-manual-trading-agent-requirements.md)、[架构 v2.0](../specs/2026-11-06-manual-trading-agent-design.md)。
 
@@ -77,6 +77,8 @@ class KnowledgeIndex(Protocol):
 首批支持目录只发布 BTCUSDT、ETHUSDT 的 Binance USDT 线性永续、逐仓、新入场；这只是实施起点，不更改研究目录或模拟盘契约。反向、全仓、多资产、同品种已有仓位/挂单合并以及不支持订单模式明确阻断。新增规划产品需规则与回归证据，不能从研究准入自动加入。
 
 初始资料有效期 15 分钟、公开规则快照 60 分钟、费用/保证金资料取用户声明有效期与 15 分钟的较早者；均不得超过各自来源有效期。用于采纳/重验的报价最多 60 秒，已收盘序列覆盖最新所需周期。上述时效是本计划的保守初值，不代表市场长期稳定。UTC 跨日后单日剩余额度必须重新声明；不按新的一天自动恢复资金或释放未知占用。
+
+历史资料快照按载荷实际字段集合校验原指纹：首轮快照缺少 `cooldown_status` 时按旧字段集合验证并保留原 `version_id`/`sha256`，读取后状态未知、不完整；不得把默认 `None` 物化后重算旧 ref。历史序列化保留原字段集合；旧请求指纹对缺失状态做兼容规范化，但显式 `none`/`active` 必须进入新指纹。
 
 公开规则适配器放在 `infrastructure/market_rules/binance_usdm.py`，复用受控公开 HTTP 边界。当前 `market/binance_usdm.py:get_exchange_info()` 仅返回六个准入字段，不能直接作实盘过滤器来源。新增有类型的规则读取端口与固定 `/fapi/v1/exchangeInfo` 解析，旧方法行为兼容；不使用签名或私有档位接口。公开网关缓存命中必须沿用首次 HTTP 抓取时刻，规则快照的 60 分钟有效期按来源时间计算；网关类型化异常在规则适配器边界转换为 `planning_rule_unavailable`。字段与模式支持必须在发布前只读复核现行官方说明。
 

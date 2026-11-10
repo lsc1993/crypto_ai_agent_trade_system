@@ -1,13 +1,14 @@
 # T03 审查请求：规划资料、政策与受支持产品规则
 
 - 任务/审查单元：T03（D1；C3 本地财务输入、风险政策、成本/保证金证据、公开规则快照与单资金池代次）
-- 轮次：第 2 轮（首轮正式审查 4 项 P2 不通过后的修复复审）
-- 生成日期：2026-11-09
+- 轮次：第 3 轮（第二轮复审 1 项 P2：历史快照指纹失效，修复后复审）
+- 生成日期：2026-11-10
 - 执行模型：DeepSeek Harness 驱动的 `deepseek-flash`（会话标注；上游精确构建版本未知）
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证以仓库当前 `docs/quality-verification.md` 为准。
 - 首轮正式审查结论：不通过（4 项 P2）
-- 自测状态：`verified`（四项修复、聚焦、阶段回归、迁移/并发回归、静态检查和后端 full 已完成）
-- 正式审查状态：`awaiting_review`（尚未收到原审查助手对修复 tip 的复审结论；本文件不预填通过）
+- 第二轮正式审查结论：不通过（1 项 P2：新增 cooldown_status 导致合法历史快照指纹失效）
+- 自测状态：`verified`（历史兼容修复、聚焦、阶段回归、迁移/并发回归、静态检查和后端 full 已完成）
+- 正式审查状态：`awaiting_review`（尚未收到原审查助手对历史兼容修复 tip 的复审结论；本文件不预填通过）
 - 下一审查单元：T03 未获复审通过前不开始 T04；本轮停止新增模块开发。
 
 ## 1. 固定点与工作区
@@ -19,16 +20,19 @@
 | base | `6fb08b5d455cfb6bca40e636a932e1edc46c855c`（`main`，T02 合并后；T03 开始时工作区干净） |
 | 首轮 implementation tip | `144e5019b904a7194d42bac9eaf55dab4d8c6162`（4 项 P2 不通过） |
 | 首轮审查包 docs-only | `efae1dd2926b6df6ef109b3b9c153afc952828dd` |
-| 复审修复 tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（`fix: harden T03 planning inputs and venue rule snapshots`） |
-| tree | `61b1d07f057cf68ef4c16c44a453d2dcc519a956` |
+| 第二轮复审 tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（1 项历史快照 P2 不通过） |
+| 第二轮复审包 docs-only | `127c247a06901d7106e9fb4abc20f6eac91df2a2` |
+| 历史兼容修复 tip | `023e5a20425d674a72d96614417aa4eea2820b03`（`fix: read legacy T03 planning profile snapshots`） |
+| tree | `3eb99b400a105b0da33b27840d7070edb2216885` |
 | 首轮实现范围 | `6fb08b5..144e501`，17 个文件，+4108 / -15 |
-| 复审修复范围 | `efae1dd..4f0e7ae`，9 个文件，+508 / -51 |
-| 代码 tip 处未提交文件 | 无；实现、修复与测试均已提交。本轮复审包及进度/状态文档位于修复代码之后的 docs-only 提交；不记录自身提交号，避免自引用。 |
+| 第二轮修复范围 | `efae1dd..4f0e7ae`，9 个文件，+508 / -51 |
+| 历史兼容修复范围 | `127c247..023e5a2`，7 个文件，+235 / -7（含 3 个首轮版本实际生成的合成 fixture） |
+| 代码 tip 处未提交文件 | 无；实现、两轮修复与测试均已提交。本轮复审包及进度/状态文档位于修复代码之后的 docs-only 提交；不记录自身提交号，避免自引用。 |
 | 主工作区 | `main` 保持干净，未夹带 T03 或其他任务改动 |
 
-`git diff --check main..4f0e7ae` 通过。T03 未修改 `.env`、凭证、业务库、前端、依赖锁文件或运行配置；未访问私有账户、真实资金或付费模型。
+`git diff --check main..023e5a2` 通过。T03 未修改 `.env`、凭证、业务库、前端、依赖锁文件或运行配置；未访问私有账户、真实资金或付费模型。
 
-### 文件 SHA256（`4f0e7ae`）
+### 文件 SHA256（`023e5a2`）
 
 | 文件 | SHA256 |
 | --- | --- |
@@ -37,20 +41,23 @@
 | `backend/src/app/infrastructure/market_rules/binance_usdm.py` | `7e3f530663eecde7dcc2f7e1ffda0fd0957ed50e0fc91f7cc2a4a0ef68d1a977` |
 | `backend/src/app/infrastructure/persistence/models/__init__.py` | `83a8b1c1c1f4a7ce84b02e64b642be288dfdac7d5e859dd8a68ce2a39056e337` |
 | `backend/src/app/infrastructure/persistence/models/planning_inputs.py` | `f01a9702f0b91229e07f22293fc2fa498d59efa97132d73423f14411e6a72329` |
-| `backend/src/app/infrastructure/persistence/planning_input_repository.py` | `60f01431d8b81a8518ed19ad2d369388b56e5e4d8541725e2a240e4db77b95db` |
+| `backend/src/app/infrastructure/persistence/planning_input_repository.py` | `fdbc3571eb5cee4336327ba3d56dc540be34b69a708123dc372ab21607fe1e7d` |
 | `backend/src/app/market/binance_usdm.py` | `8d36d2de09ce6d377540c41ecd0f5434c9bdb01e958586adf2c31c1eee8ca194` |
 | `backend/src/app/trade_planning/__init__.py` | `640b85c69e8d5e4e388af1a6200204dc8ec0da1988aebee780b78dcd558c11ec` |
 | `backend/src/app/trade_planning/input_repository.py` | `e47c1b793918a221734e16e6f42c72f2d1cc4a181e737d6ae9c19f3184808cee` |
 | `backend/src/app/trade_planning/input_service.py` | `6ba97e184b7117960718649ca41ed26e21647a0ddb8266170b7b3f3d26e7ebb2` |
-| `backend/src/app/trade_planning/inputs.py` | `401e56895d77e3182478c1eee84a17930dc2a94ed50da9319b296f650e4a2dfb` |
+| `backend/src/app/trade_planning/inputs.py` | `3a36c452efcad594eb14a06a7f624744c8b8d8ff655a41071af52b51c8caea09` |
 | `backend/src/app/trade_planning/product_support.py` | `8c99e43bf1ecc9e3619067f9e23edace246295dd0f6d3fa5f2ea50868ac3bc13` |
 | `backend/tests/market/test_planning_rules.py` | `4bf3985516cbf9b5a421c8616189f810c3a3d6d93907f531e88fd457a19819cd` |
-| `backend/tests/persistence/test_planning_inputs.py` | `f44f2b3a465aef48a9dad63b1cad3958f76ea984e62579b47e3f22d0bda74149` |
+| `backend/tests/persistence/test_planning_inputs.py` | `a7595810a98814e78ab36459320d7483192a8e2c1cdfe0f293f219f597aabf10` |
 | `backend/tests/trade_planning/__init__.py` | `4c81a3f6bd9854cf61ab42c8fd8198861b995b1750d377866f38bd9bbfdf24cb` |
-| `backend/tests/trade_planning/test_inputs.py` | `2cddee2237b220c91cca695d48878460cdabc0124c430e9c39b5ef5806ea9a72` |
+| `backend/tests/trade_planning/test_inputs.py` | `098be06fa8a25acc2b3ee25ac8c9779577d2234eb76c50595b238ab243cc829f` |
 | `backend/tests/trade_planning/test_product_support.py` | `99506c57e78900a5ab245abd81ffc021c7479d1bcc3bd887b9c8b64979044b76` |
+| `backend/tests/fixtures/v1_planning_request.json` | `7b280fa2c5d61eb057d6de9593f397e30116a9817bab0329e1c8d05f1f55b2f6` |
+| `backend/tests/fixtures/v1_planning_profile_with_cooldown.json` | `7fa36eed209794e2242d1424bc9aa104c60e677f2576f13c7db2e3878b0bfa48` |
+| `backend/tests/fixtures/v1_planning_profile.json` | `a1cd1c8af837deef96489cee9953d0d793cf5d54308e1ce4cbd4949504fa36ed` |
 
-## 2. 四项 P2 修复对照
+## 2. P2 修复对照（第 2、3 轮）
 
 | 审查问题 | 根因 | 修复位置与内容 | 回归 |
 | --- | --- | --- | --- |
@@ -63,12 +70,24 @@
 
 - 本轮没有 schema 变更；`cooldown_status` 位于不可变 profile JSONB 文档。
 - `0021_planning_inputs` 仍未合并、未应用到任何业务库。
-- 历史载荷缺少 `cooldown_status` 时解析为未知并保持不完整；若旧载荷带 `cooldown_until` 但无状态则拒绝，不自动推断为无冷却，也不回写不可变版本。
+- 历史快照读取按 `cooldown_status` 是否实际出现在 `model_fields_set` 选择旧/新字段集合校验原始指纹；旧 `version_id`/`sha256` 原样保留，不重写不可变载荷。
+- 历史载荷缺少 `cooldown_status` 时解析为未知并保持不完整；旧载荷只有 `cooldown_until` 而缺少状态时保留截止时间、状态仍未知，不推断为 `none` 或 `active`。
 - 旧 `get_exchange_info` 六字段接口和既有研究目录准入行为保持兼容。
 
 ### 2.2 旧 tip 红基线说明
 
 规则刷新重放的修复前失败使用旧 tip `144e501` 的临时工作树和临时测试 `test_t03_red_replay.py` 复现；该测试文件仅用于红基线，不在交付分支中。当前分支的等价回归是 `test_rule_refresh_replay_precedes_public_reader`，修复后与该临时复现覆盖同一路径。
+
+### 2.3 历史快照指纹兼容（第二轮复审 P2）
+
+| 项目 | 内容 |
+| --- | --- |
+| 根因 | 首轮 tip 的合法快照没有 `cooldown_status`，原 `ref.sha256` 按旧字段集合计算；新模型读取时补入默认 `None`，`content_sha256()` 把新字段一起序列化，导致旧 ref 失效。 |
+| 修复 | `PlanningProfileSnapshot` 用 `model_fields_set` 判断历史快照是否实际包含 `cooldown_status`；历史分支按旧字段集合（排除 `cooldown_status`）计算/校验指纹，并允许旧载荷保留 `cooldown_until` 但状态未知。新增 `versioned_payload()`，历史快照序列化使用 `exclude_unset=True` 保留原字段集合；仓储 `_snapshot_payload` 对资料快照使用该方法。 |
+| 请求指纹 | `create_profile` 的请求指纹对 `cooldown_status=None` 做旧版兼容规范化，避免新增默认字段把同键同参旧请求误判为冲突；显式 `none`/`active` 仍进入指纹，新语义不会被旧请求误重放。 |
+| 历史读取 | `get_profile`、`resolve_current`、请求结果解析均通过同一版本感知模型读取；旧快照保持原 `version_id`/`sha256`，缺状态时 `is_complete=False`，`resolve_refs` 不返回完整引用。 |
+| 样本 | `backend/tests/fixtures/v1_planning_profile.json`、`v1_planning_profile_with_cooldown.json`、`v1_planning_request.json` 均由首轮 tip `144e501` 实际生成，包含原始 ref 和请求 sha；不是用新版 build 重算。 |
+| 回归 | 纯契约：旧快照原 ref 读取、带 `cooldown_until` 但状态未知、序列化重读、财务/嵌套篡改拒绝；SQL：旧 profile 行 `get_profile`/`resolve_current`/`resolve_refs`、旧请求结果同键重放且 generation 不变。 |
 
 ## 3. 改动清单
 
@@ -102,6 +121,18 @@
 | `backend/tests/persistence/test_planning_inputs.py` | 未知冷却阻断完整引用、规则重放先于公开源、同键并发单次提交 |
 | `backend/tests/market/test_planning_rules.py` | 缓存来源时间、60 分钟边界、MockTransport 结构/网络异常、服务错误捕获 |
 
+### 3.3 历史快照兼容修复（`127c247..023e5a2`，7 个文件，+235 / -7）
+
+| 文件 | 变化 |
+| --- | --- |
+| `backend/src/app/trade_planning/inputs.py` | `is_legacy_profile`、版本感知 `content_sha256()`、`versioned_payload()`；历史分支允许旧载荷保留 `cooldown_until` 但状态未知 |
+| `backend/src/app/infrastructure/persistence/planning_input_repository.py` | 资料快照持久化使用 `versioned_payload()`；`create_profile` 请求指纹兼容缺失 `cooldown_status` 的旧请求 |
+| `backend/tests/trade_planning/test_inputs.py` | 旧快照原 ref、带截止时间旧载荷、序列化重读、财务/嵌套篡改拒绝 |
+| `backend/tests/persistence/test_planning_inputs.py` | 旧 profile 行 `get_profile`/`resolve_current`/`resolve_refs`、旧请求结果同键重放 |
+| `backend/tests/fixtures/v1_planning_profile.json` | 首轮 tip `144e501` 实际生成的合成快照与原始 sha |
+| `backend/tests/fixtures/v1_planning_profile_with_cooldown.json` | 首轮生成、只有 `cooldown_until` 而没有状态的合成快照 |
+| `backend/tests/fixtures/v1_planning_request.json` | 首轮生成的 create_profile 请求结果与原始 request sha |
+
 ## 4. FR/AC/HN 映射
 
 | 标识 | 本轮落地 | 证明边界 |
@@ -117,6 +148,8 @@
 | HN-13 可实施状态不可由模型声明 | 输入完整性/时效/版本/代次由确定性服务和 DB 约束决定 | 可实施状态本身在 T12/T13；T03 不生成 `ready_for_manual_execution` |
 | HN-14 财务/预算隔离 | 财务资料不进入 Agent、RAG、通用事件或模型 DTO；本任务无模型调用 | 未接上下文/事件/API，后续任务需继续验证投影 |
 | HN-15 单池占用与代次 | 唯一工作台池、generation 递增、代次冲突拒绝、请求幂等和不可变版本 | 未实现唯一待实施计划、采纳占用或用户声明承接 |
+
+历史兼容：首轮快照按旧字段集合保留原 ref 读取，缺少 `cooldown_status` 时仍为未知/不完整，不自动推断为 `none` 或 `active`；旧请求结果按同键同参重放，旧财务/嵌套字段篡改仍被拒绝。
 
 未宣称：FR-09/FR-16/FR-17 的完整计划、操作清单、采纳与反馈；T12/T13 的计算和资金池互斥；真实收益、策略质量或产品已发布可用。
 
@@ -162,11 +195,17 @@
 | **复审修复后 SQL 聚焦** | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py -q --basetemp=../.tmp/pytest/t03-fix-db2-20261109` | 0 | 12 passed；含未知冷却阻断、规则重放先于公开源、同键并发单次提交及既有代次/触发器回归 |
 | **复审修复后阶段回归** | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/persistence/test_planning_inputs.py tests/persistence/test_migrations.py tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t03-fix-stage-20261109` | 0 | 176 passed；含 T01/T02、行情网关、迁移链和技术引擎回归 |
 | **复审修复后后端 full** | 从隔离工作区根目录：`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t03-review-fix-full-backend-tip.json` | 0 | `verification=passed`；后端 1121 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t03-review-fix-full-backend-tip.json` |
+| **历史兼容修复前纯契约红** | `uv run --locked --no-sync pytest tests/trade_planning/test_inputs.py -q --tb=short --basetemp=../.tmp/pytest/t03-legacy-red-20261110` | 1 | 2 failed / 10 passed；旧快照读取报“规划版本指纹与内容不一致” |
+| **历史兼容修复前 SQL 红** | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py::test_legacy_profile_and_request_replay_are_version_aware -q --tb=short --basetemp=../.tmp/pytest/t03-legacy-db-red2-20261110` | 1 | 1 failed；`get_profile` 解析旧资料行抛 `planning_integrity_violation` |
+| **历史兼容修复后纯契约/规则聚焦** | `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py -q --basetemp=../.tmp/pytest/t03-legacy-pure-green3-20261110` | 0 | 23 passed；含旧快照原 ref、带截止时间旧载荷、序列化重读、篡改拒绝及新版三态 |
+| **历史兼容修复后 SQL 聚焦** | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py -q --tb=short --basetemp=../.tmp/pytest/t03-legacy-db-green2-20261110` | 0 | 13 passed；含旧 profile 行读取、resolve_current/resolve_refs、旧请求结果重放与 generation 不变 |
+| **历史兼容修复后阶段回归** | 临时 PostgreSQL 17 + `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/persistence/test_planning_inputs.py tests/persistence/test_migrations.py tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t03-legacy-stage-20261110` | 0 | 180 passed；含 T01/T02、行情网关、迁移链和技术引擎回归 |
+| **历史兼容修复后后端 full** | 从隔离工作区根目录：`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t03-legacy-full-backend-tip.json` | 0 | `verification=passed`；后端 1125 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t03-legacy-full-backend-tip.json` |
 | 架构门禁 | `uv run --locked --no-sync python -m scripts.check_architecture` | 0 | `status=passed`，`files_scanned=38`，`findings=[]` |
 | 静态检查 | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 0 | 全部通过；pyright 0 errors / 0 warnings |
 | 迁移链 | `uv run --locked --no-sync alembic heads` | 0 | `0021_planning_inputs (head)` |
 
-证据路径位于隔离工作区 `.tmp/`（不随 Git 传递，按上表命令可复现）：`.tmp/quality/manual-agent-t03-review-fix-full-backend-tip.json`；pytest 临时目录为 `.tmp/pytest/t03-*`。full 报告只保存安全计数与检查状态，不包含连接串、环境变量、原始异常或财务数据。
+证据路径位于隔离工作区 `.tmp/`（不随 Git 传递，按上表命令可复现）：`.tmp/quality/manual-agent-t03-legacy-full-backend-tip.json`；pytest 临时目录为 `.tmp/pytest/t03-*`。full 报告只保存安全计数与检查状态，不包含连接串、环境变量、原始异常或财务数据。
 
 环境说明：验证进程内移除宿主 `APP_ENV`、`CORS_ALLOWED_ORIGINS`、`DEEPSEEK_MODEL`、`DATABASE_URL`、`NODE_ENV`、`GIT_CONFIG_COUNT`；未修改 `.env` 或业务配置。测试资金、费率、保证金和规则均为合成资料；未调用真实模型、未访问私有账户、未修改业务库、未发起真实交易。
 
@@ -184,9 +223,9 @@
 
 ## 9. 已知风险与重点审查位置
 
-1. **冷却状态历史载荷**：缺少 `cooldown_status` 的历史 profile 解析为未知/不完整；带截止时间但无状态的历史载荷会被拒绝。请核对这是否符合“不把历史缺失值自动解释为安全”的要求，以及是否需要在未来迁移中显式处理历史数据。
+1. **历史快照字段集合判定**：历史分支依据 Pydantic `model_fields_set` 是否实际包含 `cooldown_status`，并以旧字段集合重算原始指纹；新版显式字段仍按完整字段集合校验。请重点核对字段存在性判定、`versioned_payload()` 的 `exclude_unset` 序列化、旧请求指纹规范化，以及是否存在把新载荷降级为旧字段集合的绕过路径。旧请求 draft 若带 `cooldown_until` 但无状态，当前新版 Draft 会拒绝，需用户重新显式声明；本轮没有为这类旧 draft 新增自动推断。
 2. **规则刷新重放边界**：`replay_venue_rules` 在请求 advisory lock 下读取，但锁随预检查事务释放；两个并发同键请求仍可能都重新采集，随后由 `record_venue_rules` 重放为单次提交。请核对这一窗口是否可接受，以及是否应把公开读取纳入更长事务/锁。
-3. **规则来源时间**：`fetched_at`/`fetched_at` 由网关在 HTTP 返回后采样；缓存命中沿用该值。请核对缓存 TTL、抓取时间与 60 分钟有效期的组合，以及是否需要在未来记录上游响应自身的观测时间。
+3. **规则来源时间**：`fetched_at` 由网关在 HTTP 返回后采样；缓存命中沿用该值。请核对缓存 TTL、抓取时间与 60 分钟有效期的组合，以及是否需要在未来记录上游响应自身的观测时间。
 4. **`MIN_NOTIONAL` 兼容性**：适配器优先读 `notional`，否则读 `minNotional`；未覆盖未来可能的 `NOTIONAL` 过滤器类型。`PRICE_FILTER`/`LOT_SIZE`/`MARKET_LOT_SIZE`/`MIN_NOTIONAL` 任一缺失即拒绝。T18 官方复验前不宣称产品规则已发布验收。
 5. **数量单位与乘数**：首期对 Binance USDT-M 线性永续固定 `quantity_unit=base_asset`、`contract_multiplier=1`。请确认该假设在首期产品范围内正确，以及反向/币本位被 `ProductKey` 和规则适配器双重拒绝是否足够。
 6. **generation 语义**：profile、policy 和 rules refresh 都递增池代次；profile/policy 使用 `expected_generation` CAS，rules refresh 不使用 expected generation。请核对规则刷新与并发 profile/policy 写入的锁顺序、是否会出现用户未预期地使旧检查失效，以及 T13 如何消费该代次。
@@ -199,7 +238,7 @@
 
 ## 10. 自测与正式审查状态
 
-- 自测状态：`verified`。四项 P2 修复、修复前红、修复后纯契约/规则 17 passed、SQL 12 passed、阶段回归 176 passed、后端 full 1121 passed / 0 failed / 0 skipped、静态检查、架构门禁和迁移 head 均已完成；上述未验证项不计入通过。
-- 正式审查状态：`awaiting_review`。首轮正式审查对 `144e501` 判定 4 项 P2 不通过；尚未收到原审查助手对修复 tip `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842` 的复审结论，不预填 `approved`。
-- 审查范围：首轮 `6fb08b5..144e501`（17 个文件，+4108/-15）；复审修复 `efae1dd..4f0e7ae`（9 个文件，+508/-51）。重点为 `inputs.py` 冷却状态、`input_service.py`/仓储重放、公开网关 `fetched_at` 与规则适配器异常转换、对应测试。本轮复审包文档提交只改进度/状态/契约标注和本文件，不夹带代码或其他任务改动；最终回复提供文档提交 hash。
+- 自测状态：`verified`。历史快照兼容修复、修复前红、修复后纯契约/规则 23 passed、SQL 13 passed、阶段回归 180 passed、后端 full 1125 passed / 0 failed / 0 skipped、静态检查、架构门禁和迁移 head 均已完成；上述未验证项不计入通过。
+- 正式审查状态：`awaiting_review`。首轮正式审查对 `144e501` 判定 4 项 P2 不通过；第二轮正式审查对 `4f0e7ae` 判定 1 项历史快照 P2 不通过；尚未收到原审查助手对历史兼容修复 tip `023e5a20425d674a72d96614417aa4eea2820b03` 的复审结论，不预填 `approved`。用户说明本轮独立 full 被 Orca 重启中断、Docker 不可用，因此不将开发 full 1125 计为独立复验结果。
+- 审查范围：首轮 `6fb08b5..144e501`（17 个文件，+4108/-15）；第二轮修复 `efae1dd..4f0e7ae`（9 个文件，+508/-51）；历史兼容修复 `127c247..023e5a2`（7 个文件，+235/-7）。重点为 `inputs.py` 的版本感知指纹/历史序列化、旧请求指纹规范化、首轮实际生成 fixture、旧行读取与 resolve_refs、篡改拒绝。本轮复审包文档提交只改进度/状态/契约标注和本文件，不夹带代码或其他任务改动；最终回复提供文档提交 hash。
 - T03 未获原审查助手复审通过前停止新增模块开发，不进入 T04。

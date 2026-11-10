@@ -2,7 +2,7 @@
 
 - 记录日期：2026-11-09
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 首轮正式审查 4 项 P2 不通过，修复后自测为 `verified`、正式审查为 `awaiting_review`，未获复审通过前不得进入 T04。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 首轮 4 项、第二轮 1 项 P2 不通过，历史兼容修复后自测为 `verified`、正式审查为 `awaiting_review`，未获复审通过前不得进入 T04。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
@@ -13,11 +13,12 @@
 | 隔离工作区 | `D:\project_git\crypto_ai_agent_trade_system\.worktrees\manual-agent-t03` |
 | 分支 | `task/manual-agent-t03` |
 | base | `6fb08b5d455cfb6bca40e636a932e1edc46c855c`（`main`，T02 合并后；T03 开始时工作区干净） |
-| implementation tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（`fix: harden T03 planning inputs and venue rule snapshots`） |
-| tree | `61b1d07f057cf68ef4c16c44a453d2dcc519a956` |
-| review_status | `awaiting_review`（首轮正式审查 4 项 P2 不通过；修复后等待复审） |
+| implementation tip | `023e5a20425d674a72d96614417aa4eea2820b03`（`fix: read legacy T03 planning profile snapshots`） |
+| tree | `3eb99b400a105b0da33b27840d7070edb2216885` |
+| review_status | `awaiting_review`（首轮 4 项、第二轮 1 项 P2 不通过；历史兼容修复后等待复审） |
 | reviewed_tip | 未填写（开发模型不得预填正式通过） |
 | 首轮受审 tip | `144e5019b904a7194d42bac9eaf55dab4d8c6162`（4 项 P2 不通过） |
+| 第二轮受审 tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（1 项历史快照 P2 不通过） |
 | 上一轮受审 tip | `8835a1deb5e4056a98a6e1a2a5f6e2f3e39e0bb9`（T02 正式通过） |
 
 ## T00：治理内核与规范迁移（D0）
@@ -177,17 +178,17 @@
 | --- | --- |
 | 任务 | T03；C3 本地财务资料/风险政策/成本/保证金证据/公开规则快照、单池 generation、请求幂等、BTC/ETH USDT 线性永续逐仓支持目录与 `0021_planning_inputs` 迁移 |
 | FR/AC/HN | FR-14、FR-15；AC-21 至 AC-25、AC-29、AC-30 的输入/规则/时效基础；HN-13、HN-14、HN-15。T03 不实现完成数量/风险/保证金计算、可实施状态、采纳占用或释放流程，这些仍由 T12/T13 完成 |
-| 时间 | 2026-11-09 |
-| 任务状态 | `verified`（实现、聚焦、阶段回归、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（首轮正式审查 4 项 P2 不通过；修复后等待复审） |
-| implementation tip | `4f0e7ae76a86c2281a47e1cb4bad52b008e9b842`（`fix: harden T03 planning inputs and venue rule snapshots`） |
-| tree | `61b1d07f057cf68ef4c16c44a453d2dcc519a956` |
-| 改动 | 首轮 17 个文件，+4108 / -15；复审修复 9 个文件，+508 / -51（`efae1dd..4f0e7ae`）；新增 `trade_planning/` 五个模块、`market_rules/binance_usdm.py`、规划输入 ORM/仓储、`0021_planning_inputs.py` 及四组测试；修改公开行情网关和模型注册 |
-| 公共接口 | `PlanningProfileDraft`/`PlanningProfileSnapshot`、`PlanningRiskPolicyDraft`/`PlanningRiskPolicy`、`CostAssumptionsDraft`/`CostAssumptions`、`MarginEvidenceDraft`/`MarginEvidence`、`VenueRuleSnapshot`、`PlanningRefs`、`MarginMode`/`PositionMode`/`QuantityUnit`/`CooldownStatus`、规划错误码；`PlanningInputService.create_profile/create_policy/refresh_venue_rules/resolve_refs/get_pool`；`PlanningInputRepository`（含 `replay_venue_rules`）、`PublicRuleReader`；`BinanceUsdmPublicRuleReader`；`SqlAlchemyPlanningInputRepository`；公开网关新增 `PublicExchangeFilter`/`PublicExchangeSymbol`（含 `fetched_at`）/`get_exchange_symbol_rules` |
-| 依赖/迁移 | 无新增依赖；新增前向迁移 `0021_planning_inputs`（planning_pools、planning_profiles、planning_risk_policies、planning_costs、planning_venue_rules、planning_input_requests、唯一工作台池、版本/请求不可变触发器）；迁移 head 为 `0021_planning_inputs`；未迁移业务库；冷却状态存于 JSONB 文档，无 schema 变更 |
-| 验证 | 首轮纯契约预期红 3 collection errors、SQL 预期红 1 collection error；首轮 green 15 + 9、阶段 168、full 1113；复审修复前 11 项纯契约/规则回归失败（含 4 项 P2 复现）、旧 tip 重放红基线 1 failed；修复后纯契约/规则 17 passed、SQL 12 passed、D1 阶段回归 176 passed、后端 full 1121 passed / 0 failed / 0 skipped；架构门禁 38 文件 0 findings；静态检查全绿；迁移链 head `0021_planning_inputs` |
+| 时间 | 2026-11-09 至 2026-11-10 |
+| 任务状态 | `verified`（实现、两轮修复、聚焦、阶段回归、迁移/并发回归、静态检查和后端 full 已完成；不等于正式审查通过） |
+| review_status | `awaiting_review`（首轮 4 项、第二轮 1 项 P2 不通过；历史兼容修复后等待复审） |
+| implementation tip | `023e5a20425d674a72d96614417aa4eea2820b03`（`fix: read legacy T03 planning profile snapshots`） |
+| tree | `3eb99b400a105b0da33b27840d7070edb2216885` |
+| 改动 | 首轮 17 个文件，+4108 / -15；第二轮修复 9 个文件，+508 / -51（`efae1dd..4f0e7ae`）；历史兼容修复 7 个文件，+235 / -7（`127c247..023e5a2`，含 3 个首轮实际生成的 fixture）；新增 `trade_planning/` 五个模块、`market_rules/binance_usdm.py`、规划输入 ORM/仓储、`0021_planning_inputs.py` 及四组测试；修改公开行情网关和模型注册 |
+| 公共接口 | `PlanningProfileDraft`/`PlanningProfileSnapshot`（含版本感知读取与 `versioned_payload()`）、`PlanningRiskPolicyDraft`/`PlanningRiskPolicy`、`CostAssumptionsDraft`/`CostAssumptions`、`MarginEvidenceDraft`/`MarginEvidence`、`VenueRuleSnapshot`、`PlanningRefs`、`MarginMode`/`PositionMode`/`QuantityUnit`/`CooldownStatus`、规划错误码；`PlanningInputService.create_profile/create_policy/refresh_venue_rules/resolve_refs/get_pool`；`PlanningInputRepository`（含 `replay_venue_rules`）、`PublicRuleReader`；`BinanceUsdmPublicRuleReader`；`SqlAlchemyPlanningInputRepository`；公开网关新增 `PublicExchangeFilter`/`PublicExchangeSymbol`（含 `fetched_at`）/`get_exchange_symbol_rules` |
+| 依赖/迁移 | 无新增依赖；新增前向迁移 `0021_planning_inputs`（planning_pools、planning_profiles、planning_risk_policies、planning_costs、planning_venue_rules、planning_input_requests、唯一工作台池、版本/请求不可变触发器）；迁移 head 为 `0021_planning_inputs`；未迁移业务库；冷却状态与历史字段集合兼容均存于 JSONB 文档，无 schema 变更 |
+| 验证 | 首轮纯契约预期红 3 collection errors、SQL 预期红 1 collection error；首轮 green 15 + 9、阶段 168、full 1113；第二轮修复前 11 项纯契约/规则回归失败、旧 tip 重放红基线 1 failed，修复后 17 + 12、阶段 176、full 1121；历史兼容修复前纯契约 2 failed、SQL 旧行 1 failed，修复后纯契约/规则 23、SQL 13、阶段 180、full 1125；架构门禁 38 文件 0 findings；静态检查全绿；迁移链 head `0021_planning_inputs` |
 | 未验证 | 前端、HTTP API、浏览器 e2e、真实模型质量、真实公开源持续可用性、真实产品规则发布/官方复验、业务库迁移；未实现 T12/T13 的数量/风险/保证金计算、可实施状态、采纳互斥和未知占用释放 |
-| 遗留 | T03 等待原审查助手复审；未获通过前不开始 T04。审查请求见 `docs/superpowers/reviews/manual-agent/T03-review-request.md` |
+| 遗留 | T03 等待原审查助手复审；历史快照兼容使用首轮实际 fixture 验证，旧 draft 带 `cooldown_until` 但无状态时仍需用户显式重新声明；未获通过前不开始 T04 |
 
 ### T03 测试证据
 
@@ -203,6 +204,12 @@
 | 复审修复后 SQL 聚焦 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py -q --basetemp=../.tmp/pytest/t03-fix-db2-20261109` | 12 passed，退出 0；含未知冷却阻断、规则重放先于公开源、同键并发单次提交及既有代次/触发器回归 |
 | 复审修复后阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/persistence/test_planning_inputs.py tests/persistence/test_migrations.py tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t03-fix-stage-20261109` | 176 passed，退出 0；含 T01/T02、行情网关、迁移链和技术引擎回归 |
 | 复审修复后后端 full | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t03-review-fix-full-backend-tip.json` | `verification=passed`；后端 1121 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t03-review-fix-full-backend-tip.json` |
+| 历史兼容修复前纯契约红 | `backend/`（隔离工作区） | `uv run --locked --no-sync pytest tests/trade_planning/test_inputs.py -q --tb=short --basetemp=../.tmp/pytest/t03-legacy-red-20261110` | 2 failed / 10 passed，退出 1；旧快照读取报“规划版本指纹与内容不一致” |
+| 历史兼容修复前 SQL 红 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py::test_legacy_profile_and_request_replay_are_version_aware -q --tb=short --basetemp=../.tmp/pytest/t03-legacy-db-red2-20261110` | 1 failed，退出 1；`get_profile` 解析旧资料行抛 `planning_integrity_violation` |
+| 历史兼容修复后纯契约/规则聚焦 | `backend/`（隔离工作区） | `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py -q --basetemp=../.tmp/pytest/t03-legacy-pure-green3-20261110` | 23 passed，退出 0；含旧快照原 ref、带截止时间旧载荷、序列化重读、篡改拒绝及新版三态 |
+| 历史兼容修复后 SQL 聚焦 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py -q --tb=short --basetemp=../.tmp/pytest/t03-legacy-db-green2-20261110` | 13 passed，退出 0；含旧 profile 行读取、`resolve_current`/`resolve_refs`、旧请求结果重放与 generation 不变 |
+| 历史兼容修复后阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/persistence/test_planning_inputs.py tests/persistence/test_migrations.py tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t03-legacy-stage-20261110` | 180 passed，退出 0；含 T01/T02、行情网关、迁移链和技术引擎回归 |
+| 历史兼容修复后后端 full | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t03-legacy-full-backend-tip.json` | `verification=passed`；后端 1125 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t03-legacy-full-backend-tip.json` |
 | D1 阶段回归 | `backend/`（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/persistence/test_planning_inputs.py tests/persistence/test_migrations.py tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t03-stage2-20261109` | 168 passed，退出 0；含 T01 策略目录、T02 知识索引、迁移链和既有技术引擎回归 |
 | 后端 full（tip） | 仓库根目录（隔离工作区）+ 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t03-full-backend-tip2.json` | `verification=passed`；后端 1113 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/manual-agent-t03-full-backend-tip2.json` |
 | 架构门禁 | `backend/`（隔离工作区） | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=38`，`findings=[]`，退出 0 |
@@ -218,7 +225,16 @@
 | P2 缓存命中重置规则观测时间并延长有效期 | 网关缓存不保存 HTTP 抓取时间，规则适配器按本地读取时钟重算 `observed_at` | `PublicExchangeSymbol` 增加 `fetched_at`，网关在真实 HTTP 返回后采样并在缓存命中时沿用；规则适配器使用 `fetched_at` 作为来源时间，60 分钟有效期按来源时间计算。MockTransport 回归覆盖 4:59 缓存命中不刷新、5:01 重新抓取后推进、60 分钟整点失效。 |
 | P2 网关异常未转换为规划领域错误 | 规则适配器未捕获 `MarketDataUnavailableError`，异常穿透 `PlanningInputService` | 在适配器边界只捕获 `MarketDataUnavailableError` 并转换为 `PlanningRuleUnavailableError`（稳定 `planning_rule_unavailable`），不回显上游正文；真实网关 + MockTransport 覆盖结构异常、网络失败，并验证服务调用方可用 `PlanningServiceError` 捕获。 |
 
-迁移兼容：本轮未新增 schema；`cooldown_status` 位于不可变 profile JSONB 文档。`0021_planning_inputs` 仍未合并、未应用到业务库。历史载荷缺少 `cooldown_status` 时解析为未知并保持不完整；若旧载荷带截止时间但无状态则拒绝，不自动推断为无冷却，也不回写历史版本。
+迁移兼容：第二轮未新增 schema；`cooldown_status` 位于不可变 profile JSONB 文档。`0021_planning_inputs` 仍未合并、未应用到业务库。第三轮历史快照兼容按字段集合读取旧 ref，缺少 `cooldown_status` 时保持未知/不完整；旧载荷带 `cooldown_until` 但无状态时保留截止时间、状态仍未知，不自动推断为无冷却或 active，也不回写历史版本。
+
+### T03 历史快照兼容修复（第 3 轮）
+
+| 审查问题 | 根因 | 修复与回归 |
+| --- | --- | --- |
+| P2 新增 `cooldown_status` 导致合法历史快照指纹失效 | 首轮快照没有该字段，原 ref 按旧字段集合计算；新模型读取时补默认 `None`，`content_sha256()` 把新字段纳入哈希 | `PlanningProfileSnapshot` 用 `model_fields_set` 判定历史载荷是否实际包含 `cooldown_status`；历史分支按旧字段集合（排除 `cooldown_status`）校验原指纹，并允许旧载荷只有 `cooldown_until`；新增 `versioned_payload()` 用 `exclude_unset=True` 保留历史字段集合，仓储资料快照持久化使用该方法。`create_profile` 请求指纹对 `cooldown_status=None` 做旧版规范化，避免同键同参旧请求误判冲突；显式 `none`/`active` 仍进入指纹。 |
+| 历史读取/重放整条路径 | 旧 snapshot 解析失败会穿透 `get_profile`/`resolve_current`/请求重放 | 使用首轮 tip `144e501` 实际生成的 3 个 fixture（普通快照、带 `cooldown_until` 快照、create_profile 请求结果）验证：原 ref 不变、缺失状态保持未知/不完整、`resolve_refs` 返回 `None`、序列化重读仍匹配、旧请求同键重放 generation 不变；修改财务或嵌套保证金仍拒绝旧指纹。 |
+
+迁移兼容：本轮无 schema 变更；旧快照不重写 `version_id`/`sha256`。旧请求 draft 若带 `cooldown_until` 但无状态，新版 Draft 不自动推断，需用户显式重新声明；该限制已写入复审材料。
 
 ### T03 环境说明
 
@@ -232,5 +248,5 @@
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
 2. T01 已由原审查助手正式通过，`reviewed_tip` 为 `159a43b`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
 3. T02 已由原审查助手正式通过，`reviewed_tip` 为 `8835a1d`，代码/复审文档已 fast-forward 合并到 `main`；当前状态为 `verified`/`approved`。
-4. T03 首轮正式审查 4 项 P2 不通过；修复 tip 为 `4f0e7ae`，当前为 `verified`/`awaiting_review`，等待原审查助手复审。未获通过前不得启动 T04 或后续依赖开发。
+4. T03 首轮 4 项 P2、第二轮 1 项历史快照 P2 不通过；历史兼容修复 tip 为 `023e5a2`，当前为 `verified`/`awaiting_review`，等待原审查助手复审。未获通过前不得启动 T04 或后续依赖开发。
 5. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
