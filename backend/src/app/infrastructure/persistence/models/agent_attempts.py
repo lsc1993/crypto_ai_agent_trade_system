@@ -210,14 +210,15 @@ class BudgetReservationRecord(Base):
             name="ck_budget_reservation_actual",
         ),
         # meter/state 决定 actual 的合法形状；INSERT 与 UPDATE 都受 CHECK 约束。
-        # 次数 meter 在 charged 时允许 actual=1；未结算 Token 不得提前写 actual。
+        # 次数 meter 在 charged 时允许 actual=1；settled 必须显式非空且等于 1，
+        # 避免 actual=NULL 时 SQL 三值逻辑把整个 CHECK 变成 NULL 而被放行。
         CheckConstraint(
             "(meter = 'activity_seconds' AND attempt_id IS NULL AND state = 'settled' "
             "AND reserved_amount = 0 AND actual_amount IS NOT NULL) OR "
             "(meter IN ('model_calls','tool_calls','transport_calls') AND attempt_id IS NOT NULL "
             "AND ((state IN ('reserved','unknown','released') AND actual_amount IS NULL) "
             "OR (state = 'charged' AND (actual_amount IS NULL OR actual_amount = 1)) "
-            "OR (state = 'settled' AND actual_amount = 1))) OR "
+            "OR (state = 'settled' AND actual_amount IS NOT NULL AND actual_amount = 1))) OR "
             "(meter IN ('input_tokens','output_tokens') AND attempt_id IS NOT NULL "
             "AND ((state IN ('reserved','charged','unknown','released') "
             "AND actual_amount IS NULL) "

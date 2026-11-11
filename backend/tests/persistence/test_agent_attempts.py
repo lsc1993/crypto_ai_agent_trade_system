@@ -114,6 +114,70 @@ def _result_ref() -> ArtifactRef:
     return ArtifactRef(artifact_id=uuid4(), sha256="f" * 64)
 
 
+# 直接断言数据库拒绝来自 CHECK 约束，而不是唯一键/外键等其他 DBAPIError。
+def _assert_check_violation(error: DBAPIError, constraint: str) -> None:
+    original = error.orig
+    assert getattr(original, "sqlstate", None) == "23514", repr(original)
+    # asyncpg 的 wrapped IntegrityError 不总是暴露 constraint_name 属性；
+    # 同时核对固定 SQLSTATE 和错误文本中的约束名，排除唯一键/外键等其他 23 类错误。
+    assert constraint in str(original), repr(original)
+
+
+# 为形状测试建立一个没有既有 meter 行的合成模型尝试，避免复用到唯一键冲突。
+# 该构造只用于数据库约束验证，不通过生产账本 API，也不代表完整业务状态。
+async def _insert_bare_model_attempt(
+    session_factory: async_sessionmaker[AsyncSession],
+    fence: RunFence,
+    *,
+    action_sequence: int = 900,
+) -> UUID:
+    step_id = uuid4()
+    attempt_id = uuid4()
+    input_sha = f"{action_sequence:064x}"
+    async with session_factory() as session, session.begin():
+        session.add(
+            AgentStepRecord(
+                id=step_id,
+                workspace_id=fence.workspace_id,
+                run_id=fence.run_id,
+                revision=fence.revision,
+                action_sequence=action_sequence,
+                input_sha256=input_sha,
+                category=AttemptCategory.MODEL.value,
+                status=AttemptStatus.PREPARED.value,
+                result_ref=None,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        session.add(
+            AgentAttemptRecord(
+                id=attempt_id,
+                step_id=step_id,
+                workspace_id=fence.workspace_id,
+                run_id=fence.run_id,
+                revision=fence.revision,
+                segment_id=fence.segment_id,
+                owner=fence.owner,
+                lease_epoch=fence.lease_epoch,
+                attempt_number=1,
+                category=AttemptCategory.MODEL.value,
+                action_sequence=action_sequence,
+                input_sha256=input_sha,
+                status=AttemptStatus.PREPARED.value,
+                provider_receipt=None,
+                reason_code=None,
+                created_at=NOW,
+                sent_at=None,
+                settled_at=None,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+    return attempt_id
+
+
 # 通过 T04 仓储建立任务，再显式推进为可运行状态；T05 尚未实现领取/心跳。
 async def _running_run(
     session_factory: async_sessionmaker[AsyncSession],
@@ -1008,14 +1072,10 @@ async def test_sql_rejects_actual_on_unsettled_token_reservation_and_bad_insert(
     _, _, fence = await _running_run(session_factory)
     ledger = SqlAlchemyBudgetLedger(session_factory, clock=lambda: NOW)
     model_attempt = await ledger.reserve(fence, _model_request(1))
-    tool_attempt = await ledger.reserve(
-        fence,
-        _non_model_request(2, AttemptCategory.TOOL),
-    )
 
     # prepared 的 Token 行在发送前只有预留；直接写 actual=0 不得静默释放。
     async with session_factory() as session, session.begin():
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError) as rejected_update:
             await session.execute(
                 update(BudgetReservationRecord)
                 .where(
@@ -1024,17 +1084,20 @@ async def test_sql_rejects_actual_on_unsettled_token_reservation_and_bad_insert(
                 )
                 .values(actual_amount=0)
             )
+    _assert_check_violation(rejected_update.value, "ck_budget_reservation_shape")
     unchanged = await ledger.status(fence)
     assert unchanged.input_tokens == 1024
     assert unchanged.output_tokens == 512
 
-    # INSERT 形状同样受约束：unknown 携带 actual、reserved 次数携带 actual 都应拒绝。
+    # 使用没有既有 meter 行的合成尝试，避免 (attempt_id, meter) 唯一键掩盖形状错误。
+    bare_attempt_id = await _insert_bare_model_attempt(session_factory, fence)
+
     async with session_factory() as session, session.begin():
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError) as rejected_unknown:
             session.add(
                 BudgetReservationRecord(
                     id=uuid4(),
-                    attempt_id=tool_attempt.attempt_id,
+                    attempt_id=bare_attempt_id,
                     workspace_id=WORKSPACE_ID,
                     run_id=fence.run_id,
                     segment_id=fence.segment_id,
@@ -1047,16 +1110,18 @@ async def test_sql_rejects_actual_on_unsettled_token_reservation_and_bad_insert(
                 )
             )
             await session.flush()
+    _assert_check_violation(rejected_unknown.value, "ck_budget_reservation_shape")
+
     async with session_factory() as session, session.begin():
-        with pytest.raises(DBAPIError):
+        with pytest.raises(DBAPIError) as rejected_reserved_count:
             session.add(
                 BudgetReservationRecord(
                     id=uuid4(),
-                    attempt_id=tool_attempt.attempt_id,
+                    attempt_id=bare_attempt_id,
                     workspace_id=WORKSPACE_ID,
                     run_id=fence.run_id,
                     segment_id=fence.segment_id,
-                    meter="tool_calls",
+                    meter="model_calls",
                     reserved_amount=1,
                     actual_amount=1,
                     state="reserved",
@@ -1065,3 +1130,75 @@ async def test_sql_rejects_actual_on_unsettled_token_reservation_and_bad_insert(
                 )
             )
             await session.flush()
+    _assert_check_violation(rejected_reserved_count.value, "ck_budget_reservation_shape")
+
+
+@pytest.mark.asyncio
+async def test_sql_count_settled_requires_non_null_actual_but_allows_one(
+    migrated_database: Database,
+) -> None:
+    session_factory = migrated_database.session_factory
+    _, _, fence = await _running_run(session_factory)
+    attempt_id = await _insert_bare_model_attempt(session_factory, fence, action_sequence=901)
+
+    # R1：state='settled' AND actual_amount=1 在 actual 为 NULL 时整体为 NULL，
+    # PostgreSQL CHECK 因此放行；直接 INSERT 必须由显式非空条件拒绝。
+    async with session_factory() as session, session.begin():
+        with pytest.raises(DBAPIError) as settled_null:
+            session.add(
+                BudgetReservationRecord(
+                    id=uuid4(),
+                    attempt_id=attempt_id,
+                    workspace_id=WORKSPACE_ID,
+                    run_id=fence.run_id,
+                    segment_id=fence.segment_id,
+                    meter="model_calls",
+                    reserved_amount=1,
+                    actual_amount=None,
+                    state="settled",
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            await session.flush()
+    _assert_check_violation(settled_null.value, "ck_budget_reservation_shape")
+
+    # settled + actual=1 是合法终态；事务回滚避免污染后续预算聚合。
+    async with session_factory() as session:
+        session.add(
+            BudgetReservationRecord(
+                id=uuid4(),
+                attempt_id=attempt_id,
+                workspace_id=WORKSPACE_ID,
+                run_id=fence.run_id,
+                segment_id=fence.segment_id,
+                meter="model_calls",
+                reserved_amount=1,
+                actual_amount=1,
+                state="settled",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        await session.rollback()
+
+    # charged + actual=1 是 mark_sent 的合法次数形状；同样回滚。
+    async with session_factory() as session:
+        session.add(
+            BudgetReservationRecord(
+                id=uuid4(),
+                attempt_id=attempt_id,
+                workspace_id=WORKSPACE_ID,
+                run_id=fence.run_id,
+                segment_id=fence.segment_id,
+                meter="model_calls",
+                reserved_amount=1,
+                actual_amount=1,
+                state="charged",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        await session.rollback()
