@@ -3,9 +3,9 @@
 - 任务/审查单元：T05（D2）
 - 执行模型：`deepseek-flash`（运行环境标识）；具体供应商构建、参数版本与上下文版本未在仓库内可确认，记为**未知**。执行载体为 DeepSeek Harness。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0（日期均为 2026-11-06）。
-- 自测状态：`verified`（首轮实现、正式审查 F1–F4 修复、聚焦、SQL、阶段、静态、迁移链和最终后端 full 已完成）。
-- 正式审查状态：`awaiting_review`。首轮正式审查判定 4 项 P2 不通过（见 `T05-formal-review.md`）；本文件记录修复材料，**尚未取得原审查助手对修复版本的结论，不表示审查通过。**
-- 审查请求生成：2026-11-11（Asia/Shanghai）；复审修复更新：2026-11-11。
+- 自测状态：`verified`（首轮实现、正式审查 F1–F4 修复、复审 R1 修复、聚焦、SQL、阶段、静态、迁移链和最终后端 full 已完成）。
+- 正式审查状态：`awaiting_review`。首轮正式审查判定 4 项 P2 不通过（见 `T05-formal-review.md`）；复审又发现 R1（次数 settled 的 NULL 三值逻辑放行，见 `T05-rereview-bd2a59d.md`）。本文件记录修复材料，**尚未取得原审查助手对修复版本的结论，不表示审查通过。**
+- 审查请求生成：2026-11-11（Asia/Shanghai）；复审修复更新：2026-11-11；R1 修复更新：2026-11-11。
 - 本审查请求文件本身在 implementation tip 之后作为独立 docs 提交；不把该文档提交号写入 implementation tip，避免循环引用。
 
 ## 1. 工作区、分支与审查范围
@@ -16,15 +16,16 @@
 | 隔离工作区 | `D:\t05`（短路径；为规避 Windows 260 字符路径上限，从 `.worktrees\manual-agent-t05-20261111` 移动，分支/内容/提交不变） |
 | 分支 | `t05-agent-attempts-budget`（未合并、未推送） |
 | base | `4d1af68fc704f50b21b9f9b0619b446f315f66d6`（`main`，T04 复审/合并文档之后） |
-| implementation tip | `bd2a59df2e323248046db33ac929cd5d5d8c1063`（`fix: harden agent attempts and budget settlement`，复审修复 tip） |
+| implementation tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（`fix: reject settled call counts without actual amount`，R1 修复 tip） |
 | 首轮 implementation tip | `249a8adc3769c9576015c7ff4a4edaa3e1798a6b`（`feat: account for agent attempts and cumulative budgets`） |
-| implementation tree | `6a099ed2ca604cad77d9706e5badb395b922aa70`（复审修复 tip） |
-| 代码审查范围 | 累计 `4d1af68..bd2a59d`，15 个文件，+4231 / -6；复审修复 `249a8ad..bd2a59d`，9 个文件，+567 / -22 |
-| 文档提交 | 首轮材料 `9c4c105`；复审修复材料为本次独立 docs 提交；代码审查以 `bd2a59d` 为准 |
+| 上轮修复 tip | `bd2a59df2e323248046db33ac929cd5d5d8c1063`（`fix: harden agent attempts and budget settlement`） |
+| implementation tree | `a6fc8607c41add1477bda3799852685e9ce89b01`（R1 修复 tip） |
+| 代码审查范围 | 累计 `4d1af68..f9454ad`，16 个文件，+4407 / -6；R1 修复 `bd2a59d..f9454ad`，3 个文件，+189 / -13；上轮修复 `249a8ad..bd2a59d`，9 个文件，+567 / -22 |
+| 文档提交 | 首轮材料 `9c4c105`；上轮材料 `bd800e8`；R1 材料为本次独立 docs 提交；代码审查以 `f9454ad` 为准 |
 | reviewed_tip | `—`（尚未取得修复版本正式结论） |
 | 合并 | 未合并到 `main`，未推送、未部署、未迁移业务库 |
 
-实现提交只包含本任务的代码/测试/迁移文件；`main` 工作区保持干净。未修改 `.env`、凭证、真实账户或业务库；未夹带其他任务未提交内容。首轮正式审查报告的 4 项 P2 已逐项复现和修复，详细记录见第 9 节。
+实现提交只包含本任务的代码/测试/迁移文件；`main` 工作区保持干净。未修改 `.env`、凭证、真实账户或业务库；未夹带其他任务未提交内容。首轮正式审查的 F1–F4 与复审 R1 已逐项复现和修复，详细记录见第 9 节。
 
 ## 2. 任务范围、依赖与 FR/AC/HN
 
@@ -36,7 +37,7 @@
 - C5 纯类型与账本：`AttemptCategory`、`AttemptStatus`、`AttemptRequest`、`AttemptResult`、`StepAttempt`、`TokenUsage`、逻辑步骤标识与状态迁移规则。
 - `BudgetLimits`、`BudgetStatus`、`BudgetLedger` 协议；初始档、部署硬上限、有效上限合并、追加授权与活动时间检查。
 - PostgreSQL 实现：`SqlAlchemyBudgetLedger.reserve/mark_sent/settle/status/record_activity/append_authorization`。
-- `agent_steps`、`agent_attempts`、`budget_authorizations`、`budget_reservations` 四表与 `0023_agent_attempts`/`0024_agent_attempt_hardening` 前向迁移（后者为正式审查 F1–F4 修复）。
+- `agent_steps`、`agent_attempts`、`budget_authorizations`、`budget_reservations` 四表与 `0023_agent_attempts`/`0024_agent_attempt_hardening`/`0025_agent_attempt_shape_fix` 前向迁移（后两者为 F1–F4 与 R1 修复）。
 - 纯契约、纯预算和真实 PostgreSQL 三组测试；复审修复增加发送前预算检查、跨修订回执对账、发送前 failed/released 与直接 SQL 形状拒绝回归。
 
 明确不在本轮：
@@ -56,7 +57,7 @@
 | T02 知识 | 已正式通过；T05 未触碰知识表/检索 |
 | T03 C3 | 已正式通过；T05 只导入既有 `PlanningRefs` 类型，测试用合成 `planning_pools` 验证预算追加不改变 generation |
 | T04 C4 | 已正式通过（`reviewed_tip=0df86fe`）；T05 复用 `agent_runs` 行及 owner/lease_epoch/lease_expires_at 字段，不修改 0022 迁移 |
-| 迁移链 | 从 `0022_agent_tasks` 串行新增 `0023_agent_attempts`，正式审查修复新增 `0024_agent_attempt_hardening`；未改写 0023 或旧迁移。T06/T07/T13 计划迁移号顺延为 `0025_agent_interactions`/`0026_agent_segments`/`0027_manual_plans` |
+| 迁移链 | 从 `0022_agent_tasks` 串行新增 `0023_agent_attempts`，F1–F4 修复新增 `0024_agent_attempt_hardening`，R1 修复新增 `0025_agent_attempt_shape_fix`；未改写已提交迁移。T06/T07/T13 计划迁移号顺延为 `0026_agent_interactions`/`0027_agent_segments`/`0028_manual_plans` |
 
 ### 2.3 FR/AC/HN 映射
 
@@ -88,17 +89,19 @@
 | `backend/src/app/infrastructure/persistence/models/__init__.py` | 注册 T05 模型 |
 | `backend/alembic/versions/0023_agent_attempts.py` | 前向迁移：四表、约束、索引、身份/终态/形状触发器；回退显式拒绝 |
 | `backend/alembic/versions/0024_agent_attempt_hardening.py` | 复审修复迁移：发送前 failed 时间约束、released 状态、meter/state actual 形状 CHECK 与触发器替换 |
+| `backend/alembic/versions/0025_agent_attempt_shape_fix.py` | R1 前向修复：次数 settled 显式要求 actual 非空且为 1，替换同一形状 CHECK |
 | `backend/tests/agent_runs/test_segments.py` | C4 纯类型边界测试 |
 | `backend/tests/agent_runs/test_attempts.py` | 逻辑步骤、类别预留、状态迁移、终态结果测试 |
 | `backend/tests/agent_runs/test_budget.py` | 初始/硬上限、追加授权、有效上限、活动时间、快照一致性测试 |
-| `backend/tests/persistence/test_agent_attempts.py` | 真实 PostgreSQL：预留/发送/结算、跨片段/修订、未知、重试、并发、追加、活动、fence、不可变与回滚 |
+| `backend/tests/persistence/test_agent_attempts.py` | 真实 PostgreSQL：F1–F4、R1、预留/发送/结算、跨片段/修订、未知、重试、并发、追加、活动、fence、不可变与回滚 |
 
-### 3.2 SHA-256 文件指纹（implementation tip `bd2a59d`）
+### 3.2 SHA-256 文件指纹（implementation tip `f9454ad`）
 
 | 文件 | SHA-256 |
 | --- | --- |
 | `backend/alembic/versions/0023_agent_attempts.py` | `6c238c2ff457e7f85600ff68d3fd6f09cb8a1e449ae914df31ea46cec024ff6b` |
 | `backend/alembic/versions/0024_agent_attempt_hardening.py` | `965c4bebeb1a1cf92e6bac4c44e13bab72fc712a80772af8a86a33d943649cae` |
+| `backend/alembic/versions/0025_agent_attempt_shape_fix.py` | `34a2f1a5b933fe37aa5d43b46486f136e37b2476b7180b93eca7e2dc5cc3a944` |
 | `backend/src/app/agent_runs/__init__.py` | `80966d83ce1038d3dadccabbff141d9720445963828de40106d1bf8e80dbcac7` |
 | `backend/src/app/agent_runs/attempts.py` | `af36e763e45d837e75719d4aa4fd607689723e16d690ee9a06e382202fc163ab` |
 | `backend/src/app/agent_runs/budget.py` | `76042e8202430a79d45be218915b1b593d093925a2bd3294f6e536e944767668` |
@@ -107,8 +110,11 @@
 | `backend/src/app/agent_runs/segments.py` | `ae5a7e8e89e37bd25a501540c3bd0e5e9cf38582a5d9e2fc8ff3d684b4a954ae` |
 | `backend/src/app/infrastructure/persistence/agent_attempt_repository.py` | `094664e0f577f71d8868cba14d8f5451fe49b4735d7caf48c478672c46d87e32` |
 | `backend/src/app/infrastructure/persistence/models/__init__.py` | `1db862e5177e6278a1fcb7a3c5ae7646be4ccb94aafdaa17b147b99858918cd6` |
-| `backend/src/app/infrastructure/persistence/models/agent_attempts.py` | `1adf3691ff68a23a7233a5a709073d3883c161ccee2b16b439a490c938cb12ab` |
+| `backend/src/app/infrastructure/persistence/models/agent_attempts.py` | `97ab104099c239aa75c8c17b02452939d1c302dc402c204cfa1ef0de4829faf9` |
 | `backend/tests/agent_runs/test_attempts.py` | `bb11412bb445cd78cba8a297ac0137a4b8ea45a6391bff06fdf7d9b6d458142f` |
+| `backend/tests/agent_runs/test_budget.py` | `90089f19baadc8091b931316f376f6eba363f1bd108554cabbb18549fd80ad82` |
+| `backend/tests/agent_runs/test_segments.py` | `9275e2e6392bea1eac1cf67599a2f2ebfee925dabf5701ecd1cf45249e25664b` |
+| `backend/tests/persistence/test_agent_attempts.py` | `368bb4fd7b6479354d9c9ad41ac2610fa2ca6702c43c5bc1b7eb730e18c95acc` |
 | `backend/tests/agent_runs/test_budget.py` | `90089f19baadc8091b931316f376f6eba363f1bd108554cabbb18549fd80ad82` |
 | `backend/tests/agent_runs/test_segments.py` | `9275e2e6392bea1eac1cf67599a2f2ebfee925dabf5701ecd1cf45249e25664b` |
 | `backend/tests/persistence/test_agent_attempts.py` | `1561c52eca9614ac8a2e764f5bb23f535376c9bc8059675c744a31f005be0e75` |
@@ -129,6 +135,7 @@
 12. **跨修订回执对账（F2）。** `_load_attempt` 区分“发送只限当前修订”和“结算可读历史已发送尝试”。当前有效 owner/fence 可对同 run/workspace 的历史 in_flight/unknown 凭可验证回执结算；旧 revision fence 仍 `lease_lost`，旧 prepared 仍不能发送或结算。历史回执无 `receipt_verified` 返回 `receipt_required`。
 13. **发送前失败是明确未发送终态（F3）。** prepared→failed 保持 `sent_at=NULL`、不保存 usage/回执、写 settled_at；次数/Token meter 全部 `released` 并从预算累计排除；attempt 行保留，仍占用该逻辑步骤两次尝试之一。这样失败不伪造发送、不消耗调用成本，也不能无限预检重试。
 14. **meter/state 形状由数据库统一约束（F4）。** `0024` 增加同时作用于 INSERT/UPDATE 的 CHECK：未结算 Token 的 actual 必须 NULL，`released` 必须 actual NULL，次数 meter 在 charged 时允许合法 actual=1，settled 次数必须 actual=1；触发器仅允许 reserved→released，已发送 charged 不得释放。
+15. **次数 settled 必须显式非空（R1）。** 0024 的 `state='settled' AND actual_amount=1` 在 actual=NULL 时整体为 NULL，CHECK 会放行；`0025` 前向替换同一约束为 `actual_amount IS NOT NULL AND actual_amount = 1`。0024 不改写；若既有库存在 direct-SQL 写入的非法 settled+NULL 行，迁移 fail-closed，需先审计/修复，不自动改写账本历史。
 
 ## 5. 接口、依赖与迁移影响
 
@@ -150,12 +157,12 @@
 
 ### 5.3 迁移
 
-- `0023_agent_attempts`，`down_revision=0022_agent_tasks`；复审修复新增 `0024_agent_attempt_hardening`，`down_revision=0023_agent_attempts`，当前 head 为 `0024_agent_attempt_hardening`。
+- `0023_agent_attempts`，`down_revision=0022_agent_tasks`；F1–F4 修复新增 `0024_agent_attempt_hardening`，R1 修复新增 `0025_agent_attempt_shape_fix`，当前 head 为 `0025_agent_attempt_shape_fix`。
 - 四表：`agent_steps`、`agent_attempts`、`budget_authorizations`、`budget_reservations`；外键只指向既有 `agent_runs`/本迁移新表。
-- `0024` 只前向替换约束/触发器函数，不改写 `0023` 或旧迁移：放宽 failed 时间约束以允许发送前失败无 `sent_at`；`budget_reservations.state` 增加 `released`；新增 INSERT/UPDATE 共用 `ck_budget_reservation_shape`。
+- `0025` 只前向替换 `ck_budget_reservation_shape`，不改写 0024：次数 settled 要求 `actual_amount IS NOT NULL AND actual_amount = 1`，覆盖 INSERT/UPDATE；合法历史行不受影响，非法历史行会使约束校验失败并 fail-closed。
 - 约束覆盖：步骤/尝试身份、状态集合、attempt 1..2、时间一致性、授权硬上限与 initial/append 形状、meter 集合/活动记录唯一、result_ref 与 succeeded 一致、meter/state actual 形状。
 - 触发器覆盖：步骤/尝试身份不可变、attempt/step 终态、未知回执可结算、reservation 终态与状态迁移（reserved→released 仅发送前失败）、授权只追加、四表禁止删除。
-- 回退显式 `NotImplementedError`；未修改 0022/0023 或任何已提交迁移；未迁移业务库。首次 T05 操作会为已有 T04 run 惰性写入初始预算授权，不要求回填。
+- 回退显式 `NotImplementedError`；未修改 0022/0023/0024 或任何已提交迁移；未迁移业务库。首次 T05 操作会为已有 T04 run 惰性写入初始预算授权，不要求回填。
 
 ## 6. 测试执行与证据
 
@@ -164,19 +171,20 @@
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
 | 首轮预期红 | `uv run --locked --no-sync pytest tests/agent_runs/test_segments.py tests/agent_runs/test_attempts.py tests/agent_runs/test_budget.py tests/persistence/test_agent_attempts.py -q` | 4 collection errors（缺少新模块），退出 1；符合测试先行预期 |
-| 复审修复预期红 | 真实 PostgreSQL 执行 F1–F4 新回归 | F1 `mark_sent` 未拒绝；F2 新围栏 `attempt_not_found`；F3 `invalid_attempt_transition`；F4 直接 SQL 未报错；4 failed，退出 1；已逐项复现 |
-| 复审修复聚焦 | `uv run --locked --no-sync python -m pytest tests/agent_runs tests/persistence/test_agent_attempts.py -q --basetemp=..\.tmp\pytest\t05-review-focus` | 40 passed，退出 0；证据 `D:\t05\.tmp\quality\t05-review-focus.log` |
-| 复审修复阶段回归 | `uv run --locked --no-sync python -m pytest tests/agent_runs tests/persistence/test_agent_attempts.py tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance -q --basetemp=..\.tmp\pytest\t05-review-stage` | 184 passed，退出 0；证据 `D:\t05\.tmp\quality\t05-review-stage.log` |
-| 复审修复后端 full | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t05-review-fix-full.json` | `verification=passed`；1182 collected / 1182 passed / 0 failed / 0 skipped / 0 collection errors；证据 `D:\t05\.tmp\quality\manual-agent-t05-review-fix-full.json` |
+| F1–F4 预期红 | 真实 PostgreSQL 执行 F1–F4 新回归 | F1 `mark_sent` 未拒绝；F2 新围栏 `attempt_not_found`；F3 `invalid_attempt_transition`；F4 直接 SQL 未报错；4 failed，退出 1；已逐项复现 |
+| R1 预期红 | `pytest ...::test_sql_count_settled_requires_non_null_actual_but_allows_one` | 次数 settled + `actual_amount=NULL` 直接 INSERT 未报错（DID NOT RAISE）；退出 1 |
+| R1 修复聚焦 | `uv run --locked --no-sync python -m pytest tests/agent_runs tests/persistence/test_agent_attempts.py -q --basetemp=..\.tmp\pytest\t05-r1-focus` | 41 passed，退出 0；证据 `D:\t05\.tmp\quality\t05-r1-focus.log` |
+| R1 修复阶段回归 | `uv run --locked --no-sync python -m pytest tests/agent_runs tests/persistence/test_agent_attempts.py tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py tests/security tests/governance -q --basetemp=..\.tmp\pytest\t05-r1-stage` | 185 passed，退出 0；证据 `D:\t05\.tmp\quality\t05-r1-stage.log` |
+| R1 修复后端 full | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t05-r1-full.json` | `verification=passed`；1183 collected / 1183 passed / 0 failed / 0 skipped / 0 collection errors；证据 `D:\t05\.tmp\quality\manual-agent-t05-r1-full.json` |
 | Ruff | `uv run --locked --no-sync ruff check .` | 通过，退出 0 |
 | 格式 | `uv run --locked --no-sync ruff format --check .` | 通过，退出 0 |
 | Pyright | `uv run --locked --no-sync python -m pyright` | 0 errors / 0 warnings，退出 0；移动工作区后使用模块入口避开 uv trampoline 路径问题 |
 | 架构门禁 | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，38 files，findings=[]，退出 0 |
-| 迁移链 | `uv run --locked --no-sync python -m alembic heads` | `0024_agent_attempt_hardening (head)`，退出 0 |
+| 迁移链 | `uv run --locked --no-sync python -m alembic heads` | `0025_agent_attempt_shape_fix (head)`，退出 0 |
 
 ### 6.1 失败与重跑说明
 
-首轮 full 的 1175 passed 报告仍保留；复审修复后以 1182 passed 报告为准。首轮 full 曾受宿主环境变量和 Windows 长路径临时目录影响，最终在隔离环境与短路径下通过；两次失败已保留记录，未删改，不计入最终通过证据。
+首轮 full 的 1175 passed、上轮修复 full 的 1182 passed 报告仍保留；R1 修复后以 1183 passed 报告为准。首轮 full 曾受宿主环境变量和 Windows 长路径临时目录影响，最终在隔离环境与短路径下通过；两次失败已保留记录，未删改，不计入最终通过证据。
 
 ### 6.2 测试覆盖断言摘要
 
@@ -185,6 +193,7 @@
 - **F2：** revision 1 的 unknown 在 revision 2 当前围栏下无回执返回 `receipt_required`，有可验证回执可结算为 succeeded 并更新实际用量；revision 1 旧围栏仍 `lease_lost`，旧 prepared 的 `mark_sent` 仍 `attempt_not_found`。
 - **F3：** reserve 后直接 settle(failed) 成功；attempt 为 failed、`sent_at IS NULL`、`settled_at` 非空；三条 meter 全为 `released` 且 actual 为空；预算次数/Token 归零；同键重试为 attempt 2，第二次发送前失败后第三次 `attempt_limit`。
 - **F4：** 直接 UPDATE prepared 的 input/output `actual_amount=0` 被数据库拒绝，预算仍为 1024/512；直接 INSERT unknown+actual=0 和 reserved 次数+actual=1 均被 CHECK 拒绝；正常 charged 次数 actual=1 仍可写入。
+- **R1：** 使用无既有 `(attempt_id,meter)` 的合成模型尝试直接 INSERT `model_calls, settled, actual=NULL` 被拒绝，SQLSTATE 23514 且错误文本含 `ck_budget_reservation_shape`；同形状 settled+actual=1、charged+actual=1 插入合法。原直接 INSERT 测试已改用不冲突数据，避免唯一键掩盖形状校验。
 - 7 个模型调用后并发竞争最后 1 个额度，只有一个成功；同一逻辑步骤并发双预留返回同一 attempt 和一份预算。
 - 成功 usage 结算后预留释放为实际值；缺失 usage 的 unknown 保留 16384/4096；同键 unknown 不自动重放；可验证回执可结算并更新实际用量。
 - 跨片段/跨 revision 的 `model_sent`、输入/输出累计不重置；同一成功逻辑键复用不新增预算；第二次失败后第三次返回 `attempt_limit`。
@@ -216,7 +225,8 @@
 8. **发送前失败语义。** F3 选择“保留 attempt 计数、释放次数/Token、无 sent_at”；需确认这与 T07/T11 对预检失败、取消和格式纠错的预期一致，避免把预检重试误当成免费无限重试。
 9. **历史对账权限边界。** F2 只放开当前有效 owner/fence 对历史 in_flight/unknown 的回执结算；旧 prepared 仍不能发送或结算，旧 revision fence 仍拒绝。需确认 T07 恢复枚举不会绕过该边界。
 10. **数据库形状约束的维护成本。** F4 的 `ck_budget_reservation_shape` 同时约束 INSERT/UPDATE；未来新增 meter/state 时必须同步迁移与模型，否则会被 fail-closed 拒绝。审查重点：约束是否完整覆盖当前全部合法写入路径。
-11. **长路径与 tester 临时目录。** 最终 full 依赖短工作区路径；普通长路径工作区仍可能触发 `pytester` 的 Windows 路径问题，属于验证环境限制，不是 T05 行为。审查重点：是否需要单独向质量工具报告，而不是在本轮扩大代码范围。
+11. **次数 settled 的 SQL 三值逻辑。** R1 说明 `actual_amount = 1` 单独使用会在 NULL 时得到 NULL 并被 CHECK 放行；`0025` 已显式 `IS NOT NULL`。审查重点：未来新增 meter/state 分支时是否都显式处理 NULL，避免重复同类缺口。
+12. **长路径与 tester 临时目录。** 最终 full 依赖短工作区路径；普通长路径工作区仍可能触发 `pytester` 的 Windows 路径问题，属于验证环境限制，不是 T05 行为。审查重点：是否需要单独向质量工具报告，而不是在本轮扩大代码范围。
 
 ## 8. 请求审查的重点
 
@@ -225,11 +235,12 @@
 3. 核对 meter 账本的 `COALESCE(actual, reserved)` 在 prepared/in_flight/succeeded/failed/unknown/released、缺 usage、实际超预留、跨片段/修订下是否保守且不重复计费。
 4. 核对 F1 的 `validate_send_fits` 在恰好等于上限、实际用量超限、追加授权前后是否按“不重复加预留”的语义工作。
 5. 核对 F3 的 prepared→failed：`sent_at=NULL`、settled_at、attempt 计数与 meter released 是否一致，是否仍存在伪造发送或无限预检窗口。
-6. 核对 F4 的 CHECK 是否同时覆盖 INSERT/UPDATE、是否允许次数 meter 在 charged 时 actual=1，并复核直接 SQL 绕过路径。
+6. 核对 F4/R1 的 CHECK 是否同时覆盖 INSERT/UPDATE、次数 meter 在 settled 时必须 actual 非空且为 1、charged 时 actual=1 合法，并复核直接 SQL 绕过路径及 SQLSTATE/约束名断言是否真实。
 7. 核对 AP-05 追加授权的绝对值/单调性/硬上限/引用幂等，以及是否确实与交易资金、规划代次和风险政策隔离。
 8. 核对并发预留、双重预留、重试 attempt 上限、成功复用和未知拒绝重放是否存在竞态或重复发送窗口。
 9. 核对活动时间“一片段一条记录 + 15 秒余量”的语义，以及 T07 接线时的可操作性。
-10. 核对测试是否真实使用 PostgreSQL 行锁/触发器，而不是以 Mock 或纯模型自评替代；确认未验证项没有被写成已通过。
+10. 核对 0025 仅前向替换约束、未改写 0023/0024；确认兼容影响（合法历史行通过、非法历史行 fail-closed）被准确记录。
+11. 核对测试是否真实使用 PostgreSQL 行锁/触发器，而不是以 Mock 或纯模型自评替代；确认未验证项没有被写成已通过。
 
 ## 9. 正式审查修复记录（第 2 轮）
 
@@ -244,10 +255,21 @@
 
 复审修复提交：`bd2a59df2e323248046db33ac929cd5d5d8c1063`（`fix: harden agent attempts and budget settlement`），范围 `249a8ad..bd2a59d`，9 个文件，+567 / -22。修复后聚焦 40 passed、阶段回归 184 passed、后端 full 1182 passed / 0 failed / 0 skipped，迁移 head `0024_agent_attempt_hardening`。
 
+### 9.1 复审剩余问题 R1（第 3 轮）
+
+复审报告：`docs/superpowers/reviews/manual-agent/T05-rereview-bd2a59d.md`。
+
+- **复现**：在真实 PostgreSQL 上，使用无既有 `(attempt_id, meter)` 的合成模型尝试直接 INSERT `meter='model_calls', state='settled', actual_amount=NULL`，0024 的 CHECK 未拒绝（DID NOT RAISE）。原直接 INSERT 测试还复用了已存在的 `(attempt_id, meter)` 唯一键，宽泛 DBAPIError 不能证明形状约束。
+- **修复**：新增前向 `0025_agent_attempt_shape_fix`，不修改 0023/0024；替换同一 `ck_budget_reservation_shape`，次数 settled 改为 `actual_amount IS NOT NULL AND actual_amount = 1`；同步 ORM。
+- **兼容影响**：合法历史行（settled 次数 actual=1）通过；若升级库已存在 direct-SQL 写入的非法 settled+NULL 行，`ADD CONSTRAINT` fail-closed，要求先审计/修复，不自动改写账本历史。
+- **回归**：settled+NULL INSERT 拒绝并核对 SQLSTATE 23514/约束名；settled+1 合法；charged+1 合法；既有直接 INSERT 测试改用无冲突数据。
+- **提交**：`f9454adab111218eaa8bc5880b37987031c11bb7`（`fix: reject settled call counts without actual amount`），范围 `bd2a59d..f9454ad`，3 个文件，+189 / -13；累计 `4d1af68..f9454ad`，16 个文件，+4407 / -6。
+- **验证**：聚焦 41 passed、阶段回归 185 passed、后端 full 1183 passed / 0 failed / 0 skipped，迁移 head `0025_agent_attempt_shape_fix`。
+
 ## 10. 状态与转交
 
-- 自测状态：`verified`（上述 F1–F4 复现、聚焦、阶段、full、静态、架构、迁移链均实际执行）。
+- 自测状态：`verified`（上述 F1–F4/R1 复现、聚焦、阶段、full、静态、架构、迁移链均实际执行）。
 - 正式审查状态：`awaiting_review`，`reviewed_tip=—`；尚未取得原审查助手对修复版本的正式通过结论。
 - 本轮停在修复复审门槛；未开始 T06/T07，未合并、未推送、未部署、未迁移业务库。
-- 审查材料：本文件、首轮正式报告 `T05-formal-review.md`、implementation tip `bd2a59df2e323248046db33ac929cd5d5d8c1063`、首轮 tip `249a8ad`、基线与上文文件指纹/证据路径。
+- 审查材料：本文件、首轮正式报告 `T05-formal-review.md`、复审报告 `T05-rereview-bd2a59d.md`、implementation tip `f9454adab111218eaa8bc5880b37987031c11bb7`、首轮 tip `249a8ad`、上轮 tip `bd2a59d`、基线与上文文件指纹/证据路径。
 - 收到复审意见后，开发端先核对或复现，再逐条修复并补回归；有异议以代码和测试说明。修复后记录新 tip、变更范围和验证结果，再次提交审查。只有用户传回原审查助手对当前版本的正式通过结论，且本轮必需验证完成，才放行下一审查单元。
