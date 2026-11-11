@@ -14,7 +14,7 @@
 | --- | --- |
 | 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`，T05 开始时干净，tip `4d1af68`） |
 | 隔离工作区 | `D:\t05`（短路径；为规避 Windows 260 字符路径上限，从 `.worktrees\manual-agent-t05-20261111` 移动，分支/内容/提交不变） |
-| 分支 | `t05-agent-attempts-budget`（本次批准文档提交后 fast-forward 到 `main`） |
+| 分支 | `t05-agent-attempts-budget`（已合并到 `main`，保留用于审查追踪） |
 | base | `4d1af68fc704f50b21b9f9b0619b446f315f66d6`（`main`，T04 复审/合并文档之后） |
 | implementation tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（`fix: reject settled call counts without actual amount`，R1 修复 tip） |
 | 首轮 implementation tip | `249a8adc3769c9576015c7ff4a4edaa3e1798a6b`（`feat: account for agent attempts and cumulative budgets`） |
@@ -24,7 +24,7 @@
 | 文档提交 | 首轮材料 `9c4c105`；上轮材料 `bd800e8`；R1 材料 `3cf1185`；批准材料为本次独立 docs 提交；代码审查以 `f9454ad` 为准 |
 | reviewed_tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（用户传回原审查助手正式通过） |
 | 复审报告 | `docs/superpowers/reviews/manual-agent/T05-rereview-f9454ad.md` |
-| 合并 | 本次批准文档提交后以 fast-forward 合并到 `main`；合并记录另见主分支 docs 提交 |
+| 合并 | `cbffb4f530fdcb4009ae7b2946633188f8bd120e`（fast-forward 到 `main`；本 docs 提交记录合并/推送） |
 
 实现提交只包含本任务的代码/测试/迁移文件；`main` 工作区保持干净。未修改 `.env`、凭证、真实账户或业务库；未夹带其他任务未提交内容。首轮正式审查的 F1–F4 与复审 R1 已逐项复现和修复，详细记录见第 9 节。
 
@@ -271,6 +271,6 @@
 
 - 自测状态：`verified`（上述 F1–F4/R1 复现、聚焦、阶段、full、静态、架构、迁移链均实际执行）。
 - 正式审查状态：`approved`，`reviewed_tip=f9454adab111218eaa8bc5880b37987031c11bb7`；用户于 2026-11-11 传回原审查助手正式通过结论（`T05-rereview-f9454ad.md`）。
-- T05 代码/批准文档将以 fast-forward 合并到 `main`；未部署、未迁移业务库。
+- T05 代码/批准文档已以 fast-forward 合并到 `main`（合并 tip `cbffb4f`），随后推送远端；未部署、未迁移业务库。
 - 审查材料：本文件、首轮正式报告 `T05-formal-review.md`、复审报告 `T05-rereview-bd2a59d.md`、最终复审 `T05-rereview-f9454ad.md`、implementation tip `f9454adab111218eaa8bc5880b37987031c11bb7`、首轮 tip `249a8ad`、上轮 tip `bd2a59d`、基线与上文文件指纹/证据路径。
 - 通过结论仅针对 T05 当前 reviewed_tip；T06/T07 及真实模型/工具/MCP、回执真实性、产物持久化、HTTP/前端、业务库迁移仍未完成。

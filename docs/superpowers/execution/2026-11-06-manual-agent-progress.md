@@ -2,16 +2,16 @@
 
 - 记录日期：2026-11-11
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、P2 修复、聚焦/SQL/阶段/静态检查和后端 full；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），T04 当前为 `verified`/`approved`；T05 经首轮 F1–F4 和复审 R1 修复后，用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`），当前为 `verified`/`approved`；T05 尚未合并/推送，下一步按用户指令合并到 `main`。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00 的 `verified` 与 `approved` 已在复审通过后据实记录；T01 的 `verified` 与 `approved` 已按用户 2026-11-08 传回的正式复审结论记录；T02 的 `verified` 与 `approved` 已按用户 2026-11-09 传回的正式复审结论记录；T03 经首轮 4 项、第二轮 1 项、第三轮 1 项 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`），当前为 `verified`/`approved`；T04 已完成实现、P2 修复、聚焦/SQL/阶段/静态检查和后端 full；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），T04 当前为 `verified`/`approved`；T05 经首轮 F1–F4 和复审 R1 修复后，用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`），当前为 `verified`/`approved`；T05 已以 fast-forward 合并到 `main`（合并 tip `cbffb4f`），随后推送远端。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T04 approval/merge 文档提交之后 tip `4d1af68`，工作区干净） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T05 合并后 tip `cbffb4f`，工作区干净） |
 | 隔离工作区 | `D:\t05`（短路径；为规避 Windows 260 字符路径上限，从 `.worktrees\manual-agent-t05-20261111` 移动，内容与分支不变） |
-| 分支 | `t05-agent-attempts-budget`（本次批准文档提交后 fast-forward 到 `main`） |
+| 分支 | `t05-agent-attempts-budget`（已合并到 `main`，保留用于审查追踪） |
 | base | `4d1af68fc704f50b21b9f9b0619b446f315f66d6`（`main`，T04 复审/合并文档之后） |
 | implementation tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（`fix: reject settled call counts without actual amount`，R1 修复 tip） |
 | 首轮 implementation tip | `249a8adc3769c9576015c7ff4a4edaa3e1798a6b`（`feat: account for agent attempts and cumulative budgets`） |
@@ -20,7 +20,7 @@
 | 改动范围 | 累计代码 `4d1af68..f9454ad`，16 个文件，+4407 / -6；R1 修复 `bd2a59d..f9454ad`，3 个文件，+189 / -13；上轮修复 `249a8ad..bd2a59d`，9 个文件，+567 / -22 |
 | review_status | `approved`（用户于 2026-11-11 传回原审查助手正式通过结论） |
 | reviewed_tip | `f9454adab111218eaa8bc5880b37987031c11bb7` |
-| 合并 tip | 待本次批准文档提交后 fast-forward 到 `main`；合并记录另见主分支 docs 提交 |
+| 合并 tip | `cbffb4f530fdcb4009ae7b2946633188f8bd120e`（fast-forward 到 `main`；本 docs 提交记录合并/推送） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T05-review-request.md` |
 | 最终复审报告 | `docs/superpowers/reviews/manual-agent/T05-rereview-f9454ad.md` |
 
@@ -356,7 +356,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 任务状态 | `verified`（实现、F1–F4 与 R1 修复、聚焦、SQL、阶段、静态、迁移链和最终后端 full 均完成） |
 | review_status | `approved`（用户于 2026-11-11 传回原审查助手正式通过结论） |
 | reviewed_tip | `f9454adab111218eaa8bc5880b37987031c11bb7` |
-| 合并 | 本次批准文档提交后以 fast-forward 合并到 `main`；合并记录另见主分支 docs 提交 |
+| 合并 | `cbffb4f530fdcb4009ae7b2946633188f8bd120e`（fast-forward 到 `main`；本 docs 提交记录合并/推送） |
 | implementation tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（`fix: reject settled call counts without actual amount`，R1 修复 tip） |
 | 首轮 implementation tip | `249a8adc3769c9576015c7ff4a4edaa3e1798a6b`（`feat: account for agent attempts and cumulative budgets`） |
 | 上轮修复 tip | `bd2a59df2e323248046db33ac929cd5d5d8c1063`（`fix: harden agent attempts and budget settlement`） |
