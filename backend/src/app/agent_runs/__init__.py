@@ -1,7 +1,33 @@
-# Agent 任务领域包入口：导出 T04 公共契约与服务，不在此装配数据库或启动后台消费者。
-# 任务仓储的 SQL 实现位于 infrastructure/persistence，避免领域契约依赖具体存储。
-"""Persistent agent task contracts, events and application service."""
+# Agent 任务领域包入口：导出 T04 任务契约、T05 尝试/预算/片段纯类型与服务。
+# 不在此装配数据库、启动 worker 或执行模型/工具；SQL 实现位于 infrastructure/persistence。
+"""Persistent agent task contracts, attempts, budgets, segment types and services."""
 
+from app.agent_runs.attempts import (
+    MAX_ATTEMPTS_PER_STEP,
+    MAX_INPUT_TOKENS_PER_CALL,
+    MAX_OUTPUT_TOKENS_PER_CALL,
+    MODEL_TIMEOUT_SECONDS,
+    AttemptCategory,
+    AttemptRequest,
+    AttemptResult,
+    AttemptStatus,
+    StepAttempt,
+    TokenUsage,
+    attempt_transition_allowed,
+    logical_step_id,
+)
+from app.agent_runs.budget import (
+    ACTIVITY_SAFETY_MARGIN_SECONDS,
+    BudgetLedger,
+    BudgetLimits,
+    BudgetStatus,
+    effective_budget_limits,
+    hard_budget_limits,
+    initial_budget_limits,
+    validate_activity_start,
+    validate_append_limits,
+    validate_reservation_fits,
+)
 from app.agent_runs.contracts import (
     RUNNABLE_CAPACITY,
     WAITING_CAPACITY_PER_WORKSPACE,
@@ -16,22 +42,60 @@ from app.agent_runs.contracts import (
 )
 from app.agent_runs.events import RunEvent, RunEventPage, RunEventType
 from app.agent_runs.ports import AgentRunRepository
+from app.agent_runs.segments import (
+    CompletionDecision,
+    CompletionDecisionKind,
+    ExecutionContext,
+    PlanAdoptionProposal,
+    RunFence,
+    SegmentOutcome,
+    SegmentOutcomeKind,
+)
 from app.agent_runs.service import AgentRunService
 
 __all__ = [
+    "ACTIVITY_SAFETY_MARGIN_SECONDS",
+    "MAX_ATTEMPTS_PER_STEP",
+    "MAX_INPUT_TOKENS_PER_CALL",
+    "MAX_OUTPUT_TOKENS_PER_CALL",
+    "MODEL_TIMEOUT_SECONDS",
     "RUNNABLE_CAPACITY",
     "WAITING_CAPACITY_PER_WORKSPACE",
     "AgentRunError",
     "AgentRunRepository",
     "AgentRunService",
+    "AttemptCategory",
+    "AttemptRequest",
+    "AttemptResult",
+    "AttemptStatus",
+    "BudgetLedger",
+    "BudgetLimits",
+    "BudgetStatus",
+    "CompletionDecision",
+    "CompletionDecisionKind",
+    "ExecutionContext",
+    "PlanAdoptionProposal",
     "RunEvent",
     "RunEventPage",
     "RunEventType",
+    "RunFence",
     "RunInput",
     "RunQuality",
     "RunSnapshot",
     "RunStatus",
+    "SegmentOutcome",
+    "SegmentOutcomeKind",
+    "StepAttempt",
+    "TokenUsage",
+    "attempt_transition_allowed",
     "canonical_run_input_json",
+    "effective_budget_limits",
+    "hard_budget_limits",
+    "initial_budget_limits",
     "legacy_run_input_sha256",
+    "logical_step_id",
     "run_input_sha256",
+    "validate_activity_start",
+    "validate_append_limits",
+    "validate_reservation_fits",
 ]

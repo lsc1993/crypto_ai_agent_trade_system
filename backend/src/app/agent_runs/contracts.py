@@ -58,6 +58,7 @@ WAITING_RUN_STATUSES = frozenset({RunStatus.WAITING_INPUT, RunStatus.WAITING_APP
 RunQuality = Literal["complete", "degraded", "unknown"]
 
 # 仓储对外错误码；API 及后续 worker 据此映射安全错误，不依赖异常文本。
+# T05 追加预算、尝试、租约与未知调用相关稳定原因码；旧码保持不变。
 AgentRunErrorCode = Literal[
     "request_conflict",
     "queue_full",
@@ -70,6 +71,17 @@ AgentRunErrorCode = Literal[
     "invalid_event_page",
     "integrity_violation",
     "storage_unavailable",
+    "budget_exhausted",
+    "attempt_limit",
+    "attempt_in_flight",
+    "attempt_not_found",
+    "unknown_not_replayable",
+    "step_conflict",
+    "invalid_attempt_transition",
+    "receipt_required",
+    "lease_lost",
+    "invalid_budget_authorization",
+    "invalid_activity",
 ]
 
 
