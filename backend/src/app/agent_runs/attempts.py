@@ -47,11 +47,12 @@ class AttemptStatus(StrEnum):
 
 
 TERMINAL_ATTEMPT_STATUSES = frozenset({AttemptStatus.SUCCEEDED, AttemptStatus.FAILED})
+# 已知已发送状态；failed 既可能是发送后失败，也可能是发送前校验失败，
+# 因此外部快照必须用 sent_at 区分，不能只凭 failed 状态推断已经发送。
 SENT_ATTEMPT_STATUSES = frozenset(
     {
         AttemptStatus.IN_FLIGHT,
         AttemptStatus.SUCCEEDED,
-        AttemptStatus.FAILED,
         AttemptStatus.UNKNOWN,
     }
 )
@@ -218,6 +219,10 @@ class StepAttempt(AgentModel):
             raise ValueError("未发送尝试不能有发送时刻")
         if self.status in SENT_ATTEMPT_STATUSES and self.sent_at is None:
             raise ValueError("已发送尝试必须有发送时刻")
+        if self.status is AttemptStatus.FAILED and self.sent_at is None:
+            # 发送前失败是明确“未发送”的终态，不能夹带供应商 usage 或回执。
+            if self.usage is not None or self.provider_receipt is not None:
+                raise ValueError("发送前失败不能携带供应商用量或回执")
         if self.status in TERMINAL_ATTEMPT_STATUSES | {AttemptStatus.UNKNOWN}:
             if self.settled_at is None:
                 raise ValueError("终态尝试必须有结算时刻")

@@ -103,7 +103,8 @@ class AgentAttemptRecord(Base):
         CheckConstraint(
             "(status = 'prepared' AND sent_at IS NULL AND settled_at IS NULL) OR "
             "(status = 'in_flight' AND sent_at IS NOT NULL AND settled_at IS NULL) OR "
-            "(status IN ('succeeded','failed','unknown') AND sent_at IS NOT NULL "
+            "(status = 'failed' AND settled_at IS NOT NULL) OR "
+            "(status IN ('succeeded','unknown') AND sent_at IS NOT NULL "
             "AND settled_at IS NOT NULL)",
             name="ck_agent_attempt_timestamps",
         ),
@@ -200,13 +201,28 @@ class BudgetReservationRecord(Base):
     __table_args__ = (
         CheckConstraint(f"meter IN ({_METER_SQL})", name="ck_budget_reservation_meter"),
         CheckConstraint(
-            "state IN ('reserved','charged','settled','unknown')",
+            "state IN ('reserved','charged','settled','unknown','released')",
             name="ck_budget_reservation_state",
         ),
         CheckConstraint("reserved_amount >= 0", name="ck_budget_reservation_reserved"),
         CheckConstraint(
             "actual_amount IS NULL OR actual_amount >= 0",
             name="ck_budget_reservation_actual",
+        ),
+        # meter/state 决定 actual 的合法形状；INSERT 与 UPDATE 都受 CHECK 约束。
+        # 次数 meter 在 charged 时允许 actual=1；未结算 Token 不得提前写 actual。
+        CheckConstraint(
+            "(meter = 'activity_seconds' AND attempt_id IS NULL AND state = 'settled' "
+            "AND reserved_amount = 0 AND actual_amount IS NOT NULL) OR "
+            "(meter IN ('model_calls','tool_calls','transport_calls') AND attempt_id IS NOT NULL "
+            "AND ((state IN ('reserved','unknown','released') AND actual_amount IS NULL) "
+            "OR (state = 'charged' AND (actual_amount IS NULL OR actual_amount = 1)) "
+            "OR (state = 'settled' AND actual_amount = 1))) OR "
+            "(meter IN ('input_tokens','output_tokens') AND attempt_id IS NOT NULL "
+            "AND ((state IN ('reserved','charged','unknown','released') "
+            "AND actual_amount IS NULL) "
+            "OR (state = 'settled' AND actual_amount IS NOT NULL)))",
+            name="ck_budget_reservation_shape",
         ),
         CheckConstraint(
             "(attempt_id IS NULL AND meter = 'activity_seconds') OR "

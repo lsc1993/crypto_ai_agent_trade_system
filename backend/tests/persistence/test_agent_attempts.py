@@ -824,3 +824,244 @@ async def test_tool_budget_rejects_thirteenth_call_before_append_authorization(
     assert thirteenth.status is AttemptStatus.PREPARED
     assert thirteenth.category is AttemptCategory.TOOL
     assert (await ledger.status(fence)).tool_calls == 13
+
+
+@pytest.mark.asyncio
+async def test_mark_sent_blocks_prepared_when_actual_usage_exceeds_token_limit(
+    migrated_database: Database,
+) -> None:
+    session_factory = migrated_database.session_factory
+    _, _, fence = await _running_run(session_factory)
+    ledger = SqlAlchemyBudgetLedger(session_factory, clock=lambda: NOW)
+
+    # 六个大预留加一个待发送预留；前四个实际输入比预留高但仍未超过单次上限。
+    attempts = [
+        await ledger.reserve(
+            fence,
+            _model_request(sequence, input_tokens=16000, output_tokens=512),
+        )
+        for sequence in range(1, 7)
+    ]
+    target = await ledger.reserve(fence, _model_request(7, input_tokens=1024))
+    for attempt in attempts[:4]:
+        await ledger.mark_sent(fence, attempt.attempt_id)
+        await ledger.settle(
+            fence,
+            attempt.attempt_id,
+            AttemptResult(
+                status=AttemptStatus.SUCCEEDED,
+                result_ref=_result_ref(),
+                usage=TokenUsage(input_tokens=16384, output_tokens=1),
+            ),
+        )
+
+    over_limit = await ledger.status(fence)
+    assert over_limit.input_tokens > over_limit.input_token_limit
+
+    # prepared 的自身预留已在累计中，发送前不能再放宽一次额度；应保持 prepared。
+    with pytest.raises(AgentRunError) as blocked:
+        await ledger.mark_sent(fence, target.attempt_id)
+    assert blocked.value.code == "budget_exhausted"
+    async with session_factory() as session:
+        row = await session.get(AgentAttemptRecord, target.attempt_id)
+        assert row is not None
+        assert row.status == AttemptStatus.PREPARED.value
+
+    # 取得足额追加授权后，同一 prepared 才能发送；不重复加一份预留。
+    await ledger.append_authorization(
+        fence,
+        _limits(input_tokens=100000),
+        authorization_ref=uuid4(),
+        reason="合成输入 Token 追加",
+    )
+    await ledger.mark_sent(fence, target.attempt_id)
+    assert (await ledger.status(fence)).model_sent == 5
+
+
+@pytest.mark.asyncio
+async def test_historical_unknown_can_be_reconciled_by_current_fence_with_verified_receipt(
+    migrated_database: Database,
+) -> None:
+    session_factory = migrated_database.session_factory
+    _, _, old_fence = await _running_run(session_factory)
+    ledger = SqlAlchemyBudgetLedger(session_factory, clock=lambda: NOW)
+    request = _model_request(1)
+    attempt = await ledger.reserve(old_fence, request)
+    await ledger.mark_sent(old_fence, attempt.attempt_id)
+    await ledger.settle(
+        old_fence,
+        attempt.attempt_id,
+        AttemptResult(status=AttemptStatus.UNKNOWN, reason_code="provider_timeout"),
+    )
+
+    # 修订推进后，当前 owner 的新围栏可对账旧 unknown，但必须有可验证回执。
+    current_fence = await _new_segment(session_factory, old_fence, revision=2)
+    with pytest.raises(AgentRunError) as missing_receipt:
+        await ledger.settle(
+            current_fence,
+            attempt.attempt_id,
+            AttemptResult(status=AttemptStatus.FAILED, reason_code="receipt_missing"),
+        )
+    assert missing_receipt.value.code == "receipt_required"
+
+    await ledger.settle(
+        current_fence,
+        attempt.attempt_id,
+        AttemptResult(
+            status=AttemptStatus.SUCCEEDED,
+            result_ref=_result_ref(),
+            usage=TokenUsage(input_tokens=500, output_tokens=50),
+            provider_receipt="receipt-old-revision",
+            receipt_verified=True,
+        ),
+    )
+    status = await ledger.status(current_fence)
+    assert status.model_calls == 1
+    assert status.input_tokens == 500
+    assert status.output_tokens == 50
+
+    # 旧 revision 的 fence 仍然失效，不能重新取得执行权。
+    with pytest.raises(AgentRunError) as old_writer:
+        await ledger.status(old_fence)
+    assert old_writer.value.code == "lease_lost"
+
+
+@pytest.mark.asyncio
+async def test_historical_prepared_cannot_be_sent_after_revision_advance(
+    migrated_database: Database,
+) -> None:
+    session_factory = migrated_database.session_factory
+    _, _, old_fence = await _running_run(session_factory)
+    ledger = SqlAlchemyBudgetLedger(session_factory, clock=lambda: NOW)
+    attempt = await ledger.reserve(old_fence, _model_request(1))
+
+    current_fence = await _new_segment(session_factory, old_fence, revision=2)
+    # 新围栏只允许对账历史 unknown/in_flight 回执，不能发送旧 revision 的 prepared。
+    with pytest.raises(AgentRunError) as hidden:
+        await ledger.mark_sent(current_fence, attempt.attempt_id)
+    assert hidden.value.code == "attempt_not_found"
+    with pytest.raises(AgentRunError) as stale:
+        await ledger.mark_sent(old_fence, attempt.attempt_id)
+    assert stale.value.code == "lease_lost"
+
+
+@pytest.mark.asyncio
+async def test_pre_send_failure_releases_budget_without_faking_sent_at(
+    migrated_database: Database,
+) -> None:
+    session_factory = migrated_database.session_factory
+    _, _, fence = await _running_run(session_factory)
+    ledger = SqlAlchemyBudgetLedger(session_factory, clock=lambda: NOW)
+    request = _model_request(1)
+
+    first = await ledger.reserve(fence, request)
+    await ledger.settle(
+        fence,
+        first.attempt_id,
+        AttemptResult(status=AttemptStatus.FAILED, reason_code="cancelled_before_send"),
+    )
+
+    rows = await _attempt_rows(session_factory, fence.run_id)
+    assert len(rows) == 1
+    assert rows[0].status == AttemptStatus.FAILED.value
+    assert rows[0].sent_at is None
+    assert rows[0].settled_at is not None
+    async with session_factory() as session:
+        reservations = list(
+            (
+                await session.scalars(
+                    select(BudgetReservationRecord).where(
+                        BudgetReservationRecord.attempt_id == first.attempt_id
+                    )
+                )
+            ).all()
+        )
+    assert len(reservations) == 3
+    assert {row.state for row in reservations} == {"released"}
+    assert all(row.actual_amount is None for row in reservations)
+
+    # 发送前失败不消耗模型次数/Token，但仍占用该逻辑步骤的一次 attempt。
+    released = await ledger.status(fence)
+    assert released.model_calls == 0
+    assert released.model_sent == 0
+    assert released.input_tokens == 0
+    assert released.output_tokens == 0
+
+    second = await ledger.reserve(fence, request)
+    assert second.attempt_number == 2
+    assert second.status is AttemptStatus.PREPARED
+    await ledger.settle(
+        fence,
+        second.attempt_id,
+        AttemptResult(status=AttemptStatus.FAILED, reason_code="cancelled_before_send"),
+    )
+    with pytest.raises(AgentRunError) as third:
+        await ledger.reserve(fence, request)
+    assert third.value.code == "attempt_limit"
+
+
+@pytest.mark.asyncio
+async def test_sql_rejects_actual_on_unsettled_token_reservation_and_bad_insert(
+    migrated_database: Database,
+) -> None:
+    session_factory = migrated_database.session_factory
+    _, _, fence = await _running_run(session_factory)
+    ledger = SqlAlchemyBudgetLedger(session_factory, clock=lambda: NOW)
+    model_attempt = await ledger.reserve(fence, _model_request(1))
+    tool_attempt = await ledger.reserve(
+        fence,
+        _non_model_request(2, AttemptCategory.TOOL),
+    )
+
+    # prepared 的 Token 行在发送前只有预留；直接写 actual=0 不得静默释放。
+    async with session_factory() as session, session.begin():
+        with pytest.raises(DBAPIError):
+            await session.execute(
+                update(BudgetReservationRecord)
+                .where(
+                    BudgetReservationRecord.attempt_id == model_attempt.attempt_id,
+                    BudgetReservationRecord.meter.in_(("input_tokens", "output_tokens")),
+                )
+                .values(actual_amount=0)
+            )
+    unchanged = await ledger.status(fence)
+    assert unchanged.input_tokens == 1024
+    assert unchanged.output_tokens == 512
+
+    # INSERT 形状同样受约束：unknown 携带 actual、reserved 次数携带 actual 都应拒绝。
+    async with session_factory() as session, session.begin():
+        with pytest.raises(DBAPIError):
+            session.add(
+                BudgetReservationRecord(
+                    id=uuid4(),
+                    attempt_id=tool_attempt.attempt_id,
+                    workspace_id=WORKSPACE_ID,
+                    run_id=fence.run_id,
+                    segment_id=fence.segment_id,
+                    meter="input_tokens",
+                    reserved_amount=100,
+                    actual_amount=0,
+                    state="unknown",
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            await session.flush()
+    async with session_factory() as session, session.begin():
+        with pytest.raises(DBAPIError):
+            session.add(
+                BudgetReservationRecord(
+                    id=uuid4(),
+                    attempt_id=tool_attempt.attempt_id,
+                    workspace_id=WORKSPACE_ID,
+                    run_id=fence.run_id,
+                    segment_id=fence.segment_id,
+                    meter="tool_calls",
+                    reserved_amount=1,
+                    actual_amount=1,
+                    state="reserved",
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            await session.flush()

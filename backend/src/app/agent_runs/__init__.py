@@ -27,6 +27,7 @@ from app.agent_runs.budget import (
     validate_activity_start,
     validate_append_limits,
     validate_reservation_fits,
+    validate_send_fits,
 )
 from app.agent_runs.contracts import (
     RUNNABLE_CAPACITY,
@@ -98,4 +99,5 @@ __all__ = [
     "validate_activity_start",
     "validate_append_limits",
     "validate_reservation_fits",
+    "validate_send_fits",
 ]

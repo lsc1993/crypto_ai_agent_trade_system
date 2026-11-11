@@ -33,6 +33,7 @@ from app.agent_runs.budget import (
     initial_budget_limits,
     validate_activity_start,
     validate_append_limits,
+    validate_send_fits,
 )
 from app.agent_runs.contracts import AgentRunError
 
@@ -181,3 +182,25 @@ def test_budget_status_rejects_impossible_watermarks_and_negative_values() -> No
         _status(model_limit=1, model_calls=2)
     with pytest.raises(ValidationError):
         _limits(model_calls=0)
+
+
+def test_send_fits_rejects_over_limit_but_allows_exactly_at_limit() -> None:
+    # 发送前只检查当前累计是否已越限；prepared 自身预留已包含在累计中，不能再次相加。
+    at_limit = _status(
+        input_tokens=INITIAL_CUMULATIVE_INPUT_TOKENS,
+        output_tokens=INITIAL_CUMULATIVE_OUTPUT_TOKENS,
+    )
+    validate_send_fits(at_limit)
+
+    with pytest.raises(AgentRunError) as input_over:
+        validate_send_fits(_status(input_tokens=INITIAL_CUMULATIVE_INPUT_TOKENS + 1))
+    assert input_over.value.code == "budget_exhausted"
+
+    with pytest.raises(AgentRunError) as output_over:
+        validate_send_fits(_status(output_tokens=INITIAL_CUMULATIVE_OUTPUT_TOKENS + 1))
+    assert output_over.value.code == "budget_exhausted"
+
+    # 活动时间安全余量仍在发送前检查；Token 与活动时间任一越限都停止新发送。
+    with pytest.raises(AgentRunError) as time_over:
+        validate_send_fits(_status(active_seconds=585))
+    assert time_over.value.code == "budget_exhausted"

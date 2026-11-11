@@ -11,13 +11,12 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent_runs.attempts import (
     MAX_ATTEMPTS_PER_STEP,
-    SENT_ATTEMPT_STATUSES,
     AttemptCategory,
     AttemptRequest,
     AttemptResult,
@@ -31,9 +30,9 @@ from app.agent_runs.budget import (
     BudgetStatus,
     effective_budget_limits,
     initial_budget_limits,
-    validate_activity_start,
     validate_append_limits,
     validate_reservation_fits,
+    validate_send_fits,
 )
 from app.agent_runs.contracts import AgentRunError
 from app.agent_runs.segments import RunFence
@@ -48,6 +47,15 @@ from app.shared.agent_types import ArtifactRef, require_utc
 
 _COUNT_METERS = frozenset({"model_calls", "tool_calls", "transport_calls"})
 _MAX_ACTIVITY_RECORD_SECONDS = 86_400
+# 已发送状态用于 model_sent/tool_sent 统计；发送前 failed 由 sent_at IS NULL 排除。
+_SENT_STATUS_VALUES = frozenset(
+    {
+        AttemptStatus.IN_FLIGHT.value,
+        AttemptStatus.SUCCEEDED.value,
+        AttemptStatus.FAILED.value,
+        AttemptStatus.UNKNOWN.value,
+    }
+)
 
 
 # 围栏校验只需要不可变的任务身份；任务行仍由 T07 的心跳更新 owner/租约。
@@ -149,8 +157,9 @@ class SqlAlchemyBudgetLedger:
 
                 limits = await _load_effective_limits(session, run.id)
                 status = await _load_budget_status(session, run.id, limits)
-                # 次数/Token 已在预留时占用；发送前仍需确认活动时间安全余量。
-                validate_activity_start(status)
+                # 该 prepared 的次数/Token 已计入累计；发送前只拒绝已越限的运行，
+                # 不能再次加一份预留，否则会在首次预留时被重复计算。
+                validate_send_fits(status)
 
                 attempt.status = AttemptStatus.IN_FLIGHT.value
                 attempt.segment_id = fence.segment_id
@@ -184,10 +193,41 @@ class SqlAlchemyBudgetLedger:
         try:
             async with self._factory() as session, session.begin():
                 run = await _lock_fenced_run(session, fence)
-                attempt = await _load_attempt(session, run, fence, attempt_id)
+                # 对账允许当前 owner 读取同 run 的历史已发送尝试；发送权限仍只限当前修订。
+                attempt = await _load_attempt(
+                    session,
+                    run,
+                    fence,
+                    attempt_id,
+                    allow_historical=True,
+                )
                 step = await session.get(AgentStepRecord, attempt.step_id)
                 if step is None or step.status != attempt.status:
                     raise AgentRunError("integrity_violation")
+
+                if attempt.status == AttemptStatus.PREPARED.value:
+                    # 发送前失败：不伪造 sent_at，释放未发送的 meter 预留。
+                    await _settle_pre_send_failure(
+                        session,
+                        run=run,
+                        attempt=attempt,
+                        step=step,
+                        result=result,
+                        now=now,
+                    )
+                    await session.flush()
+                    return
+
+                # 历史修订只允许依据可验证回执做终态对账，不能重开旧 prepared 或自行标记 unknown。
+                if attempt.revision != run.revision:
+                    if AttemptStatus(attempt.status) not in {
+                        AttemptStatus.IN_FLIGHT,
+                        AttemptStatus.UNKNOWN,
+                    }:
+                        raise AgentRunError("invalid_attempt_transition")
+                    if not (result.receipt_verified and result.provider_receipt is not None):
+                        raise AgentRunError("receipt_required")
+
                 _validate_settlement_authority(fence, attempt, result)
                 if attempt.category != AttemptCategory.MODEL.value and result.usage is not None:
                     raise AgentRunError("invalid_attempt_transition")
@@ -434,13 +474,18 @@ async def _load_budget_status(
                     )
                 ),
             )
-            .where(BudgetReservationRecord.run_id == run_id)
+            .where(
+                BudgetReservationRecord.run_id == run_id,
+                # 发送前失败会释放预留；released 行保留审计但不能继续占额。
+                BudgetReservationRecord.state != "released",
+            )
             .group_by(BudgetReservationRecord.meter)
         )
     ).all()
     meter_totals: dict[str, int] = {str(meter): int(total or 0) for meter, total in meter_rows}
 
-    sent_values = tuple(status.value for status in SENT_ATTEMPT_STATUSES)
+    # 发送前 failed（sent_at IS NULL）已释放预留，也不计为已发送；
+    # 发送后 failed 仍保留 sent_at，按真实发送计入累计次数。
     attempt_rows = (
         await session.execute(
             select(
@@ -448,7 +493,13 @@ async def _load_budget_status(
                 AgentAttemptRecord.status,
                 func.count(),
             )
-            .where(AgentAttemptRecord.run_id == run_id)
+            .where(
+                AgentAttemptRecord.run_id == run_id,
+                or_(
+                    AgentAttemptRecord.status != AttemptStatus.FAILED.value,
+                    AgentAttemptRecord.sent_at.is_not(None),
+                ),
+            )
             .group_by(AgentAttemptRecord.category, AgentAttemptRecord.status)
         )
     ).all()
@@ -465,17 +516,17 @@ async def _load_budget_status(
         return sum(
             count
             for (item_category, status), count in counts.items()
-            if item_category == category and status in sent_values
+            if item_category == category and status in _SENT_STATUS_VALUES
         )
 
-    model_calls = calls("model")
-    tool_calls = calls("tool")
-    transport_calls = calls("transport")
-    # meter 行与尝试行必须一一对应；不一致说明事务/触发器被绕过，按不变量破坏拒绝。
+    model_calls = meter_totals.get("model_calls", 0)
+    tool_calls = meter_totals.get("tool_calls", 0)
+    transport_calls = meter_totals.get("transport_calls", 0)
+    # meter 行与未释放的尝试行必须一一对应；不一致说明事务/触发器被绕过，按不变量破坏拒绝。
     if (
-        meter_totals.get("model_calls", 0) != model_calls
-        or meter_totals.get("tool_calls", 0) != tool_calls
-        or meter_totals.get("transport_calls", 0) != transport_calls
+        model_calls != calls("model")
+        or tool_calls != calls("tool")
+        or transport_calls != calls("transport")
     ):
         raise AgentRunError("integrity_violation")
 
@@ -574,12 +625,14 @@ async def _reuse_or_retry_attempt(
     return await _load_step_attempt(session, step, attempt)
 
 
-# 读取属于当前 run/workspace 的尝试，并核对当前修订；不泄露其他工作台的尝试。
+# 读取属于当前 run/workspace 的尝试；普通发送只允许当前修订，结算对账可读取历史已发送尝试。
 async def _load_attempt(
     session: AsyncSession,
     run: _FencedRun,
     fence: RunFence,
     attempt_id: UUID,
+    *,
+    allow_historical: bool = False,
 ) -> AgentAttemptRecord:
     attempt = await session.scalar(
         select(AgentAttemptRecord).where(
@@ -588,9 +641,48 @@ async def _load_attempt(
             AgentAttemptRecord.workspace_id == fence.workspace_id,
         )
     )
-    if attempt is None or attempt.revision != run.revision:
+    if attempt is None:
+        raise AgentRunError("attempt_not_found")
+    if not allow_historical and attempt.revision != run.revision:
         raise AgentRunError("attempt_not_found")
     return attempt
+
+
+# 发送前失败：当前修订的 prepared 尝试终止为 failed；次数/Token 预留全部释放，
+# 不写 sent_at、不保存供应商 usage/回执，也不能用伪造发送绕过生命周期约束。
+async def _settle_pre_send_failure(
+    session: AsyncSession,
+    *,
+    run: _FencedRun,
+    attempt: AgentAttemptRecord,
+    step: AgentStepRecord,
+    result: AttemptResult,
+    now: datetime,
+) -> None:
+    if attempt.revision != run.revision:
+        raise AgentRunError("invalid_attempt_transition")
+    if (
+        result.status is not AttemptStatus.FAILED
+        or result.usage is not None
+        or result.provider_receipt is not None
+        or result.receipt_verified
+    ):
+        raise AgentRunError("invalid_attempt_transition")
+
+    attempt.status = AttemptStatus.FAILED.value
+    attempt.provider_receipt = None
+    attempt.reason_code = result.reason_code
+    attempt.settled_at = now
+    attempt.updated_at = now
+    # 明确保持未发送；失败不等于曾经发送，不能补 sent_at。
+    attempt.sent_at = None
+    step.status = AttemptStatus.FAILED.value
+    step.result_ref = None
+    step.updated_at = now
+    for reservation in await _load_attempt_reservations(session, attempt.id):
+        reservation.state = "released"
+        reservation.actual_amount = None
+        reservation.updated_at = now
 
 
 # 结算权限：发送者可提交已知结果；失联恢复可标记 unknown；其他写者必须提供可验证回执。

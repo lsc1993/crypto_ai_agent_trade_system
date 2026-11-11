@@ -3,6 +3,7 @@
 # 所有标识、指纹和用量均为合成值，不包含真实模型、账户或交易资料。
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ from app.agent_runs.attempts import (
     AttemptRequest,
     AttemptResult,
     AttemptStatus,
+    StepAttempt,
     TokenUsage,
     attempt_transition_allowed,
     logical_step_id,
@@ -184,3 +186,52 @@ def test_attempt_result_requires_validated_result_reason_and_unknown_usage_seman
     )
     assert reconciled.receipt_verified is True
     assert reconciled.provider_receipt == "receipt-123"
+
+
+def test_pre_send_failure_snapshot_allows_no_sent_at_and_no_usage() -> None:
+    # prepared→failed 是发送前失败：不得伪造 sent_at，也不得携带供应商用量。
+    attempt = StepAttempt(
+        attempt_id=uuid4(),
+        step_id=uuid4(),
+        run_id=uuid4(),
+        revision=1,
+        segment_id=uuid4(),
+        attempt_number=1,
+        category=AttemptCategory.MODEL,
+        action_sequence=1,
+        input_sha256="a" * 64,
+        status=AttemptStatus.FAILED,
+        reserved_input_tokens=1024,
+        reserved_output_tokens=512,
+        result_ref=None,
+        usage=None,
+        provider_receipt=None,
+        reason_code="cancelled_before_send",
+        created_at=datetime(2026, 11, 11, 12, tzinfo=UTC),
+        sent_at=None,
+        settled_at=datetime(2026, 11, 11, 12, 1, tzinfo=UTC),
+    )
+    assert attempt.sent_at is None
+    assert attempt.settled_at is not None
+
+    # 发送前失败不能夹带供应商 usage 伪装成已发送/已计费调用。
+    with pytest.raises(ValidationError):
+        StepAttempt(
+            attempt_id=uuid4(),
+            step_id=uuid4(),
+            run_id=uuid4(),
+            revision=1,
+            segment_id=uuid4(),
+            attempt_number=1,
+            category=AttemptCategory.MODEL,
+            action_sequence=1,
+            input_sha256="a" * 64,
+            status=AttemptStatus.FAILED,
+            reserved_input_tokens=1024,
+            reserved_output_tokens=512,
+            usage=TokenUsage(input_tokens=10, output_tokens=1),
+            reason_code="cancelled_before_send",
+            created_at=datetime(2026, 11, 11, 12, tzinfo=UTC),
+            sent_at=None,
+            settled_at=datetime(2026, 11, 11, 12, 1, tzinfo=UTC),
+        )

@@ -197,6 +197,16 @@ def validate_activity_start(status: BudgetStatus) -> None:
         )
 
 
+# 发送前准入：prepared 的次数/Token 已计入当前累计，因此不再相加，只拒绝已越限的运行。
+# 允许恰好等于上限（该次预留本来就属于上限内）；任一 Token 或活动时间越限即停止新发送。
+def validate_send_fits(status: BudgetStatus) -> None:
+    if status.input_tokens > status.input_token_limit:
+        raise AgentRunError("budget_exhausted", "累计输入 Token 已超过有效上限")
+    if status.output_tokens > status.output_token_limit:
+        raise AgentRunError("budget_exhausted", "累计输出 Token 已超过有效上限")
+    validate_activity_start(status)
+
+
 # 预留准入：分类次数、累计 Token 与活动时间必须同时满足；返回 None，超限抛稳定错误。
 def validate_reservation_fits(status: BudgetStatus, request: AttemptRequest) -> None:
     if request.category is AttemptCategory.MODEL:
@@ -242,4 +252,5 @@ __all__ = [
     "validate_activity_start",
     "validate_append_limits",
     "validate_reservation_fits",
+    "validate_send_fits",
 ]
