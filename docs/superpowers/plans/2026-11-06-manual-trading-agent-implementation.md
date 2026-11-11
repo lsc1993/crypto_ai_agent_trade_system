@@ -16,7 +16,7 @@
 
 ## Global Constraints
 
-- 版本 1.1；2026-11-06；状态为实施计划审阅稿。执行状态（2026-11-11）：T00 已复审通过并合并；T01 已实现并通过后端 full，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现关键词知识检索、不可变版本与 `0020_research_knowledge` 迁移，首轮独立审查判定 P1（已发布版本可追加分块）和 P2（锁等待前采样发布时间）不通过，修复提交 `8835a1d` 后聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地规划资料、单池代次、成本/保证金证据、公开规则适配与 `0021_planning_inputs` 迁移；首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过后，提交 `4f0e7ae` 增加冷却状态显式三态、规则刷新带锁重放、来源抓取时间和网关异常转换，提交 `023e5a2` 增加版本感知历史快照指纹/序列化，提交 `8d75a7a` 增加历史 Draft 读取、双格式请求指纹和首次写入严格校验；修复后纯契约/规则 23、SQL 16、阶段回归 183、后端 full 1128 passed，自测 `verified`，经原审查助手复审通过（`reviewed_tip=8d75a7a`）并合并到 `main`；T04 已实现 C4 持久任务、不可变修订、请求幂等、安全事件、owner/lease 字段与 `0022_agent_tasks` 迁移；首轮审查 P2（JSONB 数值规范化导致请求指纹漂移）不通过后，修复 tip `0df86fe` 改为基于 PostgreSQL JSONB 规范文本计算指纹并保留旧稳定行兼容，聚焦 21、后端 full 1149 passed；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），代码/复审文档以 fast-forward 合并到 `main`（合并 tip `35617bf`），当前为 `verified`/`approved`；T05 已实现 C5 步骤/尝试账本、预算初始档与部署硬上限、AP-05 追加授权、活动时间安全余量和 `0023_agent_attempts` 迁移，未启动消费者、未接入模型/工具发送；聚焦 33、阶段回归 177、后端 full 1175 passed、Ruff/格式/Pyright/架构门禁全绿，迁移 head 为 `0023_agent_attempts`，自测 `verified`，当前 `awaiting_review`（implementation tip `249a8ad`，审查请求 `docs/superpowers/reviews/manual-agent/T05-review-request.md`），尚未取得原审查助手正式结论；其余复选框未执行。本文不授权部署、业务库迁移、真实模型付费调用或系统交易。
+- 版本 1.1；2026-11-06；状态为实施计划审阅稿。执行状态（2026-11-11）：T00 已复审通过并合并；T01 已实现并通过后端 full，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现关键词知识检索、不可变版本与 `0020_research_knowledge` 迁移，首轮独立审查判定 P1（已发布版本可追加分块）和 P2（锁等待前采样发布时间）不通过，修复提交 `8835a1d` 后聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地规划资料、单池代次、成本/保证金证据、公开规则适配与 `0021_planning_inputs` 迁移；首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过后，提交 `4f0e7ae` 增加冷却状态显式三态、规则刷新带锁重放、来源抓取时间和网关异常转换，提交 `023e5a2` 增加版本感知历史快照指纹/序列化，提交 `8d75a7a` 增加历史 Draft 读取、双格式请求指纹和首次写入严格校验；修复后纯契约/规则 23、SQL 16、阶段回归 183、后端 full 1128 passed，自测 `verified`，经原审查助手复审通过（`reviewed_tip=8d75a7a`）并合并到 `main`；T04 已实现 C4 持久任务、不可变修订、请求幂等、安全事件、owner/lease 字段与 `0022_agent_tasks` 迁移；首轮审查 P2（JSONB 数值规范化导致请求指纹漂移）不通过后，修复 tip `0df86fe` 改为基于 PostgreSQL JSONB 规范文本计算指纹并保留旧稳定行兼容，聚焦 21、后端 full 1149 passed；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），代码/复审文档以 fast-forward 合并到 `main`（合并 tip `35617bf`），当前为 `verified`/`approved`；T05 已实现 C5 步骤/尝试账本、预算初始档与部署硬上限、AP-05 追加授权、活动时间安全余量和 `0023_agent_attempts` 迁移；正式审查判定 F1–F4 共 4 项 P2 不通过后，修复 tip `bd2a59d` 增加发送前预算检查、跨修订可验证回执对账、发送前 failed 释放语义和 `0024_agent_attempt_hardening` meter/state 形状约束，聚焦 40、阶段回归 184、后端 full 1182 passed、Ruff/格式/Pyright/架构门禁全绿，迁移 head 为 `0024_agent_attempt_hardening`，自测 `verified`，当前 `awaiting_review`（首轮 tip `249a8ad`，审查请求 `docs/superpowers/reviews/manual-agent/T05-review-request.md`），尚未取得原审查助手正式结论；其余复选框未执行。本文不授权部署、业务库迁移、真实模型付费调用或系统交易。
 - 本期用户审核后自行操作交易所；不保存交易凭证、不访问私有账户、不创建/签名/发送/撤改真实订单、不调用模拟订单服务，不生成 TradeIntent。
 - 手动规划是核心交付；MACD、三重过滤及用户未来具体组合算法本期不实现；至少已有规则适配闭环，测试组合不冒充生产策略。
 - 现有固定综合/技术研究与报告保留；历史报告、策略/知识版本、证据及审计不可覆盖；新 AGENTS 规则随对应实现落地，本文不覆盖当前规范。
@@ -177,7 +177,7 @@
 
 ### T05：步骤账本、预算与未知调用（D2）
 
-**Files:** Create `backend/src/app/agent_runs/attempts.py`、`budget.py`、`segments.py`（先定义 C4 的纯类型）；`backend/src/app/infrastructure/persistence/models/agent_attempts.py`、`agent_attempt_repository.py`；`backend/alembic/versions/0023_agent_attempts.py`；Test `backend/tests/agent_runs/test_budget.py`、`test_attempts.py`、`backend/tests/persistence/test_agent_attempts.py`；Modify models 注册及 `agent_runs/ports.py`。
+**Files:** Create `backend/src/app/agent_runs/attempts.py`、`budget.py`、`segments.py`（先定义 C4 的纯类型）；`backend/src/app/infrastructure/persistence/models/agent_attempts.py`、`agent_attempt_repository.py`；`backend/alembic/versions/0023_agent_attempts.py`、`0024_agent_attempt_hardening.py`（复审修复：发送前失败 released 与 meter/state 形状约束）；Test `backend/tests/agent_runs/test_budget.py`、`test_attempts.py`、`backend/tests/persistence/test_agent_attempts.py`；Modify models 注册及 `agent_runs/ports.py`。
 
 **Interfaces:** 消费 RunFence（在 segments.py 先定义 C4 纯类型，T07 实现租约）；产出 C5 BudgetLedger.reserve/mark_sent/settle，prepared/in_flight/succeeded/failed/unknown 的受限状态迁移。调用方不能先发送后生成步骤标识。
 
@@ -196,7 +196,7 @@
 
 ### T06：人工审核、连续消息与取消一致性（D2）
 
-**Files:** Create `backend/src/app/agent_runs/interactions.py`、`messages.py`、`decisions.py`；`backend/src/app/infrastructure/persistence/models/agent_interactions.py`、`agent_interaction_repository.py`；`backend/alembic/versions/0024_agent_interactions.py`；Test `backend/tests/agent_runs/test_interactions.py`、`test_messages.py`、`backend/tests/persistence/test_agent_interactions.py`；Modify `agent_runs/contracts.py`、`ports.py` 及 models 注册。
+**Files:** Create `backend/src/app/agent_runs/interactions.py`、`messages.py`、`decisions.py`；`backend/src/app/infrastructure/persistence/models/agent_interactions.py`、`agent_interaction_repository.py`；`backend/alembic/versions/0025_agent_interactions.py`；Test `backend/tests/agent_runs/test_interactions.py`、`test_messages.py`、`backend/tests/persistence/test_agent_interactions.py`；Modify `agent_runs/contracts.py`、`ports.py` 及 models 注册。
 
 **Interfaces:** C5 InteractionService.respond、MessageService.record；`DecisionPolicy.classify(proposal: ControlProposal, context: ExecutionContext) -> GuardDecision`（纯函数，ControlProposal 在 decisions.py 定义，包含动作类别、差异、材料引用与安全原因）。`AgentRunService.cancel(workspace_id, run_id, *, request_id, expected_version) -> RunSnapshot` 为 async。
 
@@ -215,7 +215,7 @@
 
 ### T07：带租约的执行片段、统一审计提交与 worker（D2）
 
-**Files:** Create/complete `backend/src/app/agent_runs/segments.py`；Create `backend/src/app/agent/interactive/ports.py`、`worker.py`；`backend/src/app/governance/interactive_planning.py`；`backend/src/app/infrastructure/persistence/models/agent_segments.py`、`agent_segment_repository.py`、`agent_commit_coordinator.py`；`backend/alembic/versions/0025_agent_segments.py`；Test `backend/tests/agent_runs/test_worker.py`、`backend/tests/governance/test_interactive_planning.py`、`backend/tests/persistence/test_agent_segments.py`、`test_agent_segment_recovery.py`。Modify governance contracts/policy、persistence models/harness.py 及注册。
+**Files:** Create/complete `backend/src/app/agent_runs/segments.py`；Create `backend/src/app/agent/interactive/ports.py`、`worker.py`；`backend/src/app/governance/interactive_planning.py`；`backend/src/app/infrastructure/persistence/models/agent_segments.py`、`agent_segment_repository.py`、`agent_commit_coordinator.py`；`backend/alembic/versions/0026_agent_segments.py`；Test `backend/tests/agent_runs/test_worker.py`、`backend/tests/governance/test_interactive_planning.py`、`backend/tests/persistence/test_agent_segments.py`、`test_agent_segment_recovery.py`。Modify governance contracts/policy、persistence models/harness.py 及注册。
 
 **Interfaces:** 实现 C4 claim/heartbeat/recover_expired 与 SegmentRepository.commit；`InteractiveAgentWorker.run_once() -> bool`、`run_forever(stop: asyncio.Event) -> None` 为 async。消费 SegmentRunner 协议，此任务用确定性替身验证边界，尚不装配生产长循环。
 
@@ -329,7 +329,7 @@
 
 ### T13：规划服务、可实施状态、跨计划占用与手工反馈（D4-P）
 
-**Files:** Create `backend/src/app/trade_planning/service.py`、`readiness.py`、`commitments.py`、`feedback.py`、`ports.py`；`backend/src/app/infrastructure/persistence/models/manual_plans.py`、`manual_plan_repository.py`；`backend/alembic/versions/0026_manual_plans.py`；Test `backend/tests/trade_planning/test_readiness.py`、`test_feedback.py`、`backend/tests/persistence/test_manual_plan_commitments.py`、`test_manual_plan_revalidation.py`。Modify `agent_commit_coordinator.py`、model 注册。
+**Files:** Create `backend/src/app/trade_planning/service.py`、`readiness.py`、`commitments.py`、`feedback.py`、`ports.py`；`backend/src/app/infrastructure/persistence/models/manual_plans.py`、`manual_plan_repository.py`；`backend/alembic/versions/0027_manual_plans.py`；Test `backend/tests/trade_planning/test_readiness.py`、`test_feedback.py`、`backend/tests/persistence/test_manual_plan_commitments.py`、`test_manual_plan_revalidation.py`。Modify `agent_commit_coordinator.py`、model 注册。
 
 **Interfaces:** C7 ManualPlanningService.build/revalidate、FeedbackService.record；`derive_readiness(plan, checks, *, now, pool_generation, adoption, commitment) -> PlanReadiness` 在 readiness.py，输入分别为 C7 类型，now 是 UTC datetime。`CommitmentResolution` 在 commitments.py 定义，只有未实施/无挂单声明或承接完整新资料两类，不是交易所撤单指令。
 
@@ -451,7 +451,7 @@
   assert disabled.new_worker_count == 0
   assert old_report_after_migration == old_report_before_migration
   assert shutdown.leaked_tasks == 0
-  assert migrated_heads == ("0026_manual_plans",)
+  assert migrated_heads == ("0027_manual_plans",)
   ```
   若执行时编号已重排，断言采用唯一真实新 head，并同步 C9；测试迁移不应用业务库。
 - [ ] **Step 2：运行 `uv run --locked --no-sync pytest tests/tooling/test_interactive_startup.py tests/persistence/test_migrations.py -q`；未接齐装配时应红。**
