@@ -4,8 +4,8 @@
 - 执行模型：`deepseek-flash`（运行环境标识）；具体供应商构建、参数版本与上下文版本未在仓库内可确认，记为**未知**。执行载体为 DeepSeek Harness。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0（日期均为 2026-11-06）。
 - 自测状态：`verified`（首轮实现、正式审查 F1–F4 修复、复审 R1 修复、聚焦、SQL、阶段、静态、迁移链和最终后端 full 已完成）。
-- 正式审查状态：`awaiting_review`。首轮正式审查判定 4 项 P2 不通过（见 `T05-formal-review.md`）；复审又发现 R1（次数 settled 的 NULL 三值逻辑放行，见 `T05-rereview-bd2a59d.md`）。本文件记录修复材料，**尚未取得原审查助手对修复版本的结论，不表示审查通过。**
-- 审查请求生成：2026-11-11（Asia/Shanghai）；复审修复更新：2026-11-11；R1 修复更新：2026-11-11。
+- 正式审查状态：`approved`。用户于 2026-11-11 传回原审查助手对 `reviewed_tip=f9454adab111218eaa8bc5880b37987031c11bb7` 的正式通过结论（复审报告 `T05-rereview-f9454ad.md`）；通过结论仅针对该 tip 的 T05 模块代码，不代表后续模块或业务库迁移已验收。
+- 审查请求生成：2026-11-11（Asia/Shanghai）；复审修复更新：2026-11-11；R1 修复更新：2026-11-11；正式通过记录：2026-11-11。
 - 本审查请求文件本身在 implementation tip 之后作为独立 docs 提交；不把该文档提交号写入 implementation tip，避免循环引用。
 
 ## 1. 工作区、分支与审查范围
@@ -14,16 +14,17 @@
 | --- | --- |
 | 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`，T05 开始时干净，tip `4d1af68`） |
 | 隔离工作区 | `D:\t05`（短路径；为规避 Windows 260 字符路径上限，从 `.worktrees\manual-agent-t05-20261111` 移动，分支/内容/提交不变） |
-| 分支 | `t05-agent-attempts-budget`（未合并、未推送） |
+| 分支 | `t05-agent-attempts-budget`（本次批准文档提交后 fast-forward 到 `main`） |
 | base | `4d1af68fc704f50b21b9f9b0619b446f315f66d6`（`main`，T04 复审/合并文档之后） |
 | implementation tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（`fix: reject settled call counts without actual amount`，R1 修复 tip） |
 | 首轮 implementation tip | `249a8adc3769c9576015c7ff4a4edaa3e1798a6b`（`feat: account for agent attempts and cumulative budgets`） |
 | 上轮修复 tip | `bd2a59df2e323248046db33ac929cd5d5d8c1063`（`fix: harden agent attempts and budget settlement`） |
 | implementation tree | `a6fc8607c41add1477bda3799852685e9ce89b01`（R1 修复 tip） |
 | 代码审查范围 | 累计 `4d1af68..f9454ad`，16 个文件，+4407 / -6；R1 修复 `bd2a59d..f9454ad`，3 个文件，+189 / -13；上轮修复 `249a8ad..bd2a59d`，9 个文件，+567 / -22 |
-| 文档提交 | 首轮材料 `9c4c105`；上轮材料 `bd800e8`；R1 材料为本次独立 docs 提交；代码审查以 `f9454ad` 为准 |
-| reviewed_tip | `—`（尚未取得修复版本正式结论） |
-| 合并 | 未合并到 `main`，未推送、未部署、未迁移业务库 |
+| 文档提交 | 首轮材料 `9c4c105`；上轮材料 `bd800e8`；R1 材料 `3cf1185`；批准材料为本次独立 docs 提交；代码审查以 `f9454ad` 为准 |
+| reviewed_tip | `f9454adab111218eaa8bc5880b37987031c11bb7`（用户传回原审查助手正式通过） |
+| 复审报告 | `docs/superpowers/reviews/manual-agent/T05-rereview-f9454ad.md` |
+| 合并 | 本次批准文档提交后以 fast-forward 合并到 `main`；合并记录另见主分支 docs 提交 |
 
 实现提交只包含本任务的代码/测试/迁移文件；`main` 工作区保持干净。未修改 `.env`、凭证、真实账户或业务库；未夹带其他任务未提交内容。首轮正式审查的 F1–F4 与复审 R1 已逐项复现和修复，详细记录见第 9 节。
 
@@ -269,7 +270,7 @@
 ## 10. 状态与转交
 
 - 自测状态：`verified`（上述 F1–F4/R1 复现、聚焦、阶段、full、静态、架构、迁移链均实际执行）。
-- 正式审查状态：`awaiting_review`，`reviewed_tip=—`；尚未取得原审查助手对修复版本的正式通过结论。
-- 本轮停在修复复审门槛；未开始 T06/T07，未合并、未推送、未部署、未迁移业务库。
-- 审查材料：本文件、首轮正式报告 `T05-formal-review.md`、复审报告 `T05-rereview-bd2a59d.md`、implementation tip `f9454adab111218eaa8bc5880b37987031c11bb7`、首轮 tip `249a8ad`、上轮 tip `bd2a59d`、基线与上文文件指纹/证据路径。
-- 收到复审意见后，开发端先核对或复现，再逐条修复并补回归；有异议以代码和测试说明。修复后记录新 tip、变更范围和验证结果，再次提交审查。只有用户传回原审查助手对当前版本的正式通过结论，且本轮必需验证完成，才放行下一审查单元。
+- 正式审查状态：`approved`，`reviewed_tip=f9454adab111218eaa8bc5880b37987031c11bb7`；用户于 2026-11-11 传回原审查助手正式通过结论（`T05-rereview-f9454ad.md`）。
+- T05 代码/批准文档将以 fast-forward 合并到 `main`；未部署、未迁移业务库。
+- 审查材料：本文件、首轮正式报告 `T05-formal-review.md`、复审报告 `T05-rereview-bd2a59d.md`、最终复审 `T05-rereview-f9454ad.md`、implementation tip `f9454adab111218eaa8bc5880b37987031c11bb7`、首轮 tip `249a8ad`、上轮 tip `bd2a59d`、基线与上文文件指纹/证据路径。
+- 通过结论仅针对 T05 当前 reviewed_tip；T06/T07 及真实模型/工具/MCP、回执真实性、产物持久化、HTTP/前端、业务库迁移仍未完成。
