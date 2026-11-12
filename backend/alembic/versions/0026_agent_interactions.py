@@ -278,6 +278,57 @@ def upgrade() -> None:
             IF NEW.state_version <> OLD.state_version + 1 THEN
                 RAISE EXCEPTION 'agent interaction state version must advance by one';
             END IF;
+
+            -- 已写入的阶段时间不可改写或清空；否则可在合法迁移中擦除发布/响应历史。
+            IF OLD.published_at IS NOT NULL
+               AND NEW.published_at IS DISTINCT FROM OLD.published_at THEN
+                RAISE EXCEPTION 'agent interaction stage time is immutable';
+            END IF;
+            IF OLD.responded_at IS NOT NULL
+               AND NEW.responded_at IS DISTINCT FROM OLD.responded_at THEN
+                RAISE EXCEPTION 'agent interaction stage time is immutable';
+            END IF;
+            IF OLD.applied_at IS NOT NULL
+               AND NEW.applied_at IS DISTINCT FROM OLD.applied_at THEN
+                RAISE EXCEPTION 'agent interaction stage time is immutable';
+            END IF;
+            IF OLD.expired_at IS NOT NULL
+               AND NEW.expired_at IS DISTINCT FROM OLD.expired_at THEN
+                RAISE EXCEPTION 'agent interaction stage time is immutable';
+            END IF;
+
+            -- 每个合法迁移只允许首次写入对应阶段时间，不能提前写未来阶段，
+            -- 也不能在过期时凭空补出未发生的发布/响应事实。
+            IF OLD.status = 'preparing' AND NEW.status = 'pending' THEN
+                IF NEW.published_at IS NULL
+                   OR NEW.responded_at IS NOT NULL
+                   OR NEW.applied_at IS NOT NULL
+                   OR NEW.expired_at IS NOT NULL THEN
+                    RAISE EXCEPTION 'agent interaction stage time does not match transition';
+                END IF;
+            ELSIF OLD.status = 'pending' AND NEW.status = 'answered' THEN
+                IF NEW.published_at IS DISTINCT FROM OLD.published_at
+                   OR NEW.published_at IS NULL
+                   OR NEW.responded_at IS NULL
+                   OR NEW.applied_at IS NOT NULL
+                   OR NEW.expired_at IS NOT NULL THEN
+                    RAISE EXCEPTION 'agent interaction stage time does not match transition';
+                END IF;
+            ELSIF OLD.status = 'answered' AND NEW.status = 'applied' THEN
+                IF NEW.published_at IS DISTINCT FROM OLD.published_at
+                   OR NEW.responded_at IS DISTINCT FROM OLD.responded_at
+                   OR NEW.applied_at IS NULL
+                   OR NEW.expired_at IS NOT NULL THEN
+                    RAISE EXCEPTION 'agent interaction stage time does not match transition';
+                END IF;
+            ELSIF NEW.status = 'expired' THEN
+                IF NEW.published_at IS DISTINCT FROM OLD.published_at
+                   OR NEW.responded_at IS DISTINCT FROM OLD.responded_at
+                   OR NEW.applied_at IS DISTINCT FROM OLD.applied_at
+                   OR NEW.expired_at IS NULL THEN
+                    RAISE EXCEPTION 'agent interaction stage time does not match transition';
+                END IF;
+            END IF;
             RETURN NEW;
         END;
         $$;

@@ -204,6 +204,9 @@ class HumanInteraction(AgentModel):
             expected = (self.published_at, self.responded_at, None, self.expired_at)
             if self.expired_at is None:
                 raise ValueError("过期待办必须已有过期时间")
+            # 过期可能发生在 preparing/pending/answered；但已响应的事实不能没有发布时间。
+            if self.responded_at is not None and self.published_at is None:
+                raise ValueError("已响应待办不能缺少发布时间")
         if (self.published_at, self.responded_at, self.applied_at, self.expired_at) != expected:
             raise ValueError("待办状态与发布/响应/应用/过期时间不一致")
         return self

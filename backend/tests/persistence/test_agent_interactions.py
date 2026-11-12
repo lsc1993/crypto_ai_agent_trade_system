@@ -785,23 +785,196 @@ async def test_interaction_trigger_rejects_skipped_state_and_material_rewrite(
         run_id=run_id,
     )
 
-    # 不能从 pending 直接跳到 applied；必须先记录响应再应用。
-    with pytest.raises(DBAPIError):
+    # 不能从 pending 直接跳到 applied；补齐 responded_at/applied_at 使形状 CHECK
+    # 本可通过，确保拒绝来自状态迁移触发器，而不是被其他约束提前掩盖。
+    with pytest.raises(DBAPIError) as skipped:
         async with migrated_database.session_factory() as session, session.begin():
             await session.execute(
                 update(AgentInteractionRecord)
                 .where(AgentInteractionRecord.id == interaction_id)
-                .values(status=InteractionStatus.APPLIED.value, state_version=1)
+                .values(
+                    status=InteractionStatus.APPLIED.value,
+                    state_version=1,
+                    responded_at=datetime.now(UTC),
+                    applied_at=datetime.now(UTC),
+                )
             )
+    assert "invalid agent interaction transition" in str(skipped.value.orig)
 
-    # 审核材料、差异和有效期在待办创建后不可改写。
-    with pytest.raises(DBAPIError):
+    # 审核材料、差异和有效期在待办创建后不可改写；断言具体触发器原因。
+    with pytest.raises(DBAPIError) as material:
         async with migrated_database.session_factory() as session, session.begin():
             await session.execute(
                 update(AgentInteractionRecord)
                 .where(AgentInteractionRecord.id == interaction_id)
                 .values(material_hash="9" * 64)
             )
+    assert "agent interaction material is immutable" in str(material.value.orig)
+
+
+@pytest.mark.asyncio
+async def test_interaction_stage_times_cannot_be_rewritten_or_erased(
+    migrated_database: Database,
+) -> None:
+    # answered -> expired 不能借过期擦除已记录的发布/响应时间。
+    run_id, _ = await _running_run(migrated_database.session_factory)
+    interaction_id = await _pending_interaction(
+        migrated_database.session_factory,
+        run_id=run_id,
+    )
+    repository = _repository(migrated_database.session_factory)
+    await repository.respond(
+        WORKSPACE_ID,
+        run_id,
+        _response(interaction_id),
+    )
+    with pytest.raises(DBAPIError) as erased:
+        async with migrated_database.session_factory() as session, session.begin():
+            await session.execute(
+                update(AgentInteractionRecord)
+                .where(AgentInteractionRecord.id == interaction_id)
+                .values(
+                    status=InteractionStatus.EXPIRED.value,
+                    state_version=2,
+                    expired_at=datetime.now(UTC),
+                    published_at=None,
+                    responded_at=None,
+                )
+            )
+    assert "agent interaction stage time is immutable" in str(erased.value.orig)
+
+    # pending -> answered 不能改写已发布的 published_at。
+    run_id2, _ = await _running_run(migrated_database.session_factory)
+    interaction_id2 = await _pending_interaction(
+        migrated_database.session_factory,
+        run_id=run_id2,
+    )
+    async with migrated_database.session_factory() as session:
+        row = await session.get(AgentInteractionRecord, interaction_id2)
+        assert row is not None and row.published_at is not None
+        original_published = row.published_at
+    with pytest.raises(DBAPIError) as rewritten:
+        async with migrated_database.session_factory() as session, session.begin():
+            await session.execute(
+                update(AgentInteractionRecord)
+                .where(AgentInteractionRecord.id == interaction_id2)
+                .values(
+                    status=InteractionStatus.ANSWERED.value,
+                    state_version=1,
+                    responded_at=datetime.now(UTC),
+                    published_at=original_published + timedelta(seconds=1),
+                )
+            )
+    assert "agent interaction stage time is immutable" in str(rewritten.value.orig)
+
+    # 失败事务回滚后，原待办仍是 answered，发布/响应历史未被擦除。
+    async with migrated_database.session_factory() as session:
+        row = await session.get(AgentInteractionRecord, interaction_id)
+        assert row is not None
+        assert row.status == InteractionStatus.ANSWERED.value
+        assert row.published_at is not None
+        assert row.responded_at is not None
+        assert row.expired_at is None
+
+
+@pytest.mark.asyncio
+async def test_interaction_stage_times_advance_only_with_legal_transition(
+    migrated_database: Database,
+) -> None:
+    # 正常发布、响应、应用均可按阶段首次写入时间。
+    _, fence = await _running_run(migrated_database.session_factory)
+    repository = _repository(migrated_database.session_factory)
+    prepared = await repository.prepare(fence, _draft())
+    published_at = datetime.now(UTC)
+    async with migrated_database.session_factory() as session, session.begin():
+        await session.execute(
+            update(AgentInteractionRecord)
+            .where(AgentInteractionRecord.id == prepared.interaction_id)
+            .values(
+                status=InteractionStatus.PENDING.value,
+                state_version=1,
+                published_at=published_at,
+            )
+        )
+    responded_at = datetime.now(UTC)
+    async with migrated_database.session_factory() as session, session.begin():
+        await session.execute(
+            update(AgentInteractionRecord)
+            .where(AgentInteractionRecord.id == prepared.interaction_id)
+            .values(
+                status=InteractionStatus.ANSWERED.value,
+                state_version=2,
+                responded_at=responded_at,
+            )
+        )
+    applied_at = datetime.now(UTC)
+    async with migrated_database.session_factory() as session, session.begin():
+        await session.execute(
+            update(AgentInteractionRecord)
+            .where(AgentInteractionRecord.id == prepared.interaction_id)
+            .values(
+                status=InteractionStatus.APPLIED.value,
+                state_version=3,
+                applied_at=applied_at,
+            )
+        )
+    async with migrated_database.session_factory() as session:
+        row = await session.get(AgentInteractionRecord, prepared.interaction_id)
+        assert row is not None
+        assert row.published_at == published_at
+        assert row.responded_at == responded_at
+        assert row.applied_at == applied_at
+        assert row.expired_at is None
+
+    # pending -> answered 缺少 responded_at 必须由触发器给出具体原因，
+    # 不能依赖形状 CHECK 的模糊拒绝。
+    run_id2, _ = await _running_run(migrated_database.session_factory)
+    interaction_id2 = await _pending_interaction(
+        migrated_database.session_factory,
+        run_id=run_id2,
+    )
+    with pytest.raises(DBAPIError) as missing:
+        async with migrated_database.session_factory() as session, session.begin():
+            await session.execute(
+                update(AgentInteractionRecord)
+                .where(AgentInteractionRecord.id == interaction_id2)
+                .values(
+                    status=InteractionStatus.ANSWERED.value,
+                    state_version=1,
+                )
+            )
+    assert "agent interaction stage time does not match transition" in str(missing.value.orig)
+
+    # 取消过期保留已发布/已响应历史，只首次写入 expired_at。
+    run_id3, _ = await _running_run(migrated_database.session_factory)
+    interaction_id3 = await _pending_interaction(
+        migrated_database.session_factory,
+        run_id=run_id3,
+    )
+    await repository.respond(
+        WORKSPACE_ID,
+        run_id3,
+        _response(interaction_id3),
+    )
+    async with migrated_database.session_factory() as session:
+        before = await session.get(AgentInteractionRecord, interaction_id3)
+        assert before is not None
+        before_published = before.published_at
+        before_responded = before.responded_at
+    service = AgentRunService(SqlAlchemyAgentRunRepository(migrated_database.session_factory))
+    await service.cancel(
+        WORKSPACE_ID,
+        run_id3,
+        request_id=uuid4(),
+        expected_version=2,
+    )
+    async with migrated_database.session_factory() as session:
+        after = await session.get(AgentInteractionRecord, interaction_id3)
+        assert after is not None
+        assert after.status == InteractionStatus.EXPIRED.value
+        assert after.published_at == before_published
+        assert after.responded_at == before_responded
+        assert after.expired_at is not None
 
 
 @pytest.mark.asyncio

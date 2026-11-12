@@ -271,6 +271,60 @@ def test_interaction_state_shape_preserves_preparing_and_pending_distinction() -
         )
 
 
+def test_expired_interaction_cannot_fabricate_response_without_publication() -> None:
+    # 过期可以发生在发布前，但不能出现“已响应却没有发布时间”的历史形状。
+    draft = HumanInteraction(
+        interaction_id=uuid4(),
+        workspace_id=uuid4(),
+        run_id=uuid4(),
+        revision=1,
+        action=ControlAction.ADOPT_MANUAL_PLAN,
+        status=InteractionStatus.PREPARING,
+        material_hash="e" * 64,
+        state_version=0,
+        expires_at=NOW + timedelta(hours=1),
+        diffs=(_diff(),),
+        material_refs=(_artifact(),),
+        safe_reason="awaiting_atomic_publish",
+        created_at=NOW,
+    )
+    pending = HumanInteraction.model_validate(
+        {
+            **draft.model_dump(by_alias=False),
+            "status": InteractionStatus.PENDING,
+            "published_at": NOW,
+        }
+    )
+    answered = HumanInteraction.model_validate(
+        {
+            **pending.model_dump(by_alias=False),
+            "status": InteractionStatus.ANSWERED,
+            "responded_at": NOW,
+        }
+    )
+
+    # 正常取消过期保留发布/响应事实。
+    expired = HumanInteraction.model_validate(
+        {
+            **answered.model_dump(by_alias=False),
+            "status": InteractionStatus.EXPIRED,
+            "expired_at": NOW,
+        }
+    )
+    assert expired.published_at == NOW
+    assert expired.responded_at == NOW
+
+    with pytest.raises(ValidationError):
+        HumanInteraction.model_validate(
+            {
+                **answered.model_dump(by_alias=False),
+                "status": InteractionStatus.EXPIRED,
+                "expired_at": NOW,
+                "published_at": None,
+            }
+        )
+
+
 def test_feedback_and_message_receipts_do_not_claim_application() -> None:
     # 回执只证明“响应已记录”；计划采纳由 T13/协调器另行原子应用。
     receipt = FeedbackReceipt(
