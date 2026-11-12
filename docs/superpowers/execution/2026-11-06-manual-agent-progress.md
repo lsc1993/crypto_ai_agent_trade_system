@@ -22,6 +22,7 @@
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T07-review-request.md` |
 | 首轮审查包 docs tip | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`） |
 | R1 复审包 docs tip | `ad831d0b0580cb19eb64e1a21a8f31df163c1fb4`（`docs: record T07 R1 fix and rereview request`） |
+| 复审通过 docs tip | `fd9eba449b8aa1274dab45711874a074ab425407`（`docs: record T07 R1 approval`） |
 | 正式审查报告 | `docs/superpowers/reviews/manual-agent/T07-review.md`（首轮 R1/P1 不通过，最新结论 R1 复审通过） |
 | 复审结论 | 2026-11-12 原审查助手复审通过，`reviewed_tip=ec3e8e5` |
 
