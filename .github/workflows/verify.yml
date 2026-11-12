@@ -1,8 +1,7 @@
 name: Reproducible quality checks
 
 on:
-  pull_request:
-  push:
+  # 仅保留手动入口，推送与 PR 不再自动运行远端质量检查。
   workflow_dispatch:
 
 permissions:

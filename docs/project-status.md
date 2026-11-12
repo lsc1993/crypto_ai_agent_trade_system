@@ -22,7 +22,7 @@
 | 手动模拟盘 | 当前 BTCUSDT 本地账户、手动意图或单次策略评估、快照模拟成交、绩效与审计 | [模拟盘](../backend/src/app/paper_trading/)、[测试](../backend/tests/paper_trading/) |
 | 交易日志与复盘 | 本地持久化交易记录、统计和看板；不接入真实交易账户 | [trades](../backend/src/app/trades/)、[dashboard](../backend/src/app/dashboard/) |
 | 本地部署 | Compose 的 PostgreSQL/API/前端，以及 API 内币种同步与技术研究任务 | [部署说明](local-deployment.md)、[配置](../compose.yaml) |
-| 可复现质量检查 | 本地/CI 共用 doctor、quick、full、eval、Mock e2e；三态摘要、退出码、超时终止及 pytest 参数隔离 | [质量验证](quality-verification.md)、[入口](../scripts/verify.py)、[CI 配置](../.github/workflows/verify.yml) |
+| 可复现质量检查 | 本地保留 doctor、quick、full、eval、Mock e2e；三态摘要、退出码、超时终止及 pytest 参数隔离；远端工作流仅保留手动入口，push/PR 不自动触发 | [质量验证](quality-verification.md)、[入口](../scripts/verify.py)、[CI 配置](../.github/workflows/verify.yml) |
 | 测试库防误配置 | 显式测试授权、固定专用库/受限角色、只读身份权限预检；共享夹具及独立迁移用例均受保护 | [预检](../backend/scripts/check_test_database.py)、[测试](../backend/tests/tooling/test_test_database_guard.py) |
 | 固定离线契约评估 | 8 个合成案例通过真实综合研究适配器校验，分别统计接受/拒绝/可降级错误并保留版本指纹；不代表真实模型质量 | [样本说明](../backend/evaluation/README.md)、[评估入口](../backend/scripts/evaluate_research.py) |
 | 研究服务流程评估 | 9 个合成案例验证综合研究与技术 v2 的成功、拒绝、降级和证据不足门控；另有真实仓储降级历史及审计回归 | [流程集](../backend/evaluation/flows/README.md)、[真实仓储回归](../backend/tests/persistence/test_research_flow_evaluation_history.py) |

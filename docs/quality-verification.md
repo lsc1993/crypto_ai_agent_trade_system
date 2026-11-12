@@ -146,6 +146,6 @@ AST 检查覆盖研究到交易模块、Harness 到交易/外部 IO/持久化实
 
 [研究服务流程集](../backend/evaluation/flows/README.md)补充技术 v2 两阶段、综合研究证据门控及保存/读取合同；离线内存读取与真实数据库回归分别给出证据，不能互相替代，详见该集的限制说明。
 
-[GitHub Actions](../.github/workflows/verify.yml)配置保留为参考，声明安装锁定依赖、创建独立 PostgreSQL 17 与受限测试身份，并调用同一 `full`、`e2e` 与 `http-e2e` 入口。当前交付只要求本地验收，不执行远端 CI 或设置分支合并门禁；仓库中的配置不代表远端已验证或已启用门禁。
+[GitHub Actions](../.github/workflows/verify.yml)仅保留 `workflow_dispatch` 手动入口，不再由 push 或 PR 自动触发。工作流声明安装锁定依赖、创建独立 PostgreSQL 17 与受限测试身份，并调用同一 `full`、`e2e` 与 `http-e2e` 入口。若仓库端已停用该工作流，手动运行前需先重新启用。当前交付只要求本地验收，不设置分支合并门禁；仓库中的配置不代表远端已验证或已启用门禁。
 
 当前事实传输协议为 `structured-v1`，与固定输入语料v2分别版本化。safe report另记录独立事实渲染器、安全schema分类器及引用schema的SHA；跨版本比较必须同时核对这些指纹。独立数组不进入保存的报告，离线MockTransport回归不能替代真实模型接受率或人工复核。
