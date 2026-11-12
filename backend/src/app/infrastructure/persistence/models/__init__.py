@@ -28,6 +28,7 @@ from app.infrastructure.persistence.models.agent_runs import (
     AgentRunRevisionRecord,
     AgentThreadRecord,
 )
+from app.infrastructure.persistence.models.agent_segments import AgentSegmentRecord
 from app.infrastructure.persistence.models.harness import (
     HarnessAuditEventRecord,
     HarnessAuditRunRecord,
@@ -98,6 +99,7 @@ __all__ = [
     "AgentRunRecord",
     "AgentRunRequestRecord",
     "AgentRunRevisionRecord",
+    "AgentSegmentRecord",
     "AgentThreadRecord",
     "HarnessAuditEventRecord",
     "HarnessAuditRunRecord",

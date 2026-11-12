@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,6 +17,18 @@ from app.infrastructure.persistence.base import Base
 # 运行身份保存策略版本、策略哈希与请求哈希，用于关联后来追加的事件和评估。
 class HarnessAuditRunRecord(Base):
     __tablename__ = "harness_runs"
+    # 0027 扩展交互式规划类别；ORM 约束与迁移保持一致，历史序列化值不变。
+    __table_args__ = (
+        CheckConstraint(
+            "run_kind IN ('market_research','technical_research','interactive_planning')",
+            name="ck_harness_runs_run_kind",
+        ),
+        CheckConstraint(
+            "policy_version IN ('market_research_v1','technical_research_v1',"
+            "'interactive_planning_v1','unregistered')",
+            name="ck_harness_runs_policy_version",
+        ),
+    )
 
     run_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True)
     run_kind: Mapped[str] = mapped_column(String(64), nullable=False)

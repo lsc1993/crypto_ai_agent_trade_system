@@ -1,7 +1,7 @@
 # 治理内核的公共契约：定义研究运行请求、白名单策略及受治理工作流协议，
 # 将运行权限表达为有限能力集合。研究目录准入只授权公开研究，不能扩大交易契约
 # 或授予私有账户与订单权限；已保存的 run_kind 序列化值保持 market_research/
-# technical_research 不变。
+# technical_research 不变，T07 新增 interactive_planning 供片段运行准入与审计。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -15,18 +15,25 @@ from app.market.contracts import UtcDateTime
 from app.market.symbols import ResearchSymbol
 
 
-# 区分综合与独立技术研究，注册和审计均以运行类别为键。
+# 区分综合研究、独立技术研究与交互式规划片段，注册和审计均以运行类别为键。
 class GovernanceRunKind(StrEnum):
     MARKET_RESEARCH = "market_research"
     TECHNICAL_RESEARCH = "technical_research"
+    INTERACTIVE_PLANNING = "interactive_planning"
 
 
-# 允许能力只有公开读取、受限模型和不可变保存；不能由输入扩展能力枚举。
+# 允许能力只有公开读取、受限模型、不可变保存和已登记研究/规划工具；
+# 新增能力仍须服务端策略显式授权，不能由模型输入或远端说明扩展能力枚举。
 class GovernanceCapability(StrEnum):
     READ_PUBLIC_MARKET = "read_public_market"
     READ_APPROVED_NEWS = "read_approved_news"
     CALL_RESEARCH_MODEL = "call_research_model"
     PERSIST_IMMUTABLE_REPORT = "persist_immutable_report"
+    READ_RESEARCH_KNOWLEDGE = "read_research_knowledge"
+    READ_STRATEGY_CATALOG = "read_strategy_catalog"
+    EVALUATE_SELECTED_STRATEGY = "evaluate_selected_strategy"
+    REQUEST_MANUAL_PLANNING = "request_manual_planning"
+    USE_REGISTERED_RESEARCH_TOOL = "use_registered_research_tool"
 
 
 # 不可变手动请求携带关联标识、标的和 UTC 时间，不携带任意工具参数。

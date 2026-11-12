@@ -3,6 +3,7 @@
 # 失败路径必须明确拒绝，不能用默认零值或空材料掩盖缺失的服务端身份。
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -10,6 +11,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent_runs.segments import (
+    EMPTY_TOOL_CATALOG_SHA256,
+    HEARTBEAT_SECONDS,
+    LEASE_SECONDS,
+    AgentSegment,
     CompletionDecision,
     CompletionDecisionKind,
     ExecutionContext,
@@ -17,6 +22,8 @@ from app.agent_runs.segments import (
     RunFence,
     SegmentOutcome,
     SegmentOutcomeKind,
+    SegmentStatus,
+    graph_namespace,
 )
 from app.shared.agent_types import ArtifactRef, VersionRef
 
@@ -161,3 +168,80 @@ def test_completion_decision_requires_state_version_and_safe_reason_by_kind() ->
             kind=CompletionDecisionKind.CONFLICT,
             safe_reason="包含 空格 与任意异常",
         )
+
+
+def test_segment_lease_constants_and_graph_namespace_are_fixed() -> None:
+    # 租约 30 秒、每 10 秒续租是跨进程恢复的固定门槛；缩短或延长必须显式改契约。
+    assert LEASE_SECONDS == 30
+    assert HEARTBEAT_SECONDS == 10
+    assert len(EMPTY_TOOL_CATALOG_SHA256) == 64
+
+    fence = _fence()
+    namespace = graph_namespace(fence)
+    assert namespace == f"ir:{fence.run_id}:{fence.revision}:{fence.segment_id}"
+    with pytest.raises(ValueError):
+        graph_namespace(fence, prefix="unsafe prefix")
+
+
+def test_agent_segment_snapshot_enforces_running_and_terminal_shapes() -> None:
+    fence = _fence()
+    now = datetime.now(UTC)
+    running = AgentSegment(
+        segment_id=fence.segment_id,
+        workspace_id=fence.workspace_id,
+        run_id=fence.run_id,
+        revision=fence.revision,
+        owner=fence.owner,
+        lease_epoch=fence.lease_epoch,
+        graph_namespace=graph_namespace(fence),
+        status=SegmentStatus.RUNNING,
+        started_at=now,
+        heartbeat_at=now,
+        lease_expires_at=now,
+    )
+    assert running.finished_at is None
+    assert SegmentStatus.INTERRUPTED.value == "interrupted"
+
+    with pytest.raises(ValidationError):
+        AgentSegment(
+            segment_id=fence.segment_id,
+            workspace_id=fence.workspace_id,
+            run_id=fence.run_id,
+            revision=fence.revision,
+            owner=fence.owner,
+            lease_epoch=fence.lease_epoch,
+            graph_namespace=graph_namespace(fence),
+            status=SegmentStatus.RUNNING,
+            started_at=now,
+            heartbeat_at=now,
+            lease_expires_at=None,
+        )
+    with pytest.raises(ValidationError):
+        AgentSegment(
+            segment_id=fence.segment_id,
+            workspace_id=fence.workspace_id,
+            run_id=fence.run_id,
+            revision=fence.revision,
+            owner=fence.owner,
+            lease_epoch=fence.lease_epoch,
+            graph_namespace="ir:forged",
+            status=SegmentStatus.COMPLETED,
+            started_at=now,
+            heartbeat_at=now,
+            finished_at=now,
+        )
+    terminal = AgentSegment(
+        segment_id=fence.segment_id,
+        workspace_id=fence.workspace_id,
+        run_id=fence.run_id,
+        revision=fence.revision,
+        owner=fence.owner,
+        lease_epoch=fence.lease_epoch,
+        graph_namespace=graph_namespace(fence),
+        status=SegmentStatus.COMPLETED,
+        started_at=now,
+        heartbeat_at=now,
+        finished_at=now,
+        outcome_kind=SegmentOutcomeKind.COMPLETED,
+    )
+    assert terminal.lease_expires_at is None

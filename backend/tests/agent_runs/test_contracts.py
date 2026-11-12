@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from app.agent_runs.contracts import (
     RunInput,
@@ -204,4 +204,61 @@ def test_run_event_payload_is_an_explicit_safe_projection() -> None:
             event_type=RunEventType.RUN_QUEUED,
             occurred_at=NOW,
             payload={"status": "queued"},
+        )
+
+
+def test_segment_lifecycle_events_accept_only_registered_states_and_reasons() -> None:
+    # T07 生命周期事件只暴露状态/原因码，任何财务或计划正文都被精确键集合拒绝。
+    cases: tuple[tuple[RunEventType, dict[str, JsonValue]], ...] = (
+        (RunEventType.RUN_STARTED, {"status": "running"}),
+        (RunEventType.RUN_WAITING, {"status": "waiting_approval"}),
+        (RunEventType.RUN_TERMINATED, {"status": "completed"}),
+        (RunEventType.RUN_REQUEUED, {"reason": "lease_expired"}),
+    )
+    for event_type, payload in cases:
+        event = RunEvent(
+            run_id=uuid4(),
+            revision=1,
+            sequence=1,
+            event_type=event_type,
+            occurred_at=NOW,
+            payload=payload,
+        )
+        assert event.event_type is event_type
+
+    with pytest.raises(ValidationError):
+        RunEvent(
+            run_id=uuid4(),
+            revision=1,
+            sequence=1,
+            event_type=RunEventType.RUN_STARTED,
+            occurred_at=NOW,
+            payload={"status": "completed"},
+        )
+    with pytest.raises(ValidationError):
+        RunEvent(
+            run_id=uuid4(),
+            revision=1,
+            sequence=1,
+            event_type=RunEventType.RUN_WAITING,
+            occurred_at=NOW,
+            payload={"status": "running"},
+        )
+    with pytest.raises(ValidationError):
+        RunEvent(
+            run_id=uuid4(),
+            revision=1,
+            sequence=1,
+            event_type=RunEventType.RUN_TERMINATED,
+            occurred_at=NOW,
+            payload={"status": "waiting_approval"},
+        )
+    with pytest.raises(ValidationError):
+        RunEvent(
+            run_id=uuid4(),
+            revision=1,
+            sequence=1,
+            event_type=RunEventType.RUN_REQUEUED,
+            occurred_at=NOW,
+            payload={"reason": "lease_expired", "financial_marker": "10000.00"},
         )

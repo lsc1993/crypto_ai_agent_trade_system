@@ -69,8 +69,12 @@ from app.agent_runs.messages import (
     MessageService,
     UserMessage,
 )
-from app.agent_runs.ports import AgentRunRepository
+from app.agent_runs.ports import AgentRunReader, AgentRunRepository, SegmentRepository
 from app.agent_runs.segments import (
+    EMPTY_TOOL_CATALOG_SHA256,
+    HEARTBEAT_SECONDS,
+    LEASE_SECONDS,
+    AgentSegment,
     CompletionDecision,
     CompletionDecisionKind,
     ExecutionContext,
@@ -78,6 +82,8 @@ from app.agent_runs.segments import (
     RunFence,
     SegmentOutcome,
     SegmentOutcomeKind,
+    SegmentStatus,
+    graph_namespace,
 )
 from app.agent_runs.service import AgentRunService
 
@@ -89,9 +95,14 @@ __all__ = [
     "MODEL_TIMEOUT_SECONDS",
     "RUNNABLE_CAPACITY",
     "WAITING_CAPACITY_PER_WORKSPACE",
+    "EMPTY_TOOL_CATALOG_SHA256",
+    "HEARTBEAT_SECONDS",
+    "LEASE_SECONDS",
     "AgentRunError",
+    "AgentRunReader",
     "AgentRunRepository",
     "AgentRunService",
+    "AgentSegment",
     "ApprovalKind",
     "AttemptCategory",
     "AttemptRequest",
@@ -133,12 +144,15 @@ __all__ = [
     "RunStatus",
     "SegmentOutcome",
     "SegmentOutcomeKind",
+    "SegmentRepository",
+    "SegmentStatus",
     "StepAttempt",
     "TokenUsage",
     "UserMessage",
     "attempt_transition_allowed",
     "canonical_run_input_json",
     "effective_budget_limits",
+    "graph_namespace",
     "hard_budget_limits",
     "initial_budget_limits",
     "legacy_run_input_sha256",

@@ -17,7 +17,7 @@ from app.shared.agent_types import AgentModel, ProductKey, UtcDateTime, is_sha25
 
 
 # T04 只产生入队与修订建立事件；T06 增加消息、审核与取消的安全事件。
-# T07 可复用 interaction.pending/applied 发布片段等待与反馈应用，仍不得携带原文或财务值。
+# T07 增加片段开始/等待/终态/重排事件；等待与终态经协调器与业务写入同事务提交。
 class RunEventType(StrEnum):
     RUN_QUEUED = "run.queued"
     REVISION_CREATED = "revision.created"
@@ -30,6 +30,10 @@ class RunEventType(StrEnum):
     INTERACTION_EXPIRED = "interaction.expired"
     RUN_CANCELLATION_REQUESTED = "run.cancellation_requested"
     RUN_CANCELLED = "run.cancelled"
+    RUN_STARTED = "run.started"
+    RUN_WAITING = "run.waiting"
+    RUN_TERMINATED = "run.terminated"
+    RUN_REQUEUED = "run.requeued"
 
 
 # 每个事件类型的顶层键白名单；嵌套产品键由 ProductKey 再校验，防止夹带任意载荷。
@@ -45,8 +49,13 @@ _ALLOWED_PAYLOAD_KEYS: dict[RunEventType, frozenset[str]] = {
     RunEventType.INTERACTION_EXPIRED: frozenset({"interactionId", "reason"}),
     RunEventType.RUN_CANCELLATION_REQUESTED: frozenset({"reason"}),
     RunEventType.RUN_CANCELLED: frozenset({"reason"}),
+    RunEventType.RUN_STARTED: frozenset({"status"}),
+    RunEventType.RUN_WAITING: frozenset({"status"}),
+    RunEventType.RUN_TERMINATED: frozenset({"status"}),
+    RunEventType.RUN_REQUEUED: frozenset({"reason"}),
 }
 _SAFE_EVENT_REASON = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_TERMINAL_EVENT_STATUSES = frozenset({"completed", "degraded", "failed", "cancelled", "expired"})
 
 
 # 单条业务事件；序号在单个任务内从 1 单调递增，跨任务不共享序列。
@@ -114,7 +123,25 @@ class RunEvent(AgentModel):
             reason = self.payload.get("reason")
             if reason != "user_request":
                 raise ValueError("取消事件原因必须为 user_request")
+        _validate_run_lifecycle_event(self)
         return self
+
+
+# 片段生命周期事件只暴露任务状态或稳定原因，不能携带财务值、产物正文或模型文本。
+def _validate_run_lifecycle_event(event: RunEvent) -> None:
+    if event.event_type is RunEventType.RUN_STARTED:
+        if event.payload.get("status") != "running":
+            raise ValueError("开始事件状态必须为 running")
+    elif event.event_type is RunEventType.RUN_WAITING:
+        if event.payload.get("status") not in {"waiting_input", "waiting_approval"}:
+            raise ValueError("等待事件状态必须是 waiting_input/approval")
+    elif event.event_type is RunEventType.RUN_TERMINATED:
+        if event.payload.get("status") not in _TERMINAL_EVENT_STATUSES:
+            raise ValueError("终态事件状态必须是业务终态")
+    elif event.event_type is RunEventType.RUN_REQUEUED:
+        reason = event.payload.get("reason")
+        if not isinstance(reason, str) or _SAFE_EVENT_REASON.fullmatch(reason) is None:
+            raise ValueError("重排事件原因必须是稳定短码")
 
 
 # 交互事件只暴露标识、动作/决定和修订；材料正文、用户文本和财务值不得进入安全事件。
