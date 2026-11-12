@@ -2,7 +2,7 @@
 
 - 记录日期：2026-11-12
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 已完成片段租约、四阶段审计、统一提交、恢复 worker 与 `0027_agent_segments`，自测为 `verified`，当前 `review_status=awaiting_review`，等待原审查助手正式结论。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；已完成修复与回归，自测为 `verified`，当前 `review_status=changes_requested`，等待原审查助手复审。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07 当前不得自行进入 T08 或任何后续审查单元。
 
 ## 当前工作区
@@ -13,14 +13,16 @@
 | 隔离工作区 | `D:\t07`（短路径；从 `main` 的 `231d938` 创建，内容与分支不变） |
 | 分支 | `t07-agent-segments`（本地分支，未推送、未合并） |
 | base | `231d938454834b7f3ecd54180d433c499bcf76ce`（`main`） |
-| implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
-| tree | `8e34dbc7806015850a8ba900aa0eac39c1849f06` |
-| 代码改动范围 | `231d938..f5091f5`，22 个文件，+4377 / -11（不含 docs 提交） |
-| review_status | `awaiting_review`（等待原审查助手正式结论） |
+| 首轮 implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
+| R1 修复 tip（当前） | `ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`（`fix: stop executor when worker is cancelled`） |
+| tree | `61abc0331b8f4f6bb456bac700630b9d7e07550e` |
+| 代码改动范围 | 首轮 `231d938..f5091f5` 22 个文件 +4377/-11；R1 修复 `f5091f5..ec3e8e5` 2 个文件 +70/-5 |
+| review_status | `changes_requested`（R1/P1 不通过，修复后等待复审） |
 | reviewed_tip | —（未填写；不能由开发端预填） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T07-review-request.md` |
-| 审查包 docs tip | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`） |
-| 正式审查报告 | 待用户传回原审查助手结论；未生成，不预填通过 |
+| 首轮审查包 docs tip | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`） |
+| 正式审查报告 | `docs/superpowers/reviews/manual-agent/T07-review.md`（R1/P1 不通过） |
+| 复审报告 | 待原审查助手复审；未生成，不预填通过 |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -508,18 +510,19 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 任务 | T07；PostgreSQL 片段租约（claim/heartbeat/recover_expired）、`interactive_planning` 四阶段审计、协调器原子提交、`InteractiveAgentWorker` 与 `0027_agent_segments` 迁移 |
 | FR/AC/HN | FR-12 主交付；支撑 FR-01/FR-06/FR-11；AC-12、AC-13、AC-15；HN-02、HN-03、HN-04、HN-06、HN-07、HN-11。不实现 T08–T13 的上下文、工具、模型、规划采纳或 HTTP |
 | 时间 | 2026-11-12 |
-| 任务状态 | `verified`（实现、聚焦 42、阶段 417、后端 full、静态/迁移链/架构门禁均完成；不等于正式审查通过） |
-| review_status | `awaiting_review` |
-| reviewed_tip | —（等待用户传回原审查助手正式结论，开发端不预填） |
-| implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
-| tree | `8e34dbc7806015850a8ba900aa0eac39c1849f06` |
+| 任务状态 | `verified`（R1 修复后聚焦 44、阶段 419、后端 full、静态/迁移链/架构门禁均完成；不等于正式审查通过） |
+| review_status | `changes_requested`（R1/P1 不通过，修复后等待复审） |
+| reviewed_tip | —（等待用户传回原审查助手复审结论，开发端不预填） |
+| 首轮 implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
+| R1 修复 tip（当前） | `ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`（`fix: stop executor when worker is cancelled`） |
+| tree | `61abc0331b8f4f6bb456bac700630b9d7e07550e` |
 | base | `231d938454834b7f3ecd54180d433c499bcf76ce`（`main`） |
-| 改动 | 22 个文件，+4377 / -11（不含 docs 提交）；新增片段纯类型/端口、治理包装、SQL 租约仓储、提交协调器、ORM/迁移与五组测试；修改事件/端口/策略/契约/模型注册及既有测试 |
+| 改动 | 首轮 22 个文件 +4377/-11；R1 修复 2 个文件 +70/-5（worker 取消清理与两条回归）；新增片段纯类型/端口、治理包装、SQL 租约仓储、提交协调器、ORM/迁移与测试；修改事件/端口/策略/契约/模型注册及既有测试 |
 | 公共接口 | `LEASE_SECONDS`/`HEARTBEAT_SECONDS`/`EMPTY_TOOL_CATALOG_SHA256`、`SegmentStatus`、`AgentSegment`、`graph_namespace`；`AgentRunReader`、`SegmentRepository`；`SegmentRunner`/`SegmentExecutor`/`SegmentExecution`；`InteractiveAgentWorker`；`GovernanceRunKind.INTERACTIVE_PLANNING`、知识/策略/规划/工具能力枚举、`INTERACTIVE_PLANNING_POLICY`；`SegmentAuditCoordinator`/`SegmentAuditAdapter`/`InteractivePlanningWorkflow`/`GovernedSegmentExecutor`；`AgentSegmentRecord`、`SqlAlchemyAgentSegmentRepository`、`SqlAlchemyAgentCommitCoordinator`；事件 `run.started/waiting/terminated/requeued` |
 | 依赖/迁移 | 无新增生产依赖；新增 `0027_agent_segments`（`agent_segments` 表、唯一 running 片段/namespace、身份/终态触发器；扩展 `harness_runs` 的 interactive_planning 检查）；迁移 head `0027_agent_segments`；未迁移业务库 |
-| 验证 | 改动前基线 213 passed；首轮预期红 5 collection errors；聚焦 42 passed；D2 阶段 417 passed；后端 full `0`/`verification=passed；1243 collected / 1243 passed / 0 failed / 0 skipped / 0 collection errors`；Ruff/格式/Pyright 0 errors；架构门禁 41 文件 0 findings；迁移 head `0027_agent_segments` |
+| 验证 | 改动前基线 213 passed；首轮预期红 5 collection errors；首轮聚焦 42、阶段 417、full 1243 passed；R1 预期红 2 failed / 8 passed；R1 修复后聚焦 44、阶段 419、full `0`/`verification=passed；1245 collected / 1245 passed / 0 failed / 0 skipped / 0 collection errors`；Ruff/格式/Pyright 0 errors；架构门禁 41 文件 0 findings；迁移 head `0027_agent_segments` |
 | 未验证 | 真实模型/工具/MCP/LangGraph（T08–T11）、规划采纳/资金池（T12–T13）、HTTP/前端/生产装配（T14–T17）、真实模型质量、产品规则、收益、业务库迁移/部署；30 秒真实墙钟、100 个等待任务容量、图 checkpoint 级复用、完整多进程生产 worker |
-| 遗留 | 等待原审查助手正式审查；不得进入 T08、不得自行标记 approved |
+| 遗留 | R1/P1 已修复并附回归，等待原审查助手复审；复审通过前不得进入 T08、不得自行标记 approved |
 
 ### T07 关键实现结果
 
@@ -532,20 +535,36 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 - 治理审计适配器不把 `CancelledError` 写成业务失败；preparing 审核材料过期时不发布，安全失败并记录 `review_expired`。
 - 片段数据库触发器拒绝身份改写、未释放租约的结束和删除；旧 `harness_runs` 历史类别/策略值不变。
 
+### T07 R1 正式审查修复（第 2 轮）
+
+| 项目 | 记录 |
+| --- | --- |
+| 审查问题 | R1/P1：`worker.py:172–174` `_run_with_heartbeat` 的 `finally` 只取消心跳任务；外层取消 `run_once()` 时 `asyncio.wait` 不会取消 `create_task` 启动的执行器，导致 worker 退出后旧执行器继续运行 |
+| 复现 | 原审查报告命令；修复前 `executor_cancelled=False pending_tasks=1`；新增回归在修复前 2 failed / 8 passed |
+| 修复 | `finally` 无条件下取消并 `await gather(runner_task, heartbeat_task, return_exceptions=True)`；执行器与心跳退出后才让 `CancelledError` 继续上抛，清理阶段不提交业务状态 |
+| 回归 | `test_cancelling_run_once_stops_executor_without_commit`、`test_cancelling_run_forever_stops_executor_without_commit`；断言执行器收到取消、无遗留 task、无 commit、`CancelledError` 传播 |
+| 修复后复现 | 原脚本输出 `executor_cancelled=True pending_tasks=0` |
+| 修复 tip | `ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`（`fix: stop executor when worker is cancelled`），范围 `f5091f5..ec3e8e5`，2 个文件 +70/-5 |
+| 状态 | 自测 `verified`；正式审查 `changes_requested`，等待原审查助手复审 |
+
 ### T07 测试证据
 
 | 检查 | 目录 | 命令 | 结果 |
 | --- | --- | --- | --- |
 | 改动前基线 | `D:\t07\backend` | `uv run --locked --no-sync pytest tests/agent_runs tests/governance tests/security tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_migrations.py -q --basetemp=../.tmp/pytest/t07-baseline` | 213 passed，退出 0 |
 | 首轮预期红 | `D:\t07\backend` | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py tests/agent_runs/test_segments.py tests/governance/test_interactive_planning.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py -q --collect-only --basetemp=../.tmp/pytest/t07-red-1` | 5 个 collection error（缺少新模块/符号），退出 1；符合测试先行预期 |
-| 聚焦最终 | `D:\t07\backend` + 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py tests/agent_runs/test_segments.py tests/agent_runs/test_contracts.py tests/governance/test_interactive_planning.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py -q --basetemp=../.tmp/pytest/t07-focus-final` | 42 passed，退出 0；含真实 SQL、并发 claim/commit、子进程终止恢复 | `.tmp/quality/t07-focus.log` |
-| D2 阶段回归 | `D:\t07\backend` + 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_migrations.py tests/persistence/test_harness_audit_repository.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t07-stage-final2` | 417 passed，退出 0 | `.tmp/quality/t07-stage-final2.log` |
-| 后端 full | `D:\t07` + 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t07-full-backend-final.json` | `0` / `verification=passed；1243 collected / 1243 passed / 0 failed / 0 skipped / 0 collection errors` | `.tmp/quality/manual-agent-t07-full-backend-final.json` |
+| 首轮聚焦最终 | `D:\t07\backend` + 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py tests/agent_runs/test_segments.py tests/agent_runs/test_contracts.py tests/governance/test_interactive_planning.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py -q --basetemp=../.tmp/pytest/t07-focus-final` | 42 passed，退出 0；含真实 SQL、并发 claim/commit、子进程终止恢复；未覆盖 worker 取消窗口 | `.tmp/quality/t07-focus.log` |
+| 首轮 D2 阶段回归 | `D:\t07\backend` + 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_migrations.py tests/persistence/test_harness_audit_repository.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t07-stage-final2` | 417 passed，退出 0 | `.tmp/quality/t07-stage-final2.log` |
+| 首轮后端 full | `D:\t07` + 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t07-full-backend-final.json` | `0` / `verification=passed；1243 collected / 1243 passed / 0 failed / 0 skipped / 0 collection errors` | `.tmp/quality/manual-agent-t07-full-backend-final.json` |
+| R1 预期红 | `D:\t07\backend` | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py -q --basetemp=../.tmp/pytest/t07-r1-red` | 2 failed / 8 passed，退出 1；两条新用例复现执行器未取消和 pending task | 终端记录 |
+| R1 聚焦最终 | `D:\t07\backend` + 临时 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py tests/agent_runs/test_segments.py tests/agent_runs/test_contracts.py tests/governance/test_interactive_planning.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py -q --basetemp=../.tmp/pytest/t07-r1-focus-final2` | 44 passed，退出 0 | `.tmp/quality/t07-r1-focus.log` |
+| R1 D2 阶段回归 | `D:\t07\backend` + 临时 PostgreSQL 17 | 同首轮阶段命令，`--basetemp=../.tmp/pytest/t07-r1-stage` | 419 passed，退出 0 | `.tmp/quality/t07-r1-stage.log` |
+| R1 后端 full | `D:\t07` + 临时 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t07-r1-full-backend-final.json` | `0` / `verification=passed；1245 collected / 1245 passed / 0 failed / 0 skipped / 0 collection errors` | `.tmp/quality/manual-agent-t07-r1-full-backend-final.json` |
 | 静态检查 | `D:\t07\backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright` | 全部通过；Pyright 0 errors / 0 warnings | 终端记录 |
 | 架构门禁 | `D:\t07\backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=41`，`findings=[]`，退出 0 | 终端记录 |
 | 迁移链 | `D:\t07\backend` | `uv run --locked --no-sync alembic heads` | `0027_agent_segments (head)`，退出 0 | 终端记录 |
 
-> 环境说明：一次阶段运行因测试库残留 `harness_test_*` schema 导致迁移隔离用例 1 failed / 416 passed；清理本次临时 schema 后同命令 417 passed。失败为测试环境残留，不是代码缺陷；未放宽或删除该测试。
+> 环境说明：首轮一次阶段运行因测试库残留 `harness_test_*` schema 导致迁移隔离用例 1 failed / 416 passed；清理本次临时 schema 后同命令 417 passed。R1 修复后聚焦 44 passed、D2 阶段 419 passed、后端 full 1245 passed / 0 failed / 0 skipped / 0 collection errors。失败为测试环境残留，不是代码缺陷；未放宽或删除该测试。
 
 ### T07 环境说明
 
@@ -563,5 +582,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 5. T04 首轮审查 P2 修复后，用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`）；代码/复审文档以 fast-forward 合并到 `main`，合并 tip 为 `35617bf`，当前为 `verified`/`approved`。
 6. T05 经首轮 F1–F4 和复审 R1 修复后，用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`，报告 `T05-rereview-f9454ad.md`）；当前为 `verified`/`approved`，代码/批准文档按用户指令 fast-forward 合并到 `main` 并推送。
 7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
-8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`，implementation tip `f5091f5`，自测 `verified`；审查请求 `docs/superpowers/reviews/manual-agent/T07-review-request.md`，`review_status=awaiting_review`，等待用户传回原审查助手正式结论。当前不得进入 T08。
+8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`，首轮 implementation tip `f5091f5`；正式审查 R1/P1 不通过（`T07-review.md`：worker 取消后执行器未停止）。R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full `0`/`verification=passed；1245 collected / 1245 passed / 0 failed / 0 skipped / 0 collection errors`，自测 `verified`，`review_status=changes_requested`，等待原审查助手复审。复审通过前不得进入 T08。
 9. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
