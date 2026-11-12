@@ -101,6 +101,16 @@ class RecordingRepository:
     ) -> RunEventPage:
         return RunEventPage(items=(), next_after=None)
 
+    async def cancel(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        *,
+        request_id: UUID,
+        expected_version: int,
+    ) -> RunSnapshot:
+        raise AgentRunError("run_not_found")
+
 
 @pytest.mark.asyncio
 async def test_start_passes_server_workspace_and_original_input() -> None:

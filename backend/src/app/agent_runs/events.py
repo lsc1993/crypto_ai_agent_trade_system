@@ -3,6 +3,7 @@
 # 载荷采用逐类型精确键集合校验；新增事件类型必须同时在此登记，不能通过通用 JSON 注入。
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import cast
@@ -10,20 +11,42 @@ from uuid import UUID
 
 from pydantic import Field, JsonValue, ValidationError, field_validator, model_validator
 
+from app.agent_runs.decisions import ControlAction
+from app.agent_runs.interactions import InteractionDecision
 from app.shared.agent_types import AgentModel, ProductKey, UtcDateTime, is_sha256, require_utc
 
 
-# T04 只产生入队与修订建立事件；T06/T07 的交互、步骤和终态事件在各自任务扩展。
+# T04 只产生入队与修订建立事件；T06 增加消息、审核与取消的安全事件。
+# T07 可复用 interaction.pending/applied 发布片段等待与反馈应用，仍不得携带原文或财务值。
 class RunEventType(StrEnum):
     RUN_QUEUED = "run.queued"
     REVISION_CREATED = "revision.created"
+    MESSAGE_RECORDED = "message.recorded"
+    MESSAGE_APPLIED = "message.applied"
+    INTERACTION_PREPARED = "interaction.prepared"
+    INTERACTION_PENDING = "interaction.pending"
+    INTERACTION_RESPONDED = "interaction.responded"
+    INTERACTION_APPLIED = "interaction.applied"
+    INTERACTION_EXPIRED = "interaction.expired"
+    RUN_CANCELLATION_REQUESTED = "run.cancellation_requested"
+    RUN_CANCELLED = "run.cancelled"
 
 
 # 每个事件类型的顶层键白名单；嵌套产品键由 ProductKey 再校验，防止夹带任意载荷。
 _ALLOWED_PAYLOAD_KEYS: dict[RunEventType, frozenset[str]] = {
     RunEventType.RUN_QUEUED: frozenset({"status", "product"}),
     RunEventType.REVISION_CREATED: frozenset({"revision", "inputSha256", "strategyVersionId"}),
+    RunEventType.MESSAGE_RECORDED: frozenset({"sequence"}),
+    RunEventType.MESSAGE_APPLIED: frozenset({"appliedSeq"}),
+    RunEventType.INTERACTION_PREPARED: frozenset({"interactionId", "action", "revision"}),
+    RunEventType.INTERACTION_PENDING: frozenset({"interactionId", "action", "revision"}),
+    RunEventType.INTERACTION_RESPONDED: frozenset({"interactionId", "decision", "revision"}),
+    RunEventType.INTERACTION_APPLIED: frozenset({"interactionId", "revision"}),
+    RunEventType.INTERACTION_EXPIRED: frozenset({"interactionId", "reason"}),
+    RunEventType.RUN_CANCELLATION_REQUESTED: frozenset({"reason"}),
+    RunEventType.RUN_CANCELLED: frozenset({"reason"}),
 }
+_SAFE_EVENT_REASON = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
 # 单条业务事件；序号在单个任务内从 1 单调递增，跨任务不共享序列。
@@ -68,13 +91,82 @@ class RunEvent(AgentModel):
                 UUID(strategy_version)
             except ValueError as error:
                 raise ValueError("策略版本标识必须是 UUID") from error
+        if self.event_type is RunEventType.MESSAGE_RECORDED:
+            sequence = self.payload.get("sequence")
+            if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+                raise ValueError("消息记录事件序号必须为正整数")
+        if self.event_type is RunEventType.MESSAGE_APPLIED:
+            applied_seq = self.payload.get("appliedSeq")
+            if not isinstance(applied_seq, int) or isinstance(applied_seq, bool) or applied_seq < 1:
+                raise ValueError("消息应用事件水位必须为正整数")
+        if self.event_type in {
+            RunEventType.INTERACTION_PREPARED,
+            RunEventType.INTERACTION_PENDING,
+            RunEventType.INTERACTION_RESPONDED,
+            RunEventType.INTERACTION_APPLIED,
+            RunEventType.INTERACTION_EXPIRED,
+        }:
+            _validate_interaction_event(self)
+        if self.event_type in {
+            RunEventType.RUN_CANCELLATION_REQUESTED,
+            RunEventType.RUN_CANCELLED,
+        }:
+            reason = self.payload.get("reason")
+            if reason != "user_request":
+                raise ValueError("取消事件原因必须为 user_request")
         return self
+
+
+# 交互事件只暴露标识、动作/决定和修订；材料正文、用户文本和财务值不得进入安全事件。
+def _validate_interaction_event(event: RunEvent) -> None:
+    interaction_id = event.payload.get("interactionId")
+    if not isinstance(interaction_id, str):
+        raise ValueError("交互事件必须携带待办标识")
+    try:
+        UUID(interaction_id)
+    except ValueError as error:
+        raise ValueError("待办标识必须是 UUID") from error
+    revision = event.payload.get("revision")
+    if revision is not None and revision != event.revision:
+        raise ValueError("交互事件修订号与事件不一致")
+    action = event.payload.get("action")
+    if action is not None and action not in {item.value for item in ControlAction}:
+        raise ValueError("交互事件动作不在登记范围")
+    decision = event.payload.get("decision")
+    if decision is not None and decision not in {item.value for item in InteractionDecision}:
+        raise ValueError("交互事件决定不在登记范围")
+    reason = event.payload.get("reason")
+    if reason is not None:
+        if not isinstance(reason, str) or _SAFE_EVENT_REASON.fullmatch(reason) is None:
+            raise ValueError("交互过期原因必须是稳定短码")
 
 
 # 事件分页使用序号游标而不是页码；next_after 为 None 表示当前已无更晚事件。
 class RunEventPage(AgentModel):
     items: tuple[RunEvent, ...]
     next_after: int | None = Field(default=None, ge=1)
+
+
+# 供仓储追加事件时复用同一白名单校验；调用方负责分配序号并持有任务行锁。
+def appendable_event(
+    *,
+    run_id: UUID,
+    workspace_id: UUID,
+    revision: int,
+    sequence: int,
+    event_type: RunEventType,
+    payload: dict[str, JsonValue],
+    occurred_at: datetime,
+) -> RunEvent:
+    _ = workspace_id
+    return RunEvent(
+        run_id=run_id,
+        revision=revision,
+        sequence=sequence,
+        event_type=event_type,
+        occurred_at=occurred_at,
+        payload=payload,
+    )
 
 
 # 构造 T04 的两条入队事件；固定字段和顺序，便于幂等重放时核对事件序列。
@@ -121,5 +213,6 @@ __all__ = [
     "RunEvent",
     "RunEventPage",
     "RunEventType",
+    "appendable_event",
     "build_enqueue_events",
 ]

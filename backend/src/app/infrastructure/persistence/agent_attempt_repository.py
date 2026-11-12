@@ -64,6 +64,7 @@ class _FencedRun:
     id: UUID
     workspace_id: UUID
     revision: int
+    cancel_requested_at: datetime | None
 
 
 # SQL 预算账本；clock 只用于审计时间，租约合法性始终由数据库 clock_timestamp() 判定。
@@ -86,6 +87,8 @@ class SqlAlchemyBudgetLedger:
         try:
             async with self._factory() as session, session.begin():
                 run = await _lock_fenced_run(session, fence)
+                if run.cancel_requested_at is not None:
+                    raise AgentRunError("run_cancelling")
                 await _ensure_initial_authorization(session, run, now)
                 limits = await _load_effective_limits(session, run.id)
                 status = await _load_budget_status(session, run.id, limits)
@@ -148,6 +151,9 @@ class SqlAlchemyBudgetLedger:
         try:
             async with self._factory() as session, session.begin():
                 run = await _lock_fenced_run(session, fence)
+                # 取消标记在发送前生效；已发送的结算仍允许，以保留真实费用/未知状态。
+                if run.cancel_requested_at is not None:
+                    raise AgentRunError("run_cancelling")
                 attempt = await _load_attempt(session, run, fence, attempt_id)
                 if attempt.status != AttemptStatus.PREPARED.value:
                     raise AgentRunError("invalid_attempt_transition")
@@ -327,6 +333,8 @@ class SqlAlchemyBudgetLedger:
         try:
             async with self._factory() as session, session.begin():
                 run = await _lock_fenced_run(session, fence)
+                if run.cancel_requested_at is not None:
+                    raise AgentRunError("run_cancelling")
                 await _ensure_initial_authorization(session, run, now)
                 current = await _load_effective_limits(session, run.id)
                 existing = await session.scalar(
@@ -397,6 +405,7 @@ async def _lock_fenced_run(session: AsyncSession, fence: RunFence) -> _FencedRun
         id=run.id,
         workspace_id=run.workspace_id,
         revision=run.revision,
+        cancel_requested_at=run.cancel_requested_at,
     )
 
 

@@ -9,13 +9,24 @@ from uuid import UUID
 from app.agent_runs.budget import BudgetLedger
 from app.agent_runs.contracts import RunInput, RunSnapshot
 from app.agent_runs.events import RunEventPage
+from app.agent_runs.interactions import InteractionRepository
+from app.agent_runs.messages import MessageRepository
 
 
-# Agent 任务仓储端口；实现方负责事务、请求幂等、容量和事件序号。
+# Agent 任务仓储端口；实现方负责事务、请求幂等、容量、取消和事件序号。
 class AgentRunRepository(Protocol):
     async def enqueue(self, workspace_id: UUID, data: RunInput) -> RunSnapshot: ...
 
     async def get(self, workspace_id: UUID, run_id: UUID) -> RunSnapshot | None: ...
+
+    async def cancel(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        *,
+        request_id: UUID,
+        expected_version: int,
+    ) -> RunSnapshot: ...
 
     async def list_events(
         self,
@@ -27,4 +38,9 @@ class AgentRunRepository(Protocol):
     ) -> RunEventPage: ...
 
 
-__all__ = ["AgentRunRepository", "BudgetLedger"]
+__all__ = [
+    "AgentRunRepository",
+    "BudgetLedger",
+    "InteractionRepository",
+    "MessageRepository",
+]

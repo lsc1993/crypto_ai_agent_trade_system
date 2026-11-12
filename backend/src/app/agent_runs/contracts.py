@@ -82,6 +82,16 @@ AgentRunErrorCode = Literal[
     "lease_lost",
     "invalid_budget_authorization",
     "invalid_activity",
+    "version_conflict",
+    "run_terminal",
+    "run_cancelling",
+    "interaction_not_found",
+    "interaction_active",
+    "review_conflict",
+    "review_expired",
+    "invalid_response",
+    "invalid_interaction",
+    "invalid_message",
 ]
 
 
@@ -170,12 +180,24 @@ class RunSnapshot(AgentModel):
     updated_at: UtcDateTime
     started_at: UtcDateTime | None = None
     finished_at: UtcDateTime | None = None
+    cancel_requested_at: UtcDateTime | None = None
 
     # 所有时间必须是带零偏移的 UTC；本地时间或伪时区不能进入审计事实。
-    @field_validator("created_at", "updated_at", "started_at", "finished_at")
+    @field_validator(
+        "created_at",
+        "updated_at",
+        "started_at",
+        "finished_at",
+        "cancel_requested_at",
+    )
     @classmethod
     def validate_times(cls, value: datetime | None) -> datetime | None:
         return None if value is None else require_utc(value)
+
+    @property
+    def messages_pending(self) -> bool:
+        # 已记录但未应用的消息阻止发布基于旧上下文的完成结果。
+        return self.received_message_seq > self.applied_message_seq
 
     # 已应用消息不能超过已记录消息；终态与完成时刻必须相互一致。
     @model_validator(mode="after")
@@ -185,6 +207,8 @@ class RunSnapshot(AgentModel):
         terminal = self.status in TERMINAL_RUN_STATUSES
         if terminal != (self.finished_at is not None):
             raise ValueError("终态状态与完成时刻必须同时成立")
+        if self.cancel_requested_at is not None and self.status is not RunStatus.RUNNING:
+            raise ValueError("取消标记只能存在于 running 任务")
         return self
 
 

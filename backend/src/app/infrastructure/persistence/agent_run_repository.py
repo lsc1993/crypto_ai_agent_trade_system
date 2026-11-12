@@ -32,7 +32,12 @@ from app.agent_runs.events import (
     RunEvent,
     RunEventPage,
     RunEventType,
+    appendable_event,
     build_enqueue_events,
+)
+from app.infrastructure.persistence.models.agent_interactions import (
+    AgentInteractionRecord,
+    AgentRunCancelRequestRecord,
 )
 from app.infrastructure.persistence.models.agent_runs import (
     AgentRunEventRecord,
@@ -42,7 +47,7 @@ from app.infrastructure.persistence.models.agent_runs import (
     AgentRunRevisionRecord,
     AgentThreadRecord,
 )
-from app.shared.agent_types import ArtifactRef, ProductKey, require_utc
+from app.shared.agent_types import ArtifactRef, ProductKey, require_utc, sha256_json
 
 _MAX_EVENT_PAGE = 100
 
@@ -128,6 +133,7 @@ class SqlAlchemyAgentRunRepository:
                     owner=None,
                     lease_epoch=0,
                     lease_expires_at=None,
+                    cancel_requested_at=None,
                     created_at=now,
                     updated_at=now,
                     started_at=None,
@@ -239,6 +245,159 @@ class SqlAlchemyAgentRunRepository:
                 return RunEventPage(items=events, next_after=next_after)
         except AgentRunError:
             raise
+        except SQLAlchemyError:
+            raise AgentRunError("storage_unavailable") from None
+
+    # 取消任务：queued/等待态立即终态；running 只置取消标记，由 worker 在边界停止。
+    # 请求键在同一工作台内幂等；取消不能重新打开已终态任务，也不操作交易所订单。
+    async def cancel(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        *,
+        request_id: UUID,
+        expected_version: int,
+    ) -> RunSnapshot:
+        request_sha = sha256_json(
+            {
+                "runId": str(run_id),
+                "expectedVersion": expected_version,
+            }
+        )
+        now = self._now()
+        try:
+            async with self._factory() as session, session.begin():
+                run = await session.scalar(
+                    select(AgentRunRecord)
+                    .where(
+                        AgentRunRecord.id == run_id,
+                        AgentRunRecord.workspace_id == workspace_id,
+                    )
+                    .with_for_update()
+                )
+                if run is None:
+                    raise AgentRunError("run_not_found")
+                existing = await session.scalar(
+                    select(AgentRunCancelRequestRecord).where(
+                        AgentRunCancelRequestRecord.workspace_id == workspace_id,
+                        AgentRunCancelRequestRecord.request_id == request_id,
+                    )
+                )
+                if existing is not None:
+                    if existing.run_id != run_id or existing.request_sha256 != request_sha:
+                        raise AgentRunError("request_conflict")
+                    snapshot = await _load_snapshot(session, workspace_id, run_id)
+                    if snapshot is None:
+                        raise AgentRunError("integrity_violation")
+                    return snapshot
+
+                # 已终态任务优先返回当前结果；迟到取消不覆盖成功/失败历史。
+                if run.status in {item.value for item in TERMINAL_RUN_STATUSES}:
+                    session.add(
+                        AgentRunCancelRequestRecord(
+                            workspace_id=workspace_id,
+                            request_id=request_id,
+                            run_id=run_id,
+                            request_sha256=request_sha,
+                            created_at=now,
+                        )
+                    )
+                    snapshot = await _load_snapshot(session, workspace_id, run_id)
+                    if snapshot is None:
+                        raise AgentRunError("integrity_violation")
+                    return snapshot
+
+                if run.state_version != expected_version:
+                    raise AgentRunError("version_conflict")
+
+                session.add(
+                    AgentRunCancelRequestRecord(
+                        workspace_id=workspace_id,
+                        request_id=request_id,
+                        run_id=run_id,
+                        request_sha256=request_sha,
+                        created_at=now,
+                    )
+                )
+                active = await session.scalar(
+                    select(AgentInteractionRecord)
+                    .where(
+                        AgentInteractionRecord.run_id == run_id,
+                        AgentInteractionRecord.status.in_(("preparing", "pending", "answered")),
+                    )
+                    .with_for_update()
+                )
+                if run.status == RunStatus.RUNNING.value:
+                    if run.cancel_requested_at is None:
+                        run.cancel_requested_at = now
+                        run.state_version += 1
+                        run.updated_at = now
+                        if active is not None:
+                            active.status = "expired"
+                            active.state_version += 1
+                            active.expired_at = now
+                            await append_run_event(
+                                session,
+                                run_id=run_id,
+                                workspace_id=workspace_id,
+                                revision=run.revision,
+                                event_type=RunEventType.INTERACTION_EXPIRED,
+                                payload={
+                                    "interactionId": str(active.id),
+                                    "reason": "user_cancelled",
+                                },
+                                occurred_at=now,
+                            )
+                        await append_run_event(
+                            session,
+                            run_id=run_id,
+                            workspace_id=workspace_id,
+                            revision=run.revision,
+                            event_type=RunEventType.RUN_CANCELLATION_REQUESTED,
+                            payload={"reason": "user_request"},
+                            occurred_at=now,
+                        )
+                else:
+                    # queued/waiting_input/waiting_approval 可直接取消；等待待办同步过期。
+                    if active is not None:
+                        active.status = "expired"
+                        active.state_version += 1
+                        active.expired_at = now
+                        await append_run_event(
+                            session,
+                            run_id=run_id,
+                            workspace_id=workspace_id,
+                            revision=run.revision,
+                            event_type=RunEventType.INTERACTION_EXPIRED,
+                            payload={
+                                "interactionId": str(active.id),
+                                "reason": "user_cancelled",
+                            },
+                            occurred_at=now,
+                        )
+                    run.status = RunStatus.CANCELLED.value
+                    run.current_interaction_id = None
+                    run.finished_at = now
+                    run.state_version += 1
+                    run.updated_at = now
+                    await append_run_event(
+                        session,
+                        run_id=run_id,
+                        workspace_id=workspace_id,
+                        revision=run.revision,
+                        event_type=RunEventType.RUN_CANCELLED,
+                        payload={"reason": "user_request"},
+                        occurred_at=now,
+                    )
+                await session.flush()
+                snapshot = await _load_snapshot(session, workspace_id, run_id)
+                if snapshot is None:
+                    raise AgentRunError("integrity_violation")
+                return snapshot
+        except AgentRunError:
+            raise
+        except IntegrityError:
+            raise AgentRunError("request_conflict") from None
         except SQLAlchemyError:
             raise AgentRunError("storage_unavailable") from None
 
@@ -412,6 +571,7 @@ async def _load_snapshot(
             updated_at=run.updated_at,
             started_at=run.started_at,
             finished_at=run.finished_at,
+            cancel_requested_at=run.cancel_requested_at,
         )
     except ValidationError as error:
         raise AgentRunError("integrity_violation") from error
@@ -467,4 +627,61 @@ def _event_from_row(row: AgentRunEventRecord) -> RunEvent:
         raise AgentRunError("integrity_violation") from error
 
 
-__all__ = ["SqlAlchemyAgentRunRepository"]
+# 读取当前任务快照的公开包装；T06 消息应用水位需要返回同一安全投影。
+async def load_run_snapshot(
+    session: AsyncSession,
+    workspace_id: UUID,
+    run_id: UUID,
+) -> RunSnapshot | None:
+    return await _load_snapshot(session, workspace_id, run_id)
+
+
+# 在已成锁的事务中追加一条单调安全事件；调用方必须持有任务行锁。
+# 事件对象先经 RunEvent 白名单校验，再落库，避免内部调用绕过载荷限制。
+async def append_run_event(
+    session: AsyncSession,
+    *,
+    run_id: UUID,
+    workspace_id: UUID,
+    revision: int,
+    event_type: RunEventType,
+    payload: dict[str, JsonValue],
+    occurred_at: datetime,
+) -> RunEvent:
+    next_sequence = await session.scalar(
+        select(func.coalesce(func.max(AgentRunEventRecord.sequence), 0) + 1).where(
+            AgentRunEventRecord.run_id == run_id
+        )
+    )
+    if not isinstance(next_sequence, int):
+        raise AgentRunError("integrity_violation")
+    event = appendable_event(
+        run_id=run_id,
+        workspace_id=workspace_id,
+        revision=revision,
+        sequence=next_sequence,
+        event_type=event_type,
+        payload=payload,
+        occurred_at=occurred_at,
+    )
+    session.add(
+        AgentRunEventRecord(
+            run_id=run_id,
+            sequence=event.sequence,
+            workspace_id=workspace_id,
+            revision=event.revision,
+            event_type=event.event_type.value,
+            occurred_at=event.occurred_at,
+            payload=event.payload,
+            projection_version=event.projection_version,
+        )
+    )
+    await session.flush()
+    return event
+
+
+__all__ = [
+    "SqlAlchemyAgentRunRepository",
+    "append_run_event",
+    "load_run_snapshot",
+]

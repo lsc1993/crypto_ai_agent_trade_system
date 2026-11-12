@@ -101,6 +101,8 @@ class AgentRunRecord(Base):
     owner: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     lease_epoch: Mapped[int] = mapped_column(Integer, nullable=False)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # running 取消先置标记；worker 在新调用、心跳和终态提交前检查，不能直接改终态。
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

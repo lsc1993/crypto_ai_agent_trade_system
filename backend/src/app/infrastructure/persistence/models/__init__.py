@@ -8,6 +8,12 @@ from app.infrastructure.persistence.models.agent_attempts import (
     BudgetAuthorizationRecord,
     BudgetReservationRecord,
 )
+from app.infrastructure.persistence.models.agent_interactions import (
+    AgentInteractionFeedbackRecord,
+    AgentInteractionRecord,
+    AgentRunCancelRequestRecord,
+    AgentUserMessageRecord,
+)
 from app.infrastructure.persistence.models.agent_research import (
     AgentAnalysisRunRecord,
     AgentReportDetailRecord,
@@ -80,7 +86,11 @@ __all__ = [
     "BudgetAuthorizationRecord",
     "BudgetReservationRecord",
     "AgentAnalysisRunRecord",
+    "AgentInteractionFeedbackRecord",
+    "AgentInteractionRecord",
     "AgentReportDetailRecord",
+    "AgentRunCancelRequestRecord",
+    "AgentUserMessageRecord",
     "AgentArtifactRecord",
     "AgentEvidenceEpochRecord",
     "AgentRunEventRecord",
