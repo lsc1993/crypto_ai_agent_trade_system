@@ -9,9 +9,9 @@
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T06 合并/推送后 tip `231d938`，工作区干净） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T07 合并后 tip `953cd90`，工作区干净） |
 | 隔离工作区 | `D:\t07`（短路径；从 `main` 的 `231d938` 创建，内容与分支不变） |
-| 分支 | `t07-agent-segments`（本地分支，未推送、未合并） |
+| 分支 | `t07-agent-segments`（已 fast-forward 合并到 `main`，保留用于审查追踪） |
 | base | `231d938454834b7f3ecd54180d433c499bcf76ce`（`main`） |
 | 首轮 implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
 | R1 修复 tip（当前） | `ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`（`fix: stop executor when worker is cancelled`） |
@@ -23,6 +23,7 @@
 | 首轮审查包 docs tip | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`） |
 | R1 复审包 docs tip | `ad831d0b0580cb19eb64e1a21a8f31df163c1fb4`（`docs: record T07 R1 fix and rereview request`） |
 | 复审通过 docs tip | `fd9eba449b8aa1274dab45711874a074ab425407`（`docs: record T07 R1 approval`） |
+| 合并 tip | `953cd901ff5677abff60e319a7b4836b9a3ef812`（fast-forward 到 `main` 并推送；本 docs 提交记录合并/推送结果） |
 | 正式审查报告 | `docs/superpowers/reviews/manual-agent/T07-review.md`（首轮 R1/P1 不通过，最新结论 R1 复审通过） |
 | 复审结论 | 2026-11-12 原审查助手复审通过，`reviewed_tip=ec3e8e5` |
 
@@ -524,7 +525,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 依赖/迁移 | 无新增生产依赖；新增 `0027_agent_segments`（`agent_segments` 表、唯一 running 片段/namespace、身份/终态触发器；扩展 `harness_runs` 的 interactive_planning 检查）；迁移 head `0027_agent_segments`；未迁移业务库 |
 | 验证 | 改动前基线 213 passed；首轮预期红 5 collection errors；首轮聚焦 42、阶段 417、full 1243 passed；R1 预期红 2 failed / 8 passed；R1 修复后聚焦 44、阶段 419、full `0`/`verification=passed；1245 collected / 1245 passed / 0 failed / 0 skipped / 0 collection errors`；Ruff/格式/Pyright 0 errors；架构门禁 41 文件 0 findings；迁移 head `0027_agent_segments` |
 | 未验证 | 真实模型/工具/MCP/LangGraph（T08–T11）、规划采纳/资金池（T12–T13）、HTTP/前端/生产装配（T14–T17）、真实模型质量、产品规则、收益、业务库迁移/部署；30 秒真实墙钟、100 个等待任务容量、图 checkpoint 级复用、完整多进程生产 worker |
-| 遗留 | 原审查助手已复审通过（`reviewed_tip=ec3e8e5`）；按用户指令合并/推送后记录合并 tip；T08 及后续任务仍须按依赖与审查单元推进 |
+| 遗留 | 原审查助手已复审通过（`reviewed_tip=ec3e8e5`）；已 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送；T08 及后续任务仍须按依赖与审查单元推进 |
 
 ### T07 关键实现结果
 
@@ -591,5 +592,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 5. T04 首轮审查 P2 修复后，用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`）；代码/复审文档以 fast-forward 合并到 `main`，合并 tip 为 `35617bf`，当前为 `verified`/`approved`。
 6. T05 经首轮 F1–F4 和复审 R1 修复后，用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`，报告 `T05-rereview-f9454ad.md`）；当前为 `verified`/`approved`，代码/批准文档按用户指令 fast-forward 合并到 `main` 并推送。
 7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
-8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；用户指令合并到 `main` 并推送，合并 tip 见后续记录。
+8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；已按用户指令 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送，本 docs 提交记录合并/推送结果。
 9. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
