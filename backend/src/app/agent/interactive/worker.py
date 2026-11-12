@@ -160,18 +160,18 @@ class InteractiveAgentWorker:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if lost.is_set():
-                runner_task.cancel()
-                await asyncio.gather(runner_task, return_exceptions=True)
                 return None
             if runner_task in done:
                 return runner_task.result()
             # 心跳任务异常结束也按失租处理，不继续信任当前 fence。
-            runner_task.cancel()
-            await asyncio.gather(runner_task, return_exceptions=True)
             return None
         finally:
+            # asyncio.wait 不会把外层取消传播给 create_task 创建的任务；必须在
+            # CancelledError 继续上抛前取消并等待执行器与心跳，避免无心跳的旧执行器
+            # 继续计算或调用外部服务。清理阶段不写业务状态，迟到提交仍由协调器 fencing 拒绝。
+            runner_task.cancel()
             heartbeat_task.cancel()
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            await asyncio.gather(runner_task, heartbeat_task, return_exceptions=True)
 
     async def _heartbeat_loop(self, context: ExecutionContext, lost: asyncio.Event) -> None:
         try:

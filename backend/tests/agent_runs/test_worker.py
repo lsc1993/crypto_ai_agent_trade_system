@@ -189,6 +189,25 @@ def _worker(
     )
 
 
+def _pending_tasks() -> list[asyncio.Task[Any]]:
+    # worker 取消后不得遗留执行器/心跳任务；调用方负责在断言失败时清理。
+    current = asyncio.current_task()
+    return [task for task in asyncio.all_tasks() if task is not current and not task.done()]
+
+
+async def _cancel_and_drain(task: asyncio.Task[Any]) -> None:
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    pending = _pending_tasks()
+    try:
+        assert pending == []
+    finally:
+        for item in pending:
+            item.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 @pytest.mark.asyncio
 async def test_run_once_recovers_then_claims_and_commits_outcome() -> None:
     context = _context()
@@ -250,6 +269,52 @@ async def test_heartbeat_loss_cancels_runner_without_commit() -> None:
     assert executor.cancelled is True
     assert segments.heartbeat_calls >= 1
     assert segments.commits == []
+
+
+@pytest.mark.asyncio
+async def test_cancelling_run_once_stops_executor_without_commit() -> None:
+    # 外层取消必须传播到 create_task 启动的执行器，并在 CancelledError 继续上抛前清空任务。
+    context = _context()
+    runs = FakeRuns(_snapshot(context))
+    segments = FakeSegments(contexts=[context])
+    executor = FakeExecutor(block=True)
+    worker = _worker(runs=runs, segments=segments, executor=executor)
+
+    task = asyncio.create_task(worker.run_once())
+    try:
+        await asyncio.wait_for(executor.started.wait(), timeout=1)
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
+    await _cancel_and_drain(task)
+
+    assert executor.cancelled is True
+    assert segments.commits == []
+
+
+@pytest.mark.asyncio
+async def test_cancelling_run_forever_stops_executor_without_commit() -> None:
+    # run_forever 被取消时同样必须清理执行器；停止事件不需要被设置。
+    context = _context()
+    runs = FakeRuns(_snapshot(context))
+    segments = FakeSegments(contexts=[context])
+    executor = FakeExecutor(block=True)
+    worker = _worker(runs=runs, segments=segments, executor=executor)
+    stop = asyncio.Event()
+
+    task = asyncio.create_task(worker.run_forever(stop))
+    try:
+        await asyncio.wait_for(executor.started.wait(), timeout=1)
+    except BaseException:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
+    await _cancel_and_drain(task)
+
+    assert executor.cancelled is True
+    assert segments.commits == []
+    assert not stop.is_set()
 
 
 @pytest.mark.asyncio
