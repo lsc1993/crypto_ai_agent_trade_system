@@ -1,5 +1,27 @@
 # T07 正式代码审查
 
+## 最新结论：R1/P1 复审通过
+
+- 复审日期：2026-11-12；实现 tip：`ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`。
+- 正式结论：**R1/P1 已关闭，T07 本轮代码复审通过，未发现新增阻断问题**。下文首轮不通过结论作为历史保留，由本节取代。
+- 复审范围：`f5091f5..ec3e8e5` 中两个后端文件（+70/-5）。该 Git 范围合计六个文件，另外四个是文档。复审时分支为 `t07-agent-segments`，HEAD 为 `7b5a55c`，工作区干净；实现 tip 到 HEAD 无 backend 差异。
+- 清理路径现在无条件取消执行器与心跳，并通过 `gather(..., return_exceptions=True)` 等待两者退出。外层原有 `CancelledError` 在 finally 完成后继续传播，run_once/run_forever 均重新抛出；清理本身不调用 commit。正常结果、心跳失租、异常路径仍经过共同清理。
+
+独立验证（目录 `D:\t07\backend`）：
+
+| 项目 | 命令/方法 | 本轮实际结果 |
+| --- | --- | --- |
+| 原取消复现 | 使用下文原复现替身，并补充显式捕获 CancelledError 及 commit 计数断言 | `executor_cancelled=True pending_tasks=0 CancelledError_propagated=True commits=0` |
+| 新回归反向验证 | 将 `git show f5091f5:backend/src/app/agent/interactive/worker.py` 编译到进程内独立命名空间，仅在内存替换 `_run_with_heartbeat`；执行两条 `cancelling_run_once / cancelling_run_forever` 测试 | 预期 **2 failed / 8 deselected**，均检出遗留执行器任务；未改写工作区代码 |
+| 当前 worker 回归 | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py -q` | **10 passed**，退出 0 |
+| 相关回归 | `uv run --locked --no-sync pytest tests/agent_runs/test_worker.py tests/agent_runs/test_segments.py tests/agent_runs/test_contracts.py tests/governance/test_interactive_planning.py -q` | **29 passed**，退出 0 |
+| 静态检查 | `uv run --locked --no-sync ruff check src/app/agent/interactive/worker.py tests/agent_runs/test_worker.py` | 通过，退出 0 |
+| 格式检查 | `uv run --locked --no-sync ruff format --check src/app/agent/interactive/worker.py tests/agent_runs/test_worker.py` | 2 files already formatted，退出 0 |
+
+验证边界：当前进程未设置 `TEST_DATABASE_URL`，本轮未独立重跑数据库、迁移、D2 阶段或 full；开发端提供的 44 / 419 / 1245 passed 仍是开发验证记录。本次通过依据为修复差异审查、独立原复现及新回归红绿验证，不将开发自测作为正式通过结论的替代。本轮未修改实现、未开始 T08，也未进行合并、部署或业务库迁移。
+
+## 首轮审查记录（历史）
+
 - 日期：2026-11-12。
 - 范围：`231d938454834b7f3ecd54180d433c499bcf76ce..f5091f5805121353f67fa16eb0651ba3e05b6a80`。
 - 工作区/分支：`D:\t07` / `t07-agent-segments`；审查开始时工作区干净，HEAD 为 `08294b7`，实现 tip 到 HEAD 没有 backend 差异。

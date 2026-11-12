@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`；具体模型版本未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1（C4 已同步 T07 界面分组）、跨模型交接 v1.1、开发模型提示词 v1.0。
 - 自测状态：`verified`（R1 修复后聚焦、D2 阶段、最终后端 full、静态与迁移链均完成；详见第 5 节）。
-- 正式审查状态：`changes_requested`（原审查助手 R1/P1 不通过，报告 `T07-review.md`；本轮修复后等待复审，**未预填任何通过结论**）。
+- 正式审查状态：`approved`（2026-11-12 原审查助手 R1 复审通过，`reviewed_tip=ec3e8e5`；见 `T07-review.md` 最新结论）。
 - 日期：2026-11-12。
 
 ## 1. 工作区、分支与提交范围
@@ -16,6 +16,7 @@
 | base | `231d938454834b7f3ecd54180d433c499bcf76ce`（`main`，`ci: disable automatic remote quality checks`） |
 | 首轮 implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
 | R1 修复 tip（当前） | `ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`（`fix: stop executor when worker is cancelled`） |
+| reviewed_tip | `ec3e8e541aad7e36b0f247f5ac2c4c3c8e0c8885`（原审查助手 R1 复审通过） |
 | implementation tree（当前） | `61abc0331b8f4f6bb456bac700630b9d7e07550e` |
 | 首轮代码范围 | `231d938..f5091f5`，22 个文件，+4377 / -11 |
 | R1 修复范围 | `f5091f5..ec3e8e5`，2 个文件，+70 / -5（`worker.py` 与 `test_worker.py`） |
@@ -64,6 +65,7 @@
 | 回归 | 新增 `test_cancelling_run_once_stops_executor_without_commit`、`test_cancelling_run_forever_stops_executor_without_commit`：断言执行器收到取消、无遗留 pending task、无 `commit` 调用、`CancelledError` 传播 |
 | 修复后复现 | 同一脚本输出 `executor_cancelled= True pending_tasks= 0` |
 | 范围 | `f5091f5..ec3e8e5`，2 个文件，+70/-5；实现 tip `ec3e8e5`，tree `61abc03` |
+| 复审结论 | **approved**（2026-11-12 原审查助手复审通过；R1/P1 已关闭，`reviewed_tip=ec3e8e5`） |
 
 ## 2. 任务范围与 FR/AC/HN 映射
 
@@ -210,4 +212,4 @@ T07 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 
 ## 7. 审查请求
 
-请原审查助手重点复核 R1/P1 的修复与第 6.2 节；若发现新的阻断问题，请给出复现命令/文件行号与期望行为。开发端会在收到意见后先复现，再逐条修复并补回归，更新新的 implementation tip 与验证证据后再次提交审查。本审查请求不代表正式审查通过，也不授权进入 T08 或任何后续审查单元。
+原审查助手已于 2026-11-12 对 `ec3e8e5` 复审通过（报告 `T07-review.md` 最新结论，`reviewed_tip=ec3e8e5`）。本文件保留审查范围、实现取舍与验证证据，正式状态已更新为 `approved`；产品内的交易计划审核仍是独立流程，不因本次工程审查通过而改变。
