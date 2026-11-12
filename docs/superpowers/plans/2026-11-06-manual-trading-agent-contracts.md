@@ -1,6 +1,6 @@
 # 实盘手动计划 Agent：实施契约清单
 
-- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-11）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，首轮独立审查判定 P1/P2 不通过，修复提交 `8835a1d` 补充分块 INSERT 防护、发布/检索一致性校验和锁后时间采样，聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地资料/政策/成本/保证金/公开规则快照、单池 generation 与 `0021_planning_inputs` 迁移；首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过后，提交 `4f0e7ae` 补齐冷却显式状态、规则刷新带锁重放、来源抓取时间和网关异常转换，提交 `023e5a2` 补齐历史快照指纹/序列化，提交 `8d75a7a` 补齐历史 Draft 读取、双格式请求指纹和首次写入严格校验；修复后纯契约/规则 23、SQL 16、阶段回归 183、后端 full 1128 passed，自测 `verified`，经原审查助手复审通过（`reviewed_tip=8d75a7a`）并合并到 `main`；T04 已实现 C4 `RunInput`/`RunSnapshot`/`RunStatus`、`AgentRunRepository.enqueue/get/list_events`、`AgentRunService.start`、请求幂等、不可变修订、安全事件分页与 `0022_agent_tasks` 迁移；首轮审查 P2（JSONB 数值规范化导致请求指纹漂移）不通过后，修复 tip `0df86fe` 改为基于 PostgreSQL JSONB 规范文本计算指纹并保留旧稳定行兼容，聚焦 21、后端 full 1149 passed；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），代码/复审文档以 fast-forward 合并到 `main`（合并 tip `35617bf`），当前为 `verified`/`approved`；T05 已实现 C4 片段纯类型与 C5 `AttemptRequest`/`StepAttempt`/`BudgetLedger`/`BudgetStatus`、按 meter 的预算账本、AP-05 追加授权和 `0023_agent_attempts` 迁移；正式审查判定 F1–F4 共 4 项 P2 不通过后，修复 tip `bd2a59d` 增加 `validate_send_fits`、跨修订可验证回执对账、发送前 failed `released` 语义和 `0024_agent_attempt_hardening` 形状约束；复审 R1 又发现次数 settled 的 NULL 三值逻辑放行，修复 tip `f9454ad` 新增前向 `0025_agent_attempt_shape_fix`；R1 修复后聚焦 41、阶段回归 185、后端 full 1183 passed，迁移 head 为 `0025_agent_attempt_shape_fix`，自测 `verified`；用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`），T05 当前为 `verified`/`approved`，代码/批准文档以 fast-forward 合并到 `main`（合并 tip `cbffb4f`）并推送；T06 已实现 C5 `HumanInteraction`/`InteractionResponse`/`FeedbackReceipt`、`InteractionService`/`MessageService`、`ControlProposal`/`GuardDecision`/`DecisionPolicy`、消息 `recorded`/`applied` 水位、running `cancel_requested` 与 `AgentRunService.cancel`，并新增 `agent_interactions`/`agent_interaction_feedback`/`agent_user_messages`/`agent_run_cancel_requests` 及 `0026_agent_interactions` 迁移；待办 `preparing→pending` 的原子发布、反馈应用、worker 领取/心跳/恢复和计划采纳仍归 T07/T13。首轮正式审查对 `1ec0a72` 判定 F1（P2）不通过；修复 tip `dea9848`（`1ec0a72..dea9848`，4 个文件，+286/-5）直接补强未合并的 0026 触发器，禁止改写/清空已写入的阶段时间；修复后最终聚焦 51 passed、阶段回归 380 passed、后端 full 1211 passed，迁移 head 为 `0026_agent_interactions`，自测 `verified`，正式审查 `approved`（F1 复审通过，`reviewed_tip=dea9848`）；其余接口尚未实现。
+- 版本：1.1；日期：2026-11-06；状态：开发计划的接口约定。执行状态（2026-11-11）：T00 已复审通过并合并；T01 已实现 C1/C2 的公共类型、策略目录与评估器适配，首轮正式审查不通过后完成并发幂等、嵌套快照重验和根 Schema 校验修复，经原审查助手复审通过（`reviewed_tip=159a43b`）并合并到 `main`；T02 已实现 C2 的 `KnowledgeIndex`/`KnowledgeService`、关键词分块/评分、GIN SQL 索引和 `0020_research_knowledge` 迁移，首轮独立审查判定 P1/P2 不通过，修复提交 `8835a1d` 补充分块 INSERT 防护、发布/检索一致性校验和锁后时间采样，聚焦 40、阶段回归 136、后端 full 1089 passed 全绿，经原审查助手复审通过（`reviewed_tip=8835a1d`）并合并到 `main`；T03 已实现 C3 本地资料/政策/成本/保证金/公开规则快照、单池 generation 与 `0021_planning_inputs` 迁移；首轮 4 项、第二轮 1 项、第三轮 1 项 P2 不通过后，提交 `4f0e7ae` 补齐冷却显式状态、规则刷新带锁重放、来源抓取时间和网关异常转换，提交 `023e5a2` 补齐历史快照指纹/序列化，提交 `8d75a7a` 补齐历史 Draft 读取、双格式请求指纹和首次写入严格校验；修复后纯契约/规则 23、SQL 16、阶段回归 183、后端 full 1128 passed，自测 `verified`，经原审查助手复审通过（`reviewed_tip=8d75a7a`）并合并到 `main`；T04 已实现 C4 `RunInput`/`RunSnapshot`/`RunStatus`、`AgentRunRepository.enqueue/get/list_events`、`AgentRunService.start`、请求幂等、不可变修订、安全事件分页与 `0022_agent_tasks` 迁移；首轮审查 P2（JSONB 数值规范化导致请求指纹漂移）不通过后，修复 tip `0df86fe` 改为基于 PostgreSQL JSONB 规范文本计算指纹并保留旧稳定行兼容，聚焦 21、后端 full 1149 passed；用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`），代码/复审文档以 fast-forward 合并到 `main`（合并 tip `35617bf`），当前为 `verified`/`approved`；T05 已实现 C4 片段纯类型与 C5 `AttemptRequest`/`StepAttempt`/`BudgetLedger`/`BudgetStatus`、按 meter 的预算账本、AP-05 追加授权和 `0023_agent_attempts` 迁移；正式审查判定 F1–F4 共 4 项 P2 不通过后，修复 tip `bd2a59d` 增加 `validate_send_fits`、跨修订可验证回执对账、发送前 failed `released` 语义和 `0024_agent_attempt_hardening` 形状约束；复审 R1 又发现次数 settled 的 NULL 三值逻辑放行，修复 tip `f9454ad` 新增前向 `0025_agent_attempt_shape_fix`；R1 修复后聚焦 41、阶段回归 185、后端 full 1183 passed，迁移 head 为 `0025_agent_attempt_shape_fix`，自测 `verified`；用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`），T05 当前为 `verified`/`approved`，代码/批准文档以 fast-forward 合并到 `main`（合并 tip `cbffb4f`）并推送；T06 已实现 C5 `HumanInteraction`/`InteractionResponse`/`FeedbackReceipt`、`InteractionService`/`MessageService`、`ControlProposal`/`GuardDecision`/`DecisionPolicy`、消息 `recorded`/`applied` 水位、running `cancel_requested` 与 `AgentRunService.cancel`，并新增 `agent_interactions`/`agent_interaction_feedback`/`agent_user_messages`/`agent_run_cancel_requests` 及 `0026_agent_interactions` 迁移；待办 `preparing→pending` 的原子发布、反馈应用、worker 领取/心跳/恢复和计划采纳仍归 T07/T13。首轮正式审查对 `1ec0a72` 判定 F1（P2）不通过；修复 tip `dea9848`（`1ec0a72..dea9848`，4 个文件，+286/-5）直接补强未合并的 0026 触发器，禁止改写/清空已写入的阶段时间；修复后最终聚焦 51 passed、阶段回归 380 passed、后端 full 1211 passed，迁移 head 为 `0026_agent_interactions`，自测 `verified`，正式审查 `approved`（F1 复审通过，`reviewed_tip=dea9848`）；其余接口尚未实现。T07 已实现片段租约、四阶段审计、统一提交/恢复、worker 与 `0027_agent_segments`；implementation tip `f5091f5`，审查包 `docs/superpowers/reviews/manual-agent/T07-review-request.md`，自测 `verified`，`review_status=awaiting_review`；T08+、T13 计划采纳与 HTTP/前端装配仍未实现。
 - 主计划：[实施任务与验证](2026-11-06-manual-trading-agent-implementation.md)。
 - 依据：[需求 v2.0](../specs/2026-11-06-manual-trading-agent-requirements.md)、[架构 v2.0](../specs/2026-11-06-manual-trading-agent-design.md)。
 
@@ -98,19 +98,26 @@ PlanningProfileDraft 可带 `costs: CostAssumptionsDraft | None`，草稿按 Cos
 | `ExecutionContext` | fence、策略/工具/政策版本、授权和预算引用、证据 epoch；只能服务端构造 |
 | `SegmentOutcome` | `kind: wait_input/wait_approval/completed/degraded/failed/cancelled`、产物引用、preparing 待办引用、安全原因、applied_message_seq、可选计划采纳提案 |
 | `CompletionDecision` | committed/conflict/lease_lost/messages_pending、已提交状态号及安全原因；不接受模型自报成功 |
+| `AgentSegment` / `SegmentStatus`（T07） | segment_id、workspace/run/revision、owner/lease_epoch、唯一 graph_namespace、running/waiting/completed/degraded/failed/cancelled/interrupted、心跳/租约/结束时间、结果类型与安全原因 |
 
-以上纯类型在 T05 建立。计划采纳提案类型 `PlanAdoptionProposal` 同样位于 segments.py，只含 plan_ref、interaction_id、material_hash、pool_id/generation，不导入尚未实现的规划服务；T13 才由 coordinator 核对并应用。T04 首先建立业务行的 owner/lease_epoch/lease_expires_at 字段及状态一致约束，T07 再实现实际领取与片段存储，避免预算任务依赖尚不存在的租约字段。
+以上纯类型在 T05 建立；T07 补齐片段快照、租约常量与 namespace。计划采纳提案类型 `PlanAdoptionProposal` 同样位于 segments.py，只含 plan_ref、interaction_id、material_hash、pool_id/generation，不导入尚未实现的规划服务；T13 才由 coordinator 核对并应用。T04 首先建立业务行的 owner/lease_epoch/lease_expires_at 字段及状态一致约束，T07 再实现实际领取与片段存储，避免预算任务依赖尚不存在的租约字段。
 
 ```python
 # agent_runs/ports.py
+class AgentRunReader(Protocol):
+    async def get(self, workspace_id: UUID, run_id: UUID) -> RunSnapshot | None: ...
+
 class AgentRunRepository(Protocol):
     async def enqueue(self, workspace_id: UUID, data: RunInput) -> RunSnapshot: ...
     async def get(self, workspace_id: UUID, run_id: UUID) -> RunSnapshot | None: ...
+    async def cancel(...) -> RunSnapshot: ...
+    async def list_events(...) -> RunEventPage: ...
+
+# T07 实现分组：片段领取/续租/恢复与提交同属协调器，避免让 T04 仓储承担租约写入。
+class SegmentRepository(Protocol):
     async def claim(self, owner: UUID) -> ExecutionContext | None: ...
     async def heartbeat(self, fence: RunFence) -> bool: ...
     async def recover_expired(self) -> int: ...
-
-class SegmentRepository(Protocol):
     async def commit(self, fence: RunFence, outcome: SegmentOutcome) -> CompletionDecision: ...
 
 # agent/interactive/ports.py
@@ -118,7 +125,7 @@ class SegmentRunner(Protocol):
     async def run(self, context: ExecutionContext) -> SegmentOutcome: ...
 ```
 
-租约 30 秒、10 秒心跳；领取/续租/写入在行锁后读数据库 `clock_timestamp()`，不以客户端 now 或事务开始时钟证明合法。队列可运行上限 20，工作台等待上限 100；容量在专用队列锁内检查；唯一 `(workspace_id, request_id)`，不按 symbol 合并。
+租约 30 秒、10 秒心跳；领取/续租/写入在行锁后读数据库 `clock_timestamp()`，不以客户端 now 或事务开始时钟证明合法。队列可运行上限 20，工作台等待上限 100；容量在专用队列锁内检查；唯一 `(workspace_id, request_id)`，不按 symbol 合并。T07 的等待发布在同一提交事务内先取得队列锁、再锁任务/待办，保持与其他容量写入一致的锁序。
 
 `SqlAlchemyAgentCommitCoordinator` 是 `SegmentRepository` 的实现，也是新片段审计端口的事务所有者：业务状态、pending 待办、片段、合法 Harness 终态、事件、owner 释放及适用的计划采纳/资金池占用在同一事务提交。带池操作按 pool → run → interaction/plan 取锁；非池事务不能持 run 锁后再取池锁。不可变草案可先保存，但保存本身不产生业务完成。
 
