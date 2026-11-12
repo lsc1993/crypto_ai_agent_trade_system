@@ -20,7 +20,7 @@
 | 首轮代码范围 | `231d938..f5091f5`，22 个文件，+4377 / -11 |
 | R1 修复范围 | `f5091f5..ec3e8e5`，2 个文件，+70 / -5（`worker.py` 与 `test_worker.py`） |
 | 正式审查报告 | `docs/superpowers/reviews/manual-agent/T07-review.md`（R1/P1 不通过） |
-| 本轮复审文档提交 | 待生成本 docs 提交；实现 tip 仍指向代码提交 `ec3e8e5`，避免自身循环引用 |
+| 本轮复审文档提交 | `ad831d0b0580cb19eb64e1a21a8f31df163c1fb4`（`docs: record T07 R1 fix and rereview request`）；实现 tip 仍指向代码提交 `ec3e8e5`，避免自身循环引用 |
 | 工作区未提交内容 | 仅本审查包的文档变更；没有夹带其他任务改动、`.env`、凭证或业务库修改 |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型，未访问私有账户，未发起真实交易。

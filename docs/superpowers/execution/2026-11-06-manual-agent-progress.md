@@ -21,6 +21,7 @@
 | reviewed_tip | —（未填写；不能由开发端预填） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T07-review-request.md` |
 | 首轮审查包 docs tip | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`） |
+| R1 复审包 docs tip | `ad831d0b0580cb19eb64e1a21a8f31df163c1fb4`（`docs: record T07 R1 fix and rereview request`） |
 | 正式审查报告 | `docs/superpowers/reviews/manual-agent/T07-review.md`（R1/P1 不通过） |
 | 复审报告 | 待原审查助手复审；未生成，不预填通过 |
 
