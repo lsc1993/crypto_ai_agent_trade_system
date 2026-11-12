@@ -17,7 +17,7 @@
 | implementation tip | `f5091f5805121353f67fa16eb0651ba3e05b6a80`（`feat: fence agent segments and atomic lifecycle commits`） |
 | implementation tree | `8e34dbc7806015850a8ba900aa0eac39c1849f06` |
 | 代码改动范围 | 22 个文件，+4377 / -11（`231d938..f5091f5`，见 `git show --stat f5091f5`） |
-| 文档提交 | 本审查请求与 T07 进度记录另作 `docs:` 提交；实现 tip 不指向该 docs 提交，避免自身循环引用 |
+| 审查包文档提交 | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`）；实现 tip 不指向该 docs 提交，避免自身循环引用；本行补记提交只记录该 docs tip |
 | 工作区未提交内容 | 仅本审查包的文档变更；没有夹带其他任务改动、`.env`、凭证或业务库修改 |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型，未访问私有账户，未发起真实交易。

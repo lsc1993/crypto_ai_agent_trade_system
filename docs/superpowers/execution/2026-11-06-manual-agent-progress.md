@@ -19,6 +19,7 @@
 | review_status | `awaiting_review`（等待原审查助手正式结论） |
 | reviewed_tip | —（未填写；不能由开发端预填） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T07-review-request.md` |
+| 审查包 docs tip | `da74b204e5c22e134308c28475424936d40722ef`（`docs: add T07 review request and progress`） |
 | 正式审查报告 | 待用户传回原审查助手结论；未生成，不预填通过 |
 
 ## T00：治理内核与规范迁移（D0）
