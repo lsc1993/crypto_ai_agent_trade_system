@@ -11,7 +11,7 @@
 | --- | --- |
 | 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main`；T05 合并后 tip `cbffb4f`，工作区干净） |
 | 隔离工作区 | `D:\t06`（短路径；从 `main` 的 `bbb4e0b` 创建，内容与分支不变） |
-| 分支 | `t06-agent-interactions`（未合并；保留用于审查追踪） |
+| 分支 | `t06-agent-interactions`（已 fast-forward 合并到 `main`，保留用于审查追踪） |
 | base | `bbb4e0bc010b46e0188923c176d7334e2764b241`（`main`，T05 合并文档之后） |
 | implementation tip（当前修复） | `dea98485ac668fd740a53a7dbe8bb69960fdcefc`（`fix: protect agent interaction stage times`） |
 | tree（当前修复） | `bd5637770e3c9e530d1ec376af34ce7d2ee13d58` |
@@ -20,6 +20,7 @@
 | 累计代码范围 | `bbb4e0b..dea9848`，19 个文件，+4112 / -7（不含 docs 提交） |
 | review_status | `approved`（2026-11-12 原审查助手 F1 复审通过） |
 | reviewed_tip | `dea98485ac668fd740a53a7dbe8bb69960fdcefc` |
+| 合并 tip | `2b4cd7831030a42bd68c36ff1bc69a17a67dad05`（fast-forward 到 `main`；本 docs 提交记录合并/推送） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T06-review-request.md` |
 | 首轮正式审查报告 | `docs/superpowers/reviews/manual-agent/T06-formal-review.md` |
 | 复审报告 | `docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md` |
@@ -451,7 +452,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 依赖/迁移 | 无新增依赖；新增前向 `0026_agent_interactions`（agent_interactions、agent_interaction_feedback、agent_user_messages、agent_run_cancel_requests、`agent_runs.cancel_requested_at`，单活跃待办部分唯一索引与不可变/状态迁移触发器）；迁移 head 为 `0026_agent_interactions`；未迁移业务库 |
 | 验证 | 首轮红测 3 collection errors；F1 修复前 SQL 红测 2 failed / 13 passed（真实 PostgreSQL 复现擦除阶段时间）；最终聚焦 51 passed；阶段回归 380 passed；后端 full `verification=passed`，1211 collected / 1211 passed / 0 failed / 0 skipped / 0 collection errors；Ruff/格式/Pyright/架构门禁全绿；迁移 head `0026_agent_interactions` |
 | 未验证 | T07 的 preparing→pending 原子发布、claim/heartbeat/租约恢复、终态提交和 worker；T13 的反馈应用、计划采纳/资金池占用；HTTP API、前端、浏览器；真实模型/工具/MCP、真实供应商回执、真实用户消息；业务库迁移和实盘可实施性 |
-| 遗留 | 原审查助手已于 2026-11-12 复审通过当前 tip `dea9848`；可按用户指令合并/推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍未验收 |
+| 遗留 | 原审查助手已于 2026-11-12 复审通过当前 tip `dea9848`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍未验收 |
 
 ### T06 关键实现结果
 
@@ -479,7 +480,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 
 - 2026-11-12 用户传回原审查助手正式通过结论：**通过 T06 模块代码复审**，`reviewed_tip=dea98485ac668fd740a53a7dbe8bb69960fdcefc`；报告 `docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md`。
 - 原 F1（P2）关闭，未发现新的阻断问题；F1 阶段时间保护、合法迁移首次写入、正常发布/响应/应用/取消过期均已核对。审查端独立纯测试 36 passed，但未独立连接 PostgreSQL；开发端真实 SQL/full 证据作为补充，不冒充审查端独立验收。
-- T06 当前状态为 `verified`/`approved`；代码/批准文档待按用户指令合并到 `main` 并推送。通过结论仅针对 T06 当前 tip，不表示 T07/T13、HTTP/前端、真实传输、业务库迁移或部署已验收。
+- T06 当前状态为 `verified`/`approved`；代码/批准文档已以 fast-forward 合并到 `main`（合并 tip `2b4cd7831030a42bd68c36ff1bc69a17a67dad05`），本 docs 提交记录合并/推送。通过结论仅针对 T06 当前 tip，不表示 T07/T13、HTTP/前端、真实传输、业务库迁移或部署已验收。
 
 ### T06 测试证据
 
@@ -511,5 +512,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。
 5. T04 首轮审查 P2 修复后，用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`）；代码/复审文档以 fast-forward 合并到 `main`，合并 tip 为 `35617bf`，当前为 `verified`/`approved`。
 6. T05 经首轮 F1–F4 和复审 R1 修复后，用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`，报告 `T05-rereview-f9454ad.md`）；当前为 `verified`/`approved`，代码/批准文档按用户指令 fast-forward 合并到 `main` 并推送。
-7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`，代码/批准文档待按用户指令 fast-forward 合并到 `main` 并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
+7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
 8. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
