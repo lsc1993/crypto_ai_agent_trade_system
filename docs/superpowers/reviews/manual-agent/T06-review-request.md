@@ -5,7 +5,7 @@
 - 开发执行模型：`deepseek-flash`（provider `deepseek`，reasoning `max`）；具体模型权重版本未知，以上为本地会话环境可确认信息。
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
 - 上一次正式审查：`reviewed_tip=1ec0a72`，结论为不通过，需修复 F1（P2）；报告 `docs/superpowers/reviews/manual-agent/T06-formal-review.md`。
-- 当前版本：F1 修复 tip `dea9848`，等待原审查助手复审；本文件中的自测不代表正式审查通过。
+- 当前版本：F1 修复 tip `dea9848`，已于 2026-11-12 经原审查助手复审通过，报告 `docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md`。
 
 ## 1. 工作区、提交与范围
 
@@ -21,8 +21,9 @@
 | F1 修复范围 | `1ec0a72..dea9848`，4 个文件，+286 / -5 |
 | 累计代码范围 | `bbb4e0b..dea9848`，19 个文件，+4112 / -7（不含审查文档提交） |
 | 工作区状态 | 代码提交后干净；本审查请求与正式审查报告另行形成文档提交 |
-| review_status | `awaiting_review`（F1 复审） |
-| reviewed_tip | `—`（当前修复版本不得预填通过；上一次正式审查为 `1ec0a72`） |
+| review_status | `approved`（F1 复审通过） |
+| reviewed_tip | `dea98485ac668fd740a53a7dbe8bb69960fdcefc` |
+| 复审报告 | `docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md` |
 
 说明：本次是对 F1 修复版本的复审请求。首轮实现 tip 为 `1ec0a72`，当前修复 tip 为 `dea9848`；审查包文档提交在代码提交之后另行记录，不复用自身提交号。`main` 未被修改，未推送、未合并、未部署。
 
@@ -288,6 +289,7 @@ uv run --project backend --locked --no-sync python scripts/verify.py full --comp
 ## 7. 状态声明
 
 - 自测状态：`verified`（F1 修复、聚焦、SQL/阶段、静态、架构门禁、迁移链和后端 full 已完成）。
-- 正式审查状态：`awaiting_review`（F1 复审），当前修复版本 `reviewed_tip=—`；上一次正式审查对 `1ec0a72` 判定不通过（F1）。
-- 本轮未自行标记 `approved`，未进入 T07，未开始下一审查单元。
-- 请原审查助手重点复核 F1 的已写入阶段时间保护、合法迁移首次写入、正常发布/响应/应用/取消过期，以及上述锁顺序、状态迁移、不可变触发器、取消/反馈竞态、消息水位与 T05 预算护栏的接缝。如需继续修复，将以当前 `dea9848` 为基线补充回归并重新提交。
+- 正式审查状态：`approved`；原审查助手复审通过当前修复版本 `reviewed_tip=dea9848`，F1 关闭，未发现新的阻断问题。
+- 复审报告：`docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md`。批准与合并记录另见开发进度文档。
+- 未进入 T07，未开始下一审查单元。
+- 原审查助手已复核 F1 的已写入阶段时间保护、合法迁移首次写入、正常发布/响应/应用/取消过期，以及上述锁顺序、状态迁移、不可变触发器、取消/反馈竞态、消息水位与 T05 预算护栏的接缝；未发现新的阻断问题。后续单元不得据此宣称 T07/T13 或业务库迁移已验收。

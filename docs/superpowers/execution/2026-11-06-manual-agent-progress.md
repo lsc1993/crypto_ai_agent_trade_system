@@ -2,7 +2,7 @@
 
 - 记录日期：2026-11-12
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、测试、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`，正式审查为 `awaiting_review`，尚未取得 `approved`。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。
 - 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。当前版本不得自行进入 T07。
 
 ## 当前工作区
@@ -18,10 +18,11 @@
 | 首轮 implementation tip | `1ec0a72e74682ef17995cfca165967b475f764d8`（`feat: persist human review and task feedback`） |
 | F1 修复范围 | `1ec0a72..dea9848`，4 个文件，+286 / -5 |
 | 累计代码范围 | `bbb4e0b..dea9848`，19 个文件，+4112 / -7（不含 docs 提交） |
-| review_status | `awaiting_review`（F1 复审） |
-| reviewed_tip | `—`（上一正式审查 `1ec0a72` 不通过 F1） |
+| review_status | `approved`（2026-11-12 原审查助手 F1 复审通过） |
+| reviewed_tip | `dea98485ac668fd740a53a7dbe8bb69960fdcefc` |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T06-review-request.md` |
-| 正式审查报告 | `docs/superpowers/reviews/manual-agent/T06-formal-review.md` |
+| 首轮正式审查报告 | `docs/superpowers/reviews/manual-agent/T06-formal-review.md` |
+| 复审报告 | `docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md` |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -439,8 +440,8 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | FR/AC/HN | FR-01、FR-11、FR-12；AC-10 至 AC-14、AC-17（T06 只提供持久待办、记录/应用水位、取消和过期基础，完整恢复/应用需 T07/T13）；HN-06、HN-07、HN-08、HN-11（T06 侧）、HN-12 |
 | 时间 | 2026-11-12 |
 | 任务状态 | `verified`（实现、测试、阶段、静态、迁移链和后端 full 已完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（F1 复审） |
-| reviewed_tip | `—`（上一正式审查 `1ec0a72` 判定不通过 F1） |
+| review_status | `approved`（2026-11-12 原审查助手 F1 复审通过） |
+| reviewed_tip | `dea98485ac668fd740a53a7dbe8bb69960fdcefc` |
 | implementation tip（当前修复） | `dea98485ac668fd740a53a7dbe8bb69960fdcefc`（`fix: protect agent interaction stage times`） |
 | 首轮 implementation tip | `1ec0a72e74682ef17995cfca165967b475f764d8`（`feat: persist human review and task feedback`） |
 | base | `bbb4e0bc010b46e0188923c176d7334e2764b241`（`main`） |
@@ -450,7 +451,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 依赖/迁移 | 无新增依赖；新增前向 `0026_agent_interactions`（agent_interactions、agent_interaction_feedback、agent_user_messages、agent_run_cancel_requests、`agent_runs.cancel_requested_at`，单活跃待办部分唯一索引与不可变/状态迁移触发器）；迁移 head 为 `0026_agent_interactions`；未迁移业务库 |
 | 验证 | 首轮红测 3 collection errors；F1 修复前 SQL 红测 2 failed / 13 passed（真实 PostgreSQL 复现擦除阶段时间）；最终聚焦 51 passed；阶段回归 380 passed；后端 full `verification=passed`，1211 collected / 1211 passed / 0 failed / 0 skipped / 0 collection errors；Ruff/格式/Pyright/架构门禁全绿；迁移 head `0026_agent_interactions` |
 | 未验证 | T07 的 preparing→pending 原子发布、claim/heartbeat/租约恢复、终态提交和 worker；T13 的反馈应用、计划采纳/资金池占用；HTTP API、前端、浏览器；真实模型/工具/MCP、真实供应商回执、真实用户消息；业务库迁移和实盘可实施性 |
-| 遗留 | T06 当前修复 tip 为 `dea9848`，等待用户转交原审查助手复审；不得自行标记 `approved` 或开始 T07 |
+| 遗留 | 原审查助手已于 2026-11-12 复审通过当前 tip `dea9848`；可按用户指令合并/推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍未验收 |
 
 ### T06 关键实现结果
 
@@ -473,6 +474,12 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 回归 | 跳步测试补齐 responded_at/applied_at 并断言具体错误；新增直接 SQL 覆盖擦除、改写、正常发布/响应/应用、取消过期；修复后聚焦 51 passed、阶段 380 passed、full 1211 passed |
 | 迁移兼容 | 0026 未合并、未应用到业务库，按 T02 先例直接补强，不新增 0027；旧版 0026 仅可能存在临时测试 schema，需重建 |
 | 提交 | `dea98485ac668fd740a53a7dbe8bb69960fdcefc`（`fix: protect agent interaction stage times`），范围 `1ec0a72..dea9848`，4 个文件，+286/-5 |
+
+### T06 复审结论
+
+- 2026-11-12 用户传回原审查助手正式通过结论：**通过 T06 模块代码复审**，`reviewed_tip=dea98485ac668fd740a53a7dbe8bb69960fdcefc`；报告 `docs/superpowers/reviews/manual-agent/T06-rereview-dea9848.md`。
+- 原 F1（P2）关闭，未发现新的阻断问题；F1 阶段时间保护、合法迁移首次写入、正常发布/响应/应用/取消过期均已核对。审查端独立纯测试 36 passed，但未独立连接 PostgreSQL；开发端真实 SQL/full 证据作为补充，不冒充审查端独立验收。
+- T06 当前状态为 `verified`/`approved`；代码/批准文档待按用户指令合并到 `main` 并推送。通过结论仅针对 T06 当前 tip，不表示 T07/T13、HTTP/前端、真实传输、业务库迁移或部署已验收。
 
 ### T06 测试证据
 
@@ -504,5 +511,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 4. T03 经三轮 P2 修复后，用户于 2026-11-10 传回正式通过结论（`reviewed_tip=8d75a7a`）；代码/复审文档以 fast-forward 合并到 `main`，当前为 `verified`/`approved`。
 5. T04 首轮审查 P2 修复后，用户于 2026-11-10 传回原审查助手正式通过结论（`reviewed_tip=0df86fe`）；代码/复审文档以 fast-forward 合并到 `main`，合并 tip 为 `35617bf`，当前为 `verified`/`approved`。
 6. T05 经首轮 F1–F4 和复审 R1 修复后，用户于 2026-11-11 传回原审查助手正式通过结论（`reviewed_tip=f9454ad`，报告 `T05-rereview-f9454ad.md`）；当前为 `verified`/`approved`，代码/批准文档按用户指令 fast-forward 合并到 `main` 并推送。
-7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），当前修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed，自测 `verified`，复审状态 `awaiting_review`，`reviewed_tip=—`。审查请求为 `docs/superpowers/reviews/manual-agent/T06-review-request.md`，正式审查报告为 `T06-formal-review.md`。在用户传回原审查助手对当前修复版本的正式通过结论前，不得自行标记 `approved` 或开始 T07。
+7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`，代码/批准文档待按用户指令 fast-forward 合并到 `main` 并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
 8. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
