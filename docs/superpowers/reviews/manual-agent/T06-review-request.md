@@ -1,10 +1,11 @@
-# T06 审查请求：人工审核、连续消息与取消一致性
+# T06 复审请求：人工审核、连续消息与取消一致性
 
 - 审查单元：T06
 - 请求日期：2026-11-12
 - 开发执行模型：`deepseek-flash`（provider `deepseek`，reasoning `max`）；具体模型权重版本未知，以上为本地会话环境可确认信息。
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 本轮只交开发自测，不代表正式审查通过；正式结论由用户转交原审查助手。
+- 上一次正式审查：`reviewed_tip=1ec0a72`，结论为不通过，需修复 F1（P2）；报告 `docs/superpowers/reviews/manual-agent/T06-formal-review.md`。
+- 当前版本：F1 修复 tip `dea9848`，等待原审查助手复审；本文件中的自测不代表正式审查通过。
 
 ## 1. 工作区、提交与范围
 
@@ -14,14 +15,16 @@
 | 隔离工作区 | `D:\t06` |
 | 分支 | `t06-agent-interactions` |
 | base | `bbb4e0bc010b46e0188923c176d7334e2764b241` |
-| implementation tip | `1ec0a72e74682ef17995cfca165967b475f764d8`（`feat: persist human review and task feedback`） |
-| implementation tree | `2fc90f8006eb63947603f27532d8bb4394bcc8d4` |
-| diff 范围 | `bbb4e0b..1ec0a72`，19 个文件，+3831 / -7 |
-| 工作区状态 | 提交后 `git status --short` 为空 |
-| review_status | `awaiting_review` |
-| reviewed_tip | `—`（不得预填通过） |
+| implementation tip（当前修复） | `dea98485ac668fd740a53a7dbe8bb69960fdcefc`（`fix: protect agent interaction stage times`） |
+| implementation tree（当前修复） | `bd5637770e3c9e530d1ec376af34ce7d2ee13d58` |
+| 首轮 implementation tip | `1ec0a72e74682ef17995cfca165967b475f764d8`（`feat: persist human review and task feedback`） |
+| F1 修复范围 | `1ec0a72..dea9848`，4 个文件，+286 / -5 |
+| 累计代码范围 | `bbb4e0b..dea9848`，19 个文件，+4112 / -7（不含审查文档提交） |
+| 工作区状态 | 代码提交后干净；本审查请求与正式审查报告另行形成文档提交 |
+| review_status | `awaiting_review`（F1 复审） |
+| reviewed_tip | `—`（当前修复版本不得预填通过；上一次正式审查为 `1ec0a72`） |
 
-说明：本审查请求和开发进度文档在代码提交之后另行形成文档提交；实现 tip 固定指向代码提交 `1ec0a72`，不复用审查包自身提交号。`main` 未被修改，未推送、未合并、未部署。
+说明：本次是对 F1 修复版本的复审请求。首轮实现 tip 为 `1ec0a72`，当前修复 tip 为 `dea9848`；审查包文档提交在代码提交之后另行记录，不复用自身提交号。`main` 未被修改，未推送、未合并、未部署。
 
 ### 1.1 文件清单（`git show --name-status 1ec0a72`）
 
@@ -47,19 +50,30 @@ M backend/tests/agent_runs/test_service.py
 A backend/tests/persistence/test_agent_interactions.py
 ```
 
-### 1.2 关键文件指纹（SHA-256）
+### 1.2 关键文件指纹（SHA-256，当前修复 tip）
 
 ```text
 74a67329f0d06860b0555c8c352a3c6eb1ffb8d82dfa377b4e93355a207b45cf  backend/src/app/agent_runs/decisions.py
-9a5848ce051691fb11c6f05672d249b81b905d4dec2057da0da8983615d2b1fb  backend/src/app/agent_runs/interactions.py
+d39415512589d967af331831a458fd5b86721dd920f3cc15934442c1db0202a5  backend/src/app/agent_runs/interactions.py
 0fc867768481b7dc9b4dfea71bad33a219c7d36e4ec91f069d04e12d87013683  backend/src/app/agent_runs/messages.py
 9523bf0abe5bd9465482941ba72a59bd3ee1d97cbe52bc72cceb639fab5bd869  backend/src/app/infrastructure/persistence/agent_interaction_repository.py
 e25d04944fce3db26af48f265767f3eba298e3d63ead44afd5d37031d00c30b1  backend/src/app/infrastructure/persistence/models/agent_interactions.py
-e3f419a3f00874b7a9465c40ca623279282fc4093f1d26bf238d8c9edb108363  backend/alembic/versions/0026_agent_interactions.py
-f4dec979c749dfae4587a995b7b69abcade0b56e07606f234713e95321202194  backend/tests/agent_runs/test_interactions.py
+dd33f004d6a0b4b67a1bb20ec018029205343f7e76b9a8c1ff43f23dfd26fd64  backend/alembic/versions/0026_agent_interactions.py
+ec7ec0dcb5c0bea06a664f94e3febdc8df509a15a9620e7eb2c3180e0ec89ebb  backend/tests/agent_runs/test_interactions.py
 ae7d90da483c45d897fcc032a6df962ba8c39e5e1f35e3df8e0fc4c82182f3b2  backend/tests/agent_runs/test_messages.py
-0c46b170149402fff7c72e1d5bb6d3e083022227c91db4aa4e9571fb65f88bd4  backend/tests/persistence/test_agent_interactions.py
+262b8db54aeeb594ccc5456e3c280d285b06ab778139a01ff7df1e4ae746810d  backend/tests/persistence/test_agent_interactions.py
 ```
+
+### 1.3 F1 修复文件
+
+```text
+M backend/alembic/versions/0026_agent_interactions.py
+M backend/src/app/agent_runs/interactions.py
+M backend/tests/agent_runs/test_interactions.py
+M backend/tests/persistence/test_agent_interactions.py
+```
+
+`0026_agent_interactions` 仍未合并、未应用到业务库，因此按 T02 先例直接补强该迁移，不新增 `0027`；任何用旧版 0026 创建的临时测试 schema 需要重建，业务库没有需要前向修补的已应用迁移。
 
 ## 2. 任务范围与 FR/AC/HN 映射
 
@@ -89,6 +103,19 @@ T06 负责把人工审核、连续消息和取消从纯类型推进到可持久�
 | HN-12 安全投影 | 事件不含消息正文/财务/原始载荷 | 受限 HTTP 视图待 T14 |
 
 ## 3. 关键实现结果与取舍
+
+### 3.0 正式审查 F1 逐条回应（P2）
+
+**审查发现**：`validate_agent_interaction_update()` 允许在合法状态推进中改写或清空已写入的 `published_at`/`responded_at`。开发端已在真实 PostgreSQL 复现：`answered→expired` 同时清空发布/响应时间成功（测试期望抛错但 `DID NOT RAISE`）；`pending→answered` 改写 `published_at` 也成功；缺少 `responded_at` 的 `pending→answered` 被形状 CHECK 拒绝，未命中触发器原因。
+
+| F1 要求 | 修复 | 回归 |
+| --- | --- | --- |
+| 已写入阶段时间禁止修改/清空 | 触发器对 `OLD.published_at/responded_at/applied_at/expired_at` 非空值逐项比较 `IS DISTINCT FROM`，改写或清空即 `agent interaction stage time is immutable` | `test_interaction_stage_times_cannot_be_rewritten_or_erased` 直接 SQL 覆盖 answered→expired 清空、pending→answered 改写；失败事务后记录仍保留 |
+| 只允许本次合法迁移对应时间首次写入 | 按迁移分支强制：preparing→pending 只写 published_at；pending→answered 只写 responded_at；answered→applied 只写 applied_at；任意→expired 只写 expired_at，并保留旧阶段 | `test_interaction_stage_times_advance_only_with_legal_transition` 覆盖正常发布/响应/应用、缺少 responded_at、取消过期保留历史 |
+| 过期保留已有阶段历史 | expired 分支要求 published/responded/applied 与 OLD 相等，只允许 expired_at 从 NULL 首次写入 | answered→expired 正常取消测试断言 published/responded 不变；清空测试断言拒绝 |
+| 跳步测试补齐形状并断言具体原因 | 跳步测试补 responded_at/applied_at 使 applied 形状可通过，并断言 `invalid agent interaction transition`；材料改写断言 `agent interaction material is immutable` | `test_interaction_trigger_rejects_skipped_state_and_material_rewrite` |
+
+兼容性：`0026_agent_interactions` 未合并、未应用到任何业务库，因此直接编辑 0026 的触发器函数，不新增 `0027`，迁移 head 仍为 `0026_agent_interactions`。旧版 0026 只可能存在于临时测试 schema，重建即可；没有历史业务数据需要修补。读取侧另补 `HumanInteraction` 不变量：expired 记录不能出现 responded_at 而无 published_at，防止异常历史被当作正常形状读取。
 
 ### 3.1 AP 分类
 
@@ -145,7 +172,8 @@ T06 负责把人工审核、连续消息和取消从纯类型推进到可持久�
 `0026_agent_interactions`：
 
 - `agent_runs.cancel_requested_at` 与局部索引。
-- `agent_interactions`：不可变材料/差异/有效期，状态单步迁移且 `state_version` 每次恰好 +1；单任务活跃待办部分唯一索引。
+- `agent_interactions`：不可变材料/差异/有效期，状态单步迁移且 `state_version` 每次恰好 +1；F1 后阶段时间逐项保护，过期保留已有发布/响应历史；单任务活跃待办部分唯一索引。
+- 读取侧 `HumanInteraction` 拒绝“expired 但 responded_at 存在而无 published_at”的异常形状；这是数据库触发器之外的防御性校验。
 - `agent_interaction_feedback`：追加不可变，工作台内 `request_id` 唯一；是否已应用由待办状态表达，反馈行本身不更新。
 - `agent_user_messages`：正文/序号/请求键不可变，只允许 `applied_at` 从空推进一次；`(workspace_id, request_id)` 与 `(run_id, sequence)` 唯一。
 - `agent_run_cancel_requests`：不可变幂等映射。
@@ -171,49 +199,49 @@ T06 负责把人工审核、连续消息和取消从纯类型推进到可持久�
 ### 4.3 迁移
 
 - 新增 `backend/alembic/versions/0026_agent_interactions.py`，`down_revision=0025_agent_attempt_shape_fix`。
-- 只新增前向表/列/索引/触发器，不修改 T04/T05 既有表结构或历史行，不改写旧迁移。
-- 迁移 head：`0026_agent_interactions`。
+- 只新增前向表/列/索引/触发器，不修改 T04/T05 既有表结构或历史行，不改写既有已发布迁移。
+- F1 修复直接补强未合并的 0026 触发器函数，不新增 0027；迁移 head 仍为 `0026_agent_interactions`。0026 未应用到业务库，旧版 0026 只可能存在于临时测试 schema，重建即可。
 - 未应用到业务库；未执行部署、回退或业务数据迁移。
 
 ## 5. 测试执行与证据
 
 执行目录除特别说明外为 `D:\t06\backend`。测试库为临时 PostgreSQL 17 容器（本机回环端口、受限角色 `crypto_research_test_runner`、固定测试库 `crypto_research_test`），`TEST_DATABASE_URL` 只在进程内注入，已通过 `check_test_database` 只读身份预检；未指向业务库。
 
-### 5.1 测试先行红测
+### 5.1 F1 修复前红测（真实 PostgreSQL）
 
 ```powershell
-uv run --locked --no-sync pytest tests/agent_runs/test_interactions.py tests/agent_runs/test_messages.py tests/persistence/test_agent_interactions.py -q --basetemp=../.tmp/pytest/t06-red
+uv run --locked --no-sync pytest tests/persistence/test_agent_interactions.py -q --tb=short --basetemp=../.tmp/pytest/t06-f1-red
 ```
 
-结果：3 个 collection error（缺少 `app.agent_runs.decisions/interactions/messages`），退出码 2；符合测试先行预期。
+结果：2 failed / 13 passed，退出码 1。`answered→expired` 清空阶段时间的直接 SQL 得到 `DID NOT RAISE`；`pending→answered` 缺 `responded_at` 被形状 CHECK 拒绝，未命中触发器原因。该失败复现了正式审查 F1，而不是只做静态推断。
 
-### 5.2 最终聚焦
+### 5.2 最终聚焦（F1 修复后）
 
 ```powershell
-pytest tests/agent_runs tests/persistence/test_agent_interactions.py -q --basetemp=../.tmp/pytest/t06-final-focus
+pytest tests/agent_runs tests/persistence/test_agent_interactions.py -q --basetemp=../.tmp/pytest/t06-f1-final-focus
 ```
 
-结果：48 passed，退出码 0。覆盖 AP 分类、状态形状、回执不宣称采纳、prepare 幂等/单活跃、响应 CAS/材料/过期、并发同键/异键、取消与反馈顺序、消息水位、JSONB 空引用、数据库触发器和安全事件。
+结果：51 passed，退出码 0。新增/覆盖：F1 阶段时间不可改写/清空、正常发布/响应/应用、取消过期保留历史、跳步与材料改写具体触发器原因、expired 读取不变量。
 
-### 5.3 阶段回归
+### 5.3 阶段回归（F1 修复后）
 
 ```powershell
-pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t06-stage4
+pytest tests/agent_runs tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_migrations.py tests/security tests/governance tests/research/strategies tests/research/knowledge tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_planning_inputs.py tests/trade_planning tests/market/test_planning_rules.py tests/market/test_binance_usdm.py tests/market/test_public_boundary.py tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t06-f1-stage
 ```
 
-结果：377 passed，退出码 0；含 T01–T05、迁移链、安全/治理和既有技术引擎回归。
+结果：380 passed，退出码 0；含 T01–T05、迁移链、安全/治理和既有技术引擎回归。
 
-### 5.4 后端 full
+### 5.4 后端 full（F1 修复后）
 
 在 `D:\t06` 根目录：
 
 ```powershell
-uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t06-full-backend.json
+uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t06-f1-full-backend.json
 ```
 
-结果：`verification=passed`，退出码 0；`backend-tests` 为 1208 collected / 1208 passed / 0 failed / 0 skipped / 0 collection errors。证据：`.tmp/quality/manual-agent-t06-full-backend.json`。full 在最终代码工作树运行，随后以同一内容提交为 `1ec0a72`；本审查包的文档提交不包含在 full 证据中。
+结果：`verification=passed`，退出码 0；`backend-tests` 为 1211 collected / 1211 passed / 0 failed / 0 skipped / 0 collection errors。证据：`.tmp/quality/manual-agent-t06-f1-full-backend.json`。full 在修复代码工作树运行，随后以同一内容提交为 `dea9848`；本审查包的文档提交不包含在 full 证据中。
 
-### 5.5 静态、架构与迁移链
+### 5.5 静态、架构与迁移链（F1 修复后）
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
@@ -227,7 +255,8 @@ uv run --project backend --locked --no-sync python scripts/verify.py full --comp
 
 - 首轮阶段命令因隔离工作区缺少 `.tmp/pytest` 父目录出现 47 个 fixture setup error；补齐测试临时目录后重跑，代码未因该环境问题修改。
 - `test_migrations` 曾因手工排查迁移而创建的 `debug_t06` 临时 schema 残留导致 1 failed；删除该临时 schema 后 `tests/persistence/test_migrations.py` 为 16 passed。该 schema 不属于交付物或业务库。
-- 上述两次失败保留记录，未删除、未改写为通过；最终阶段 377 passed 与 full 1208 passed 是清理测试资源后的结果。
+- F1 修复使用新建的临时 PostgreSQL 17 容器重新执行迁移和直接 SQL，避免旧 0026 的残留 schema 影响结论；未指向业务库。
+- 上述失败保留记录，未删除、未改写为通过；最终阶段 380 passed 与 full 1211 passed 是清理测试资源后的结果。
 
 ## 6. 未验证项与已知风险
 
@@ -253,10 +282,12 @@ uv run --project backend --locked --no-sync python scripts/verify.py full --comp
 8. **AP-07**：监控未交付，分类明确拒绝；不要因 AP-07 枚举存在而认为监控可用。
 9. **类型化修改**：`InteractionChange` 只携带不可变 `ArtifactRef`，不接收自由金额/数量 JSON；T11/T13 需要把用户表单形成的新版本映射为引用，不能把它解释为可绕过风险校验的数值。
 10. **容量/过期扫描**：`expire_due` 目前是显式维护方法，没有内置调度；T07/T14 需在合适生命周期调用或另有恢复扫描。
+11. **F1 迁移修补方式**：0026 未合并/未应用到业务库，本次直接编辑触发器函数；已用旧版 0026 创建的临时 schema 必须重建。若审查要求独立迁移号，可讨论改为前向迁移，但当前没有需要修补的业务历史。
+12. **F1 复审边界**：正式审查端上次仅独立运行纯测试 35 passed，因缺少 `TEST_DATABASE_URL` 未在 PostgreSQL 实跑；本次开发端已在临时 PostgreSQL 17 复现并验证直接 SQL。复审仍建议由审查端独立重跑或核对 SQL 证据。
 
 ## 7. 状态声明
 
-- 自测状态：`verified`（实现、聚焦、SQL/阶段、静态、架构门禁、迁移链和后端 full 已完成）。
-- 正式审查状态：`awaiting_review`，`reviewed_tip=—`。
+- 自测状态：`verified`（F1 修复、聚焦、SQL/阶段、静态、架构门禁、迁移链和后端 full 已完成）。
+- 正式审查状态：`awaiting_review`（F1 复审），当前修复版本 `reviewed_tip=—`；上一次正式审查对 `1ec0a72` 判定不通过（F1）。
 - 本轮未自行标记 `approved`，未进入 T07，未开始下一审查单元。
-- 请原审查助手重点核对上述锁顺序、状态迁移、不可变触发器、取消/反馈竞态、消息水位与 T05 预算护栏的接缝；如需修复，将以当前 `1ec0a72` 为基线补充回归并重新提交。
+- 请原审查助手重点复核 F1 的已写入阶段时间保护、合法迁移首次写入、正常发布/响应/应用/取消过期，以及上述锁顺序、状态迁移、不可变触发器、取消/反馈竞态、消息水位与 T05 预算护栏的接缝。如需继续修复，将以当前 `dea9848` 为基线补充回归并重新提交。
