@@ -124,6 +124,7 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 - 验证进程移除宿主 `APP_ENV`、`CORS_ALLOWED_ORIGINS`、`DEEPSEEK_MODEL`、`DATABASE_URL`、`NODE_ENV`、`GIT_CONFIG_COUNT`；未修改 `.env` 或业务配置。
 - 测试数据：合成任务、策略版本、知识命中、公开行情、证据和 manifest；无真实财务/账户/模型内容。
 - 未调用真实模型、工具、MCP、私有账户或交易执行；未执行前端、浏览器 e2e、http-e2e 或生产 lifespan 验收。
+- `.tmp/quality/` 证据是本地未提交产物，不随分支传递；上表给出完整命令，可在专用测试库重跑。首次 full 的失败报告与最终 full 报告分别保留，不能用前者冒充后者。
 
 ### 5.2 实际命令与结果
 
