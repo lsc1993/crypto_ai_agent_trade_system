@@ -8,6 +8,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
+from pydantic import JsonValue
 from sqlalchemy import select, update
 from sqlalchemy.exc import DBAPIError
 
@@ -412,3 +413,154 @@ async def test_evidence_service_reserves_transport_budget_and_persists(
     assert latest == epoch
     assert status.transport_calls == 2
     assert status.transport_sent == 2
+
+
+# manifest 文档归属必须与保存围栏一致；只校验围栏活性不能让 B 的清单落到 A。
+@pytest.mark.asyncio
+async def test_context_manifest_rejects_document_scope_mismatch(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository, context = await _claimed_run(migrated_database)
+    epoch = _epoch()
+    await _as_evidence_repository(repository).save_evidence(context.fence, epoch)
+    manifest = _manifest(context, epoch)
+    variants = (
+        manifest.model_copy(update={"workspace_id": uuid4()}),
+        manifest.model_copy(update={"run_id": uuid4()}),
+        manifest.model_copy(update={"revision": manifest.revision + 1}),
+        manifest.model_copy(update={"segment_id": uuid4()}),
+    )
+
+    for variant in variants:
+        with pytest.raises(AgentRunError) as raised:
+            await repository.save_context_manifest(context.fence, variant)
+        assert raised.value.code == "integrity_violation"
+
+    async with migrated_database.session_factory() as session:
+        count = await session.scalar(select(AgentArtifactRecord))
+    assert count is None
+
+
+# manifest 引用的证据必须属于当前运行修订；同 run 的后续修订证据也不能借用。
+@pytest.mark.asyncio
+async def test_context_manifest_rejects_evidence_from_other_revision(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository, context = await _claimed_run(migrated_database)
+    other_content: JsonObject = {"symbol": "BTCUSDT", "price": "107.0"}
+    other_epoch = EvidenceEpoch.seal(
+        analysis_as_of=NOW,
+        sealed_at=NOW,
+        items=(
+            EvidenceItem(
+                evidence_id=uuid4(),
+                kind="market_detail",
+                source="synthetic-public-source",
+                observed_at=NOW,
+                available_at=NOW,
+                fetched_at=NOW,
+                payload_sha256=sha256_json(other_content),
+                quality=EvidenceQuality.VALID,
+                calculation_version="market_detail_v1",
+                content=other_content,
+            ),
+        ),
+    )
+    async with migrated_database.session_factory() as session, session.begin():
+        session.add(
+            AgentEvidenceEpochRecord(
+                id=other_epoch.epoch_id,
+                workspace_id=context.fence.workspace_id,
+                run_id=context.fence.run_id,
+                revision=context.fence.revision + 1,
+                analysis_as_of=other_epoch.analysis_as_of,
+                sealed_at=other_epoch.sealed_at,
+                sha256=other_epoch.sha256,
+                document=cast(dict[str, object], other_epoch.model_dump(mode="json")),
+                created_at=NOW,
+            )
+        )
+
+    with pytest.raises(AgentRunError) as raised:
+        await repository.save_context_manifest(
+            context.fence,
+            _manifest(context, other_epoch),
+        )
+
+    assert raised.value.code == "integrity_violation"
+
+
+# 读取端同样核对行归属与文档归属；手动插入的错绑 artifact 不能被当作合法清单。
+@pytest.mark.asyncio
+async def test_context_manifest_load_rejects_row_document_scope_mismatch(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository, context = await _claimed_run(migrated_database)
+    epoch = _epoch()
+    await _as_evidence_repository(repository).save_evidence(context.fence, epoch)
+    manifest = _manifest(context, epoch).model_copy(update={"workspace_id": uuid4()})
+    document = manifest.model_dump(mode="json")
+    digest = sha256_json(cast(JsonValue, document))
+    artifact_id = uuid4()
+    async with migrated_database.session_factory() as session, session.begin():
+        session.add(
+            AgentArtifactRecord(
+                id=artifact_id,
+                workspace_id=context.fence.workspace_id,
+                run_id=context.fence.run_id,
+                revision=context.fence.revision,
+                artifact_type="context_manifest",
+                quality=None,
+                sha256=digest,
+                document=cast(dict[str, object], document),
+                parent_artifact_id=None,
+                created_at=NOW,
+            )
+        )
+
+    with pytest.raises(AgentRunError) as raised:
+        await repository.load_context_manifest(
+            context.fence.workspace_id,
+            context.fence.run_id,
+            artifact_id,
+        )
+
+    assert raised.value.code == "integrity_violation"
+
+
+# 读取端还核对 manifest 片段属于 run/revision；未知片段不能作为合法审计清单。
+@pytest.mark.asyncio
+async def test_context_manifest_load_rejects_unknown_segment(
+    migrated_database: MigratedDatabase,
+) -> None:
+    repository, context = await _claimed_run(migrated_database)
+    epoch = _epoch()
+    await _as_evidence_repository(repository).save_evidence(context.fence, epoch)
+    manifest = _manifest(context, epoch).model_copy(update={"segment_id": uuid4()})
+    document = manifest.model_dump(mode="json")
+    digest = sha256_json(cast(JsonValue, document))
+    artifact_id = uuid4()
+    async with migrated_database.session_factory() as session, session.begin():
+        session.add(
+            AgentArtifactRecord(
+                id=artifact_id,
+                workspace_id=context.fence.workspace_id,
+                run_id=context.fence.run_id,
+                revision=context.fence.revision,
+                artifact_type="context_manifest",
+                quality=None,
+                sha256=digest,
+                document=cast(dict[str, object], document),
+                parent_artifact_id=None,
+                created_at=NOW,
+            )
+        )
+
+    with pytest.raises(AgentRunError) as raised:
+        await repository.load_context_manifest(
+            context.fence.workspace_id,
+            context.fence.run_id,
+            artifact_id,
+        )
+
+    assert raised.value.code == "integrity_violation"

@@ -2,11 +2,13 @@
 # 所有公开证据、策略版本、任务标识和用量均为合成值；不联网、不调用模型、不写业务库。
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 
 from app.agent.interactive.adapters.research_evidence import (
@@ -36,6 +38,10 @@ from app.agent_runs.segments import (
     EMPTY_TOOL_CATALOG_SHA256,
     ExecutionContext,
     RunFence,
+)
+from app.market.binance_usdm import (
+    BINANCE_USDM_BASE_URL,
+    BinanceUsdmPublicMarketGateway,
 )
 from app.market.contracts import (
     Candle,
@@ -231,8 +237,15 @@ class FakeEvidenceRepository:
 
 # 预算账本替身；按顺序记录预留/发送/结算，并可注入预算不足或结算失败。
 class FakeBudget:
-    def __init__(self, *, fail_reserve: bool = False, events: list[str]) -> None:
+    def __init__(
+        self,
+        *,
+        fail_reserve: bool = False,
+        events: list[str],
+        reserve_limit: int | None = None,
+    ) -> None:
         self.fail_reserve = fail_reserve
+        self.reserve_limit = reserve_limit
         self.events = events
         self.requests: list[AttemptRequest] = []
         self.sent: list[UUID] = []
@@ -240,7 +253,9 @@ class FakeBudget:
 
     async def reserve(self, fence: RunFence, request: AttemptRequest) -> StepAttempt:
         self.events.append("reserve")
-        if self.fail_reserve:
+        if self.fail_reserve or (
+            self.reserve_limit is not None and len(self.requests) >= self.reserve_limit
+        ):
             raise AgentRunError("budget_exhausted")
         self.requests.append(request)
         attempt_id = uuid4()
@@ -613,7 +628,7 @@ async def test_market_evidence_port_preserves_times_and_quality() -> None:
         analysis_as_of=NOW,
     )
 
-    assert port.planned_transport_calls((MarketTimeframe.H1,)) == 2
+    assert port.planned_transport_calls((MarketTimeframe.H1,)) == 8
     assert gateway.calls == [("BTCUSDT", (MarketTimeframe.H1,))]
     item = collection.items[0]
     assert item.kind == "market_detail"
@@ -742,3 +757,164 @@ async def test_context_epoch_must_exist_in_current_run_storage() -> None:
         await service.freeze(_context().model_copy(update={"evidence_epoch": epoch}))
 
     assert raised.value.code == "run_state_conflict"
+
+
+# 合成公开 REST 响应；可选让每个路径首次返回 500，以证明预留覆盖网关重试。
+def _public_handler(
+    requests: list[httpx.Request],
+    *,
+    fail_first: bool,
+) -> Callable[[httpx.Request], httpx.Response]:
+    failed: set[tuple[str, str]] = set()
+    now_ms = int(NOW.timestamp() * 1000)
+    close_ms = int((NOW - timedelta(minutes=1)).timestamp() * 1000)
+    open_ms = int((NOW - timedelta(minutes=16)).timestamp() * 1000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        path = request.url.path
+        interval = request.url.params.get("interval", "")
+        failure_key = (path, interval)
+        if fail_first and failure_key not in failed:
+            failed.add(failure_key)
+            return httpx.Response(500, json={"message": "synthetic transient"})
+        symbol = request.url.params.get("symbol", "BTCUSDT")
+        if path == "/fapi/v1/ticker/24hr":
+            return httpx.Response(
+                200,
+                json={
+                    "symbol": symbol,
+                    "lastPrice": "106.2",
+                    "priceChangePercent": "0.5",
+                    "quoteVolume": "1000",
+                    "closeTime": now_ms,
+                },
+            )
+        if path == "/fapi/v1/premiumIndex":
+            return httpx.Response(
+                200,
+                json={"symbol": symbol, "lastFundingRate": "0.0001", "time": now_ms},
+            )
+        if path == "/fapi/v1/openInterest":
+            return httpx.Response(
+                200,
+                json={"symbol": symbol, "openInterest": "100", "time": now_ms},
+            )
+        if path == "/fapi/v1/klines":
+            return httpx.Response(
+                200,
+                json=[
+                    [
+                        open_ms,
+                        "105",
+                        "107",
+                        "104",
+                        "106.2",
+                        "12.5",
+                        close_ms,
+                    ]
+                ],
+            )
+        return httpx.Response(404, json={"message": "unexpected path"})
+
+    return handler
+
+
+# 真实公开网关替身：冷缓存摘要 3 端点 + 每周期 klines，各自首次失败后重试一次，
+# 实际请求数必须不超过预留，且余额不足时一次公开请求也不能发出。
+@pytest.mark.asyncio
+async def test_market_evidence_transport_reservation_covers_gateway_fanout_and_retries() -> None:
+    requests: list[httpx.Request] = []
+    async with httpx.AsyncClient(
+        base_url=BINANCE_USDM_BASE_URL,
+        transport=httpx.MockTransport(_public_handler(requests, fail_first=True)),
+    ) as client:
+        gateway = BinanceUsdmPublicMarketGateway(
+            client=client,
+            clock=lambda: NOW,
+            sleep=lambda _: _no_sleep(),
+        )
+        port = MarketResearchEvidencePort(gateway)
+        planned = port.planned_transport_calls((MarketTimeframe.H1, MarketTimeframe.H4))
+        collection = await port.collect(
+            product=_run_input().product,
+            timeframes=(MarketTimeframe.H1, MarketTimeframe.H4),
+            analysis_as_of=NOW,
+        )
+
+    assert planned == 10
+    assert len(requests) == 10
+    assert collection.items[0].quality is EvidenceQuality.VALID
+
+
+async def _no_sleep() -> None:
+    return None
+
+
+# 余额不足以覆盖最坏扇出时，服务在预留阶段停止，不能先发出部分公开请求。
+@pytest.mark.asyncio
+async def test_transport_budget_insufficiency_blocks_all_public_requests() -> None:
+    requests: list[httpx.Request] = []
+    async with httpx.AsyncClient(
+        base_url=BINANCE_USDM_BASE_URL,
+        transport=httpx.MockTransport(_public_handler(requests, fail_first=False)),
+    ) as client:
+        gateway = BinanceUsdmPublicMarketGateway(
+            client=client,
+            clock=lambda: NOW,
+            sleep=lambda _: _no_sleep(),
+        )
+        events: list[str] = []
+        budget = FakeBudget(events=events, reserve_limit=9)
+        service = EvidenceService(
+            run_reader=cast(AgentRunReader, FakeRunReader(_snapshot())),
+            evidence_port=MarketResearchEvidencePort(gateway),
+            repository=cast(EvidenceRepository, FakeEvidenceRepository()),
+            budget=cast(BudgetLedger, budget),
+            clock=lambda: NOW,
+        )
+
+        with pytest.raises(AgentRunError) as raised:
+            await service.freeze(_context())
+
+    assert raised.value.code == "budget_exhausted"
+    assert requests == []
+
+
+# 已绑定已保存 epoch 时，显式 refresh 仍必须重新读取、使用新预算区段并产生新 epoch。
+@pytest.mark.asyncio
+async def test_refresh_with_bound_epoch_creates_new_epoch_and_reads_again() -> None:
+    existing = EvidenceEpoch.seal(
+        analysis_as_of=NOW,
+        sealed_at=NOW,
+        items=(
+            EvidenceItem(
+                evidence_id=uuid4(),
+                kind="market_detail",
+                source="synthetic-public-source",
+                observed_at=NOW,
+                available_at=NOW,
+                fetched_at=NOW,
+                payload_sha256=sha256_json({"symbol": "BTCUSDT"}),
+                quality=EvidenceQuality.VALID,
+                content={"symbol": "BTCUSDT"},
+            ),
+        ),
+    )
+    repository = FakeEvidenceRepository(existing=existing)
+    events: list[str] = []
+    budget = FakeBudget(events=events)
+    port = FakeEvidencePort(items=(_draft(),), events=events)
+    service, _, _ = _service(port=port, budget=budget, repository=repository)
+
+    refreshed = await service.freeze(
+        _context().model_copy(update={"evidence_epoch": existing}),
+        refresh=True,
+    )
+
+    assert refreshed.epoch_id != existing.epoch_id
+    assert port.calls
+    assert budget.requests[0].action_sequence == (
+        EVIDENCE_ACTION_SEQUENCE_BASE + MAX_EVIDENCE_TRANSPORT_CALLS
+    )
+    assert repository.saved[-1][1] == refreshed

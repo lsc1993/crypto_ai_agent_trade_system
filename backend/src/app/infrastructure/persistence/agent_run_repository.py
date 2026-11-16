@@ -533,11 +533,20 @@ class SqlAlchemyAgentRunRepository:
             raise AgentRunError("storage_unavailable") from None
 
     # 将上下文 manifest 保存为内部不可变 artifact；T14 的公开产物投影不得把它当业务报告。
+    # manifest 必须先与当前 fence 的 workspace/run/revision/segment 对齐，且引用证据
+    # 必须属于同一运行修订；行归属与文档归属不一致时 fail-closed，不能只信任摘要。
     async def save_context_manifest(
         self,
         fence: RunFence,
         manifest: ContextManifest,
     ) -> ArtifactRef:
+        _validate_manifest_scope(
+            manifest,
+            workspace_id=fence.workspace_id,
+            run_id=fence.run_id,
+            revision=fence.revision,
+            segment_id=fence.segment_id,
+        )
         document = manifest.model_dump(mode="json")
         digest = sha256_json(cast(JsonValue, document))
         artifact_id = uuid5(
@@ -547,6 +556,13 @@ class SqlAlchemyAgentRunRepository:
         try:
             async with self._factory() as session, session.begin():
                 await _lock_live_fence(session, fence)
+                await _require_manifest_evidence(
+                    session,
+                    manifest,
+                    workspace_id=fence.workspace_id,
+                    run_id=fence.run_id,
+                    revision=fence.revision,
+                )
                 existing = await session.get(AgentArtifactRecord, artifact_id)
                 if existing is not None:
                     if (
@@ -556,6 +572,19 @@ class SqlAlchemyAgentRunRepository:
                         or existing.artifact_type != "context_manifest"
                         or existing.sha256 != digest
                     ):
+                        raise AgentRunError("integrity_violation")
+                    try:
+                        existing_manifest = ContextManifest.model_validate(existing.document)
+                    except ValidationError as error:
+                        raise AgentRunError("integrity_violation") from error
+                    _validate_manifest_scope(
+                        existing_manifest,
+                        workspace_id=fence.workspace_id,
+                        run_id=fence.run_id,
+                        revision=fence.revision,
+                        segment_id=fence.segment_id,
+                    )
+                    if existing_manifest != manifest:
                         raise AgentRunError("integrity_violation")
                     return ArtifactRef(artifact_id=artifact_id, sha256=digest)
                 session.add(
@@ -588,7 +617,8 @@ class SqlAlchemyAgentRunRepository:
         except (SQLAlchemyError, ValidationError):
             raise AgentRunError("storage_unavailable") from None
 
-    # 读取内部 context manifest；重新计算文档指纹并拒绝被改写/跨类型的 artifact。
+    # 读取内部 context manifest；重新计算文档指纹并拒绝被改写/跨类型/归属不一致的 artifact。
+    # 读取端不能只验证 SHA；行 workspace/run/revision 与文档、引用证据必须同时一致。
     async def load_context_manifest(
         self,
         workspace_id: UUID,
@@ -610,10 +640,35 @@ class SqlAlchemyAgentRunRepository:
                     raise AgentRunError("integrity_violation")
                 if sha256_json(cast(JsonValue, row.document)) != row.sha256:
                     raise AgentRunError("integrity_violation")
-                return ContextManifest.model_validate(row.document)
+                try:
+                    manifest = ContextManifest.model_validate(row.document)
+                except ValidationError as error:
+                    raise AgentRunError("integrity_violation") from error
+                _validate_manifest_scope(
+                    manifest,
+                    workspace_id=workspace_id,
+                    run_id=run_id,
+                    revision=row.revision,
+                )
+                segment = await session.get(AgentSegmentRecord, manifest.segment_id)
+                if (
+                    segment is None
+                    or segment.workspace_id != workspace_id
+                    or segment.run_id != run_id
+                    or segment.revision != row.revision
+                ):
+                    raise AgentRunError("integrity_violation")
+                await _require_manifest_evidence(
+                    session,
+                    manifest,
+                    workspace_id=workspace_id,
+                    run_id=run_id,
+                    revision=row.revision,
+                )
+                return manifest
         except AgentRunError:
             raise
-        except (SQLAlchemyError, ValidationError):
+        except SQLAlchemyError:
             raise AgentRunError("storage_unavailable") from None
 
     # 唯一约束冲突后的独立事务重放；内容不同仍返回冲突而不是伪成功。
@@ -639,6 +694,52 @@ class SqlAlchemyAgentRunRepository:
             raise
         except SQLAlchemyError:
             return None
+
+
+# 校验 manifest 文档的归属与保存/读取范围一致；摘要一致不能替代行/文档归属校验。
+def _validate_manifest_scope(
+    manifest: ContextManifest,
+    *,
+    workspace_id: UUID,
+    run_id: UUID,
+    revision: int,
+    segment_id: UUID | None = None,
+) -> None:
+    if (
+        manifest.workspace_id != workspace_id
+        or manifest.run_id != run_id
+        or manifest.revision != revision
+    ):
+        raise AgentRunError("integrity_violation")
+    if segment_id is not None and manifest.segment_id != segment_id:
+        raise AgentRunError("integrity_violation")
+
+
+# manifest 引用的证据必须存在、属于同一工作台/任务/修订，且时间与逐项标识一致。
+async def _require_manifest_evidence(
+    session: AsyncSession,
+    manifest: ContextManifest,
+    *,
+    workspace_id: UUID,
+    run_id: UUID,
+    revision: int,
+) -> None:
+    row = await session.get(AgentEvidenceEpochRecord, manifest.evidence_epoch_id)
+    if (
+        row is None
+        or row.workspace_id != workspace_id
+        or row.run_id != run_id
+        or row.revision != revision
+        or row.sha256 != manifest.evidence_sha256
+    ):
+        raise AgentRunError("integrity_violation")
+    epoch = _evidence_from_row(row)
+    expected_items = tuple(sorted((item.evidence_id for item in epoch.items), key=str))
+    if (
+        epoch.analysis_as_of != manifest.analysis_as_of
+        or expected_items != manifest.evidence_item_ids
+    ):
+        raise AgentRunError("integrity_violation")
 
 
 # 读取数据库当前时刻；围栏判断不使用客户端时钟或事务开始时钟。

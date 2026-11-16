@@ -53,7 +53,6 @@ SCHEMA_VERSION = "model-context-v1"
 # 当前模式的证据超过该窗口只标记限制，不把旧值重新封成当前事实。
 MAX_EVIDENCE_AGE = timedelta(minutes=15)
 _MAX_MESSAGE_CHARS = 64_000
-_MAX_PROJECTED_FACT_CHARS = 4_000
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 _VERSION_CODE = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _SAFE_BLOCK_ID = re.compile(r"[a-z][a-z0-9:_-]{0,96}\Z")
@@ -963,8 +962,10 @@ class ContextBuilder:
             except Exception:
                 projected = None
                 failed = True
-            if projected is not None:
-                projected = projected[:_MAX_PROJECTED_FACT_CHARS]
+            if projected is not None and len(projected) > _MAX_MESSAGE_CHARS:
+                # 不在事实文本中间做字符切片；投影器必须生成完整有界事实，
+                # 否则明确失败，由调用方缩小证据范围或修正投影器。
+                raise ContextBuildError("evidence_projection_too_large")
             messages.append(
                 ModelMessage(
                     role="user",

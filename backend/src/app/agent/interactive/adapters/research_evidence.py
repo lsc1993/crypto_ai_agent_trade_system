@@ -10,6 +10,7 @@ from typing import cast
 from pydantic import ValidationError
 
 from app.agent_runs.evidence import EvidenceCollection, EvidenceDraft
+from app.market.binance_usdm import MAX_ATTEMPTS as PUBLIC_GATEWAY_MAX_ATTEMPTS
 from app.market.contracts import (
     Candle,
     CandleSeries,
@@ -28,6 +29,10 @@ from app.research.evidence import (
 from app.shared.agent_types import JsonObject, ProductKey
 
 MARKET_DETAIL_CALCULATION_VERSION = "market_detail_v1"
+# 公开摘要由 ticker/premiumIndex/openInterest 三个固定端点组成；每个端点及每个
+# klines 请求都允许一次有界重试。预算预留必须覆盖最坏扇出，而不是只数聚合调用。
+SUMMARY_ENDPOINT_COUNT = 3
+CANDLE_ENDPOINT_COUNT_PER_TIMEFRAME = 1
 
 
 # 固定公开行情证据端口：一次读取一个标的的摘要与请求周期已收盘 K 线。
@@ -35,9 +40,12 @@ class MarketResearchEvidencePort:
     def __init__(self, market: PublicMarketGateway) -> None:
         self._market = market
 
-    # 摘要一次 + 每个周期一次公开请求；缓存命中仍按上限保守计数，绝不低估传输预算。
+    # 按公开网关的最坏请求扇出和重试次数预留；缓存命中只会高估，不会低估。
+    # 摘要 3 个端点 + 每周期 1 个 klines 端点，各自最多 PUBLIC_GATEWAY_MAX_ATTEMPTS 次。
     def planned_transport_calls(self, timeframes: tuple[MarketTimeframe, ...]) -> int:
-        return 1 + len(timeframes)
+        return (
+            SUMMARY_ENDPOINT_COUNT + CANDLE_ENDPOINT_COUNT_PER_TIMEFRAME * len(timeframes)
+        ) * PUBLIC_GATEWAY_MAX_ATTEMPTS
 
     async def collect(
         self,

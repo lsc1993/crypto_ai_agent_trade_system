@@ -46,7 +46,8 @@ from app.shared.agent_types import (
 # 初始证据读取使用独立的高序号区段，避免与模型/工具动作的低序号步骤冲突。
 # 每次刷新再按已保存 epoch 数推进一个区段；SQL 唯一约束仍按 run/revision/action_sequence。
 EVIDENCE_ACTION_SEQUENCE_BASE = 1_000_000
-MAX_EVIDENCE_TRANSPORT_CALLS = 8
+# 公开行情最坏扇出：3 个摘要端点 + 4 个周期端点，各最多 2 次尝试 = 14；留出 16 的硬边界。
+MAX_EVIDENCE_TRANSPORT_CALLS = 16
 MAX_EVIDENCE_ITEMS = 8
 _MAX_EVIDENCE_CONTENT_BYTES = 4 * 1024 * 1024
 _SAFE_VERSION = re.compile(r"[a-z0-9_]{1,64}\Z")
@@ -257,7 +258,8 @@ class EvidenceService:
         *,
         refresh: bool = False,
     ) -> EvidenceEpoch:
-        if context.evidence_epoch is not None:
+        # 只有非刷新调用复用已绑定 epoch；显式刷新必须重新检查运行、预算和公开源。
+        if context.evidence_epoch is not None and not refresh:
             stored = await self._repository.load_latest_evidence(
                 context.fence.workspace_id,
                 context.fence.run_id,

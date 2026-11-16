@@ -303,11 +303,16 @@ class FakeHistoryReader:
         return self.history
 
 
-# 证据事实投影替身：只返回安全公开文本，未知类型返回 None。
+# 证据事实投影替身：只返回安全公开文本，未知类型返回 None；可注入固定文本。
 class FakeEvidenceProjector:
+    def __init__(self, text: str | None = None) -> None:
+        self.text = text
+
     def project(self, item: EvidenceItem) -> str | None:
         if item.kind != "market_detail":
             return None
+        if self.text is not None:
+            return self.text
         return "公开行情事实：symbol=BTCUSDT price=106.2（合成公开数据）"
 
 
@@ -368,6 +373,7 @@ def _builder(
     knowledge: FakeKnowledgeIndex | None = None,
     history: FakeHistoryReader | None = None,
     tool_catalog: EmptyToolCatalog | None = None,
+    evidence_projector: FakeEvidenceProjector | None = None,
     max_input_units: int | None = None,
 ) -> ContextBuilder:
     knowledge_index = knowledge or FakeKnowledgeIndex()
@@ -379,7 +385,10 @@ def _builder(
         strategies=cast(StrategyCatalog, FakeStrategyCatalog(strategy)),
         knowledge=cast(KnowledgeIndex, knowledge_index),
         history=cast(ContextHistoryReader, history or FakeHistoryReader()),
-        evidence_projector=cast(EvidenceFactProjector, FakeEvidenceProjector()),
+        evidence_projector=cast(
+            EvidenceFactProjector,
+            evidence_projector or FakeEvidenceProjector(),
+        ),
         tool_catalog=tool_catalog or EmptyToolCatalog(),
         clock=lambda: NOW,
         **arguments,
@@ -759,3 +768,44 @@ async def test_knowledge_query_is_bounded_to_fixed_term_limit() -> None:
 
     assert knowledge.queries
     assert 1 <= len(knowledge.queries[0].terms) <= 64
+
+
+# 事实投影必须整块保留；阈值落在数字/时间字段中间时不能产生半截数值。
+@pytest.mark.asyncio
+async def test_evidence_projection_is_not_character_truncated() -> None:
+    strategy = _strategy()
+    snapshot = _snapshot(strategy)
+    projected = "x" * 3_990 + " price=12345.67 closeAt=2026-11-13T08:59:00Z（合成完整事实）"
+    builder = _builder(
+        snapshot=snapshot,
+        strategy=strategy,
+        evidence_projector=FakeEvidenceProjector(projected),
+    )
+
+    model_context = await builder.build(_context(strategy), _evidence(), applied_seq=0)
+    serialized = _serialized(model_context)
+
+    assert "price=12345.67" in serialized
+    assert "closeAt=2026-11-13T08:59:00Z" in serialized
+    assert not any(
+        item.kind == "evidence" and item.reason == "input_budget"
+        for item in model_context.manifest.omitted
+    )
+
+
+# 必需证据投影超过单次预算时明确失败，不能静默截断后继续构建。
+@pytest.mark.asyncio
+async def test_oversized_required_evidence_projection_fails() -> None:
+    strategy = _strategy()
+    snapshot = _snapshot(strategy)
+    builder = _builder(
+        snapshot=snapshot,
+        strategy=strategy,
+        evidence_projector=FakeEvidenceProjector("x" * 20_000),
+        max_input_units=8_000,
+    )
+
+    with pytest.raises(ContextBuildError) as raised:
+        await builder.build(_context(strategy), _evidence(), applied_seq=0)
+
+    assert raised.value.code == "context_budget_exceeded"
