@@ -14,9 +14,9 @@
 | 隔离工作区 | `D:\t08`（从 `main` 的 `f331e09` 创建） |
 | 分支 | `t08-evidence-context`（未推送、未合并、未部署） |
 | base | `f331e09b7d1652060dc03fb792fa65726a11a9bb`（`main`，`docs: record T07 merge into main`） |
-| implementation tip | `deec8f2fd030072758c94070a9000b96b004e375`（`feat: assemble bounded evidence contexts for agent runs`） |
-| implementation tree | `a9c7e139d255a44947944030aa8588960cbf474c` |
-| 代码改动范围 | `f331e09..deec8f2`，15 个文件，+4130 / -7 |
+| implementation tip | `96b82701d122a499f8f816e612f201f2cd9fd8fb`（`fix: tighten T08 evidence context boundaries`；首轮实现 `deec8f2`） |
+| implementation tree | `e422f6ed91c98c6673305ccb85c6017779aaa45c` |
+| 代码改动范围 | `f331e09..96b8270`，15 个文件，+4192 / -7（`deec8f2` 首轮实现 15 个文件 +4130/-7；`96b8270` 边界加固 3 个文件 +72/-10） |
 | 审查请求/进度/计划/契约文档 | 在 implementation tip 之后单独提交；文档提交号见交付回复，不改变 implementation tip，避免用自身提交号循环引用 |
 | 工作区未提交内容 | 仅本轮审查请求与进度/计划/契约文档；没有夹带其他任务改动、`.env`、凭证或业务库修改 |
 | 正式审查报告 | 尚未生成；本请求不预填 `approved` |
@@ -30,15 +30,15 @@
 | `backend/src/app/agent/interactive/__init__.py` | `65d75af2aa009a88afb185b9d76ed58fff8541c6bbbec095ed0c3e9c765365f9` |
 | `backend/src/app/agent/interactive/adapters/__init__.py` | `54a4521d81d503a67c77c25b85c799f540b3b0f47eb61075b81f8e173cd5adc1` |
 | `backend/src/app/agent/interactive/adapters/research_evidence.py` | `74d398efb38b3f742ae2618d53922884c7beb27012866641a9a67bb4b74aace3` |
-| `backend/src/app/agent/interactive/context.py` | `5afe3773adee10a5c8dfc21156f0d9a70743ca1f3d8685c2da4530b4a199ebeb` |
+| `backend/src/app/agent/interactive/context.py` | `cdc17287f22f5b78940dadab8bdf9984ea904d7800fc8d97bd64d13e1145ebf9` |
 | `backend/src/app/agent/interactive/context_budget.py` | `89fe3280088c45c3307f14bed0d26c60d33b21023e997879abcc431593c3d9b6` |
 | `backend/src/app/agent_runs/__init__.py` | `56a3dd4a8c641e58b030b9426007a195e0689db2493ea7f8a926a12841d70c3c` |
 | `backend/src/app/agent_runs/contracts.py` | `e24aeb5342b05786fefeeb39f4b914d5332d6b0e595b592a9f165df5ae21567a` |
-| `backend/src/app/agent_runs/evidence.py` | `5ee7d8829048c27949ac25f4cf98babe764eba98e7bbdfe071c466f48419e454` |
+| `backend/src/app/agent_runs/evidence.py` | `532fcf4123a53f0d64c6d2f7845727e043bed00feff7aaa35469d76d367c46f7` |
 | `backend/src/app/infrastructure/persistence/agent_run_repository.py` | `e3665ba2eee0cf6c0d59273a6048eaf0418d0dfa2a65e65c1496fca864db593f` |
 | `backend/src/app/research/evidence.py` | `1fd66292963267d3ed062c55dcd939b7653366d13b05ac232942d1cc41e35a7e` |
 | `backend/tests/agent/interactive/__init__.py` | `e629bd263d58312f20029d6cfc418dbe370ff39ec1228d03709767000ab306b5` |
-| `backend/tests/agent/interactive/test_context.py` | `0efe221b946763b81dac26d2b2a8c57d3bf85378d8fe318e83e7da3d4d476908` |
+| `backend/tests/agent/interactive/test_context.py` | `893815b6d99618a4481f1c1ed2fbed6038d9257005e948130615ef800ecfc212` |
 | `backend/tests/agent/interactive/test_context_budget.py` | `5cb4d9f185f2220c50ae05d52e7352de3f56dd6a365d89dac0e1cf8ebe7cbb41` |
 | `backend/tests/agent/interactive/test_evidence_epochs.py` | `0c6dea6e8ba4eff8314069e5533cacdca4d883fe7fe77585a310f31f46f40276` |
 | `backend/tests/persistence/test_agent_evidence.py` | `2d30efeefa9d6c77ebc6b0afd04c3f03c6da8236b6778d9e66c7fded665f88cb` |
@@ -87,7 +87,8 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 7. **旧摘要必须绑定当前证据**：`ContextSummary.evidence_ids` 必须全部属于当前 epoch，否则不进入上下文并记录 `unverified_summary`，避免旧观点变成新事实。
 8. **财务值只以引用进入**：`RunInput.planning` 只投影 profile/policy/venue/costs 的 `VersionRef` 与池代次；manifest 不保存金额、仓位、杠杆、成交量或订单值。模型上下文的证据块只含公开行情/知识文本。
 9. **安全门禁兼容**：当前 `test_agent_source_and_secret_safety.py` 仍把工具关键字字面量视为旧固定研究路径的禁用能力。T08 不启用工具，仅通过 `ModelContext.model_validate(...)` 返回空/已授权 Schema；未修改或放宽安全测试。T09 必须按计划细化门禁，不能把该写法当作工具循环已交付。
-10. **生产历史读取端口尚未实现**：`ContextHistoryReader` 在 T08 是纯协议；`test_context.py` 使用替身验证水位/摘要/工具配对。T11/T14 必须提供 SQL 实现并接线，T08 不宣称生产上下文读取已完整交付。
+10. **边界加固（`96b8270`）**：历史模式检查前移到复用已保存 epoch 之前；`ExecutionContext.evidence_epoch` 改为核对当前 revision 的最新 epoch；`ContextBuilder` 拒绝调用方证据与 `ExecutionContext.evidence_epoch` 不一致、过滤未来摘要、对规划引用去重。
+11. **生产历史读取端口尚未实现**：`ContextHistoryReader` 在 T08 是纯协议；`test_context.py` 使用替身验证水位/摘要/工具配对。T11/T14 必须提供 SQL 实现并接线，T08 不宣称生产上下文读取已完整交付。
 
 ## 4. 公共接口、依赖与迁移影响
 
@@ -130,9 +131,9 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 | --- | --- | --- | --- | --- | --- |
 | 改动前基线 | `D:\t08\backend` | `uv run --locked --no-sync pytest tests/research/strategies tests/research/knowledge tests/agent_runs tests/security -q --basetemp=../.tmp/pytest/t08-baseline-20261113` | 0 | 142 passed | 终端记录 |
 | 首轮预期红 | `D:\t08\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/persistence/test_agent_evidence.py -q --basetemp=../.tmp/pytest/t08-red-1` | 2 | 4 个 collection error（缺少新模块/符号），退出 2；符合测试先行预期 | 终端记录 |
-| 聚焦最终 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive/test_context.py tests/agent/interactive/test_evidence_epochs.py tests/agent/interactive/test_context_budget.py tests/persistence/test_agent_evidence.py -q --basetemp=../.tmp/pytest/t08-focus-final` | 0 | **44 passed / 0 failed / 0 skipped** | 终端记录 |
-| D3 阶段回归 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research/strategies tests/research/knowledge tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_evidence.py tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/security tests/governance tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t08-stage-final` | 0 | **411 passed / 0 failed / 0 skipped** | 终端记录 |
-| 后端 full（最终） | `D:\t08` + 专用 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t08-full-backend-2.json` | 0 | `verification=passed`；1289 collected / 1289 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/manual-agent-t08-full-backend-2.json` |
+| 聚焦最终 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive/test_context.py tests/agent/interactive/test_evidence_epochs.py tests/agent/interactive/test_context_budget.py tests/persistence/test_agent_evidence.py -q --basetemp=../.tmp/pytest/t08-focus-final2` | 0 | **46 passed / 0 failed / 0 skipped** | 终端记录 |
+| D3 阶段回归 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research/strategies tests/research/knowledge tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_evidence.py tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/security tests/governance tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t08-stage-final2` | 0 | **413 passed / 0 failed / 0 skipped** | 终端记录 |
+| 后端 full（最终） | `D:\t08` + 专用 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t08-full-backend-3.json` | 0 | `verification=passed`；1291 collected / 1291 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/manual-agent-t08-full-backend-3.json` |
 | 首次 full（环境/类型失败） | `D:\t08` + tmpfs 测试库 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t08-full-backend-1.json` | 1 | `backend-types=1`（`run_state_conflict` 未加入错误码）；`backend-tests=1`（tmpfs 写满导致 204 个数据库用例失败）；修复/重建后最终 full 通过 | `.tmp/quality/manual-agent-t08-full-backend-1.json` |
 | Ruff | `D:\t08\backend` | `uv run --locked --no-sync ruff check .` | 0 | All checks passed | 终端记录 |
 | 格式 | `D:\t08\backend` | `uv run --locked --no-sync ruff format --check .` | 0 | 377 files already formatted | 终端记录 |
