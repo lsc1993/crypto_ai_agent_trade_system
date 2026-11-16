@@ -495,6 +495,54 @@ async def test_summary_without_current_evidence_is_omitted() -> None:
     )
 
 
+# 未来生成的摘要不能当作当前可重建观点；即使引用证据属于当前 epoch 也省略。
+@pytest.mark.asyncio
+async def test_future_summary_is_not_used_as_current_context() -> None:
+    strategy = _strategy()
+    snapshot = _snapshot(strategy)
+    evidence = _evidence()
+    summary_text = "未来摘要不应进入当前上下文。"
+    history = FakeHistoryReader(
+        ContextHistory(
+            summaries=(
+                ContextSummary(
+                    summary_id=uuid4(),
+                    text=summary_text,
+                    evidence_ids=tuple(item.evidence_id for item in evidence.items),
+                    created_at=NOW + timedelta(minutes=1),
+                ),
+            )
+        )
+    )
+    builder = _builder(snapshot=snapshot, strategy=strategy, history=history)
+
+    model_context = await builder.build(_context(strategy), evidence, applied_seq=0)
+
+    assert summary_text not in _serialized(model_context)
+    assert any(
+        item.kind == "summary" and item.reason == "unverified_summary"
+        for item in model_context.manifest.omitted
+    )
+
+
+# 调用方传入的 ExecutionContext 证据与 build 参数不一致时拒绝，避免混用不同 epoch。
+@pytest.mark.asyncio
+async def test_context_evidence_epoch_must_match_build_argument() -> None:
+    strategy = _strategy()
+    snapshot = _snapshot(strategy)
+    builder = _builder(snapshot=snapshot, strategy=strategy)
+    other = _evidence(analysis_as_of=NOW - timedelta(minutes=1))
+
+    with pytest.raises(ContextBuildError) as raised:
+        await builder.build(
+            _context(strategy).model_copy(update={"evidence_epoch": other}),
+            _evidence(),
+            applied_seq=0,
+        )
+
+    assert raised.value.code == "evidence_epoch_mismatch"
+
+
 # 工具历史裁剪只能整轮丢弃，不能留下没有 assistant tool_call 的孤立 tool 结果。
 @pytest.mark.asyncio
 async def test_tool_trimming_keeps_complete_call_result_pairs() -> None:

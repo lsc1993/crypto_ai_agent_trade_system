@@ -517,6 +517,11 @@ class ContextBuilder:
         assert snapshot is not None
 
         evidence_snapshot = evidence.validated_snapshot()
+        if (
+            context.evidence_epoch is not None
+            and context.evidence_epoch.epoch_id != evidence_snapshot.epoch_id
+        ):
+            raise ContextBuildError("evidence_epoch_mismatch")
         now = require_utc(self._clock())
         if evidence_snapshot.sealed_at > now or evidence_snapshot.analysis_as_of > now:
             raise ContextBuildError("evidence_from_future")
@@ -642,10 +647,12 @@ class ContextBuilder:
             )
             included_message_sequences.append(item.sequence)
 
+        summary_cutoff = historical_as_of or now
         verified_summaries = tuple(
             item
             for item in sorted(history.summaries, key=lambda item: item.created_at, reverse=True)
-            if set(item.evidence_ids)
+            if item.created_at <= summary_cutoff
+            and set(item.evidence_ids)
             <= {evidence_item.evidence_id for evidence_item in evidence_snapshot.items}
         )
         unverified_summary_count = len(history.summaries) - len(verified_summaries)
@@ -1141,7 +1148,14 @@ def _planning_refs(snapshot: RunSnapshot) -> tuple[VersionRef, ...]:
     planning = snapshot.input.planning
     if planning is None:
         return ()
-    return (planning.profile, planning.policy, planning.venue_rules, planning.costs)
+    refs = (
+        planning.profile,
+        planning.policy,
+        planning.venue_rules,
+        planning.costs,
+    )
+    # 同一版本引用重复时只保留一次，避免 manifest 因用户重复引用而无法构造。
+    return tuple({ref.version_id: ref for ref in refs}.values())
 
 
 __all__ = [

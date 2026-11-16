@@ -258,10 +258,10 @@ class EvidenceService:
         refresh: bool = False,
     ) -> EvidenceEpoch:
         if context.evidence_epoch is not None:
-            stored = await self._repository.load_evidence(
+            stored = await self._repository.load_latest_evidence(
                 context.fence.workspace_id,
                 context.fence.run_id,
-                context.evidence_epoch.epoch_id,
+                context.fence.revision,
             )
             if (
                 stored is None
@@ -277,6 +277,12 @@ class EvidenceService:
         self._validate_snapshot(context.fence, snapshot)
         assert snapshot is not None
 
+        if snapshot.input.analysis_mode != "current":
+            raise EvidenceUnavailableError(
+                "historical_evidence_unavailable",
+                "当前公开证据端口不能证明历史可得时间，拒绝历史模式",
+            )
+
         if not refresh:
             existing = await self._repository.load_latest_evidence(
                 context.fence.workspace_id,
@@ -285,12 +291,6 @@ class EvidenceService:
             )
             if existing is not None:
                 return existing.validated_snapshot()
-
-        if snapshot.input.analysis_mode != "current":
-            raise EvidenceUnavailableError(
-                "historical_evidence_unavailable",
-                "当前公开证据端口不能证明历史可得时间，拒绝历史模式",
-            )
 
         planned = self._port.planned_transport_calls(snapshot.input.timeframes)
         if not 1 <= planned <= MAX_EVIDENCE_TRANSPORT_CALLS:
