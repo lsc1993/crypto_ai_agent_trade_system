@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本/推理实现未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
 - 自测状态：`verified`（聚焦、D3 阶段回归、后端 full、Ruff/格式/Pyright/架构门禁/迁移链均完成；详见第 5 节）。
-- 正式审查状态：`awaiting_review`（等待用户转交原审查助手；开发自测不替代正式审查，未预填通过）。
+- 正式审查状态：首轮 **`changes_requested`**（R1–R4）；本轮修复后为 `awaiting_review`（等待原审查助手复审；开发自测不替代正式审查，未预填通过）。
 - 日期：2026-11-16。
 
 ## 1. 工作区、分支与提交范围
@@ -14,12 +14,13 @@
 | 隔离工作区 | `D:\t08`（从 `main` 的 `f331e09` 创建） |
 | 分支 | `t08-evidence-context`（未推送、未合并、未部署） |
 | base | `f331e09b7d1652060dc03fb792fa65726a11a9bb`（`main`，`docs: record T07 merge into main`） |
-| implementation tip | `96b82701d122a499f8f816e612f201f2cd9fd8fb`（`fix: tighten T08 evidence context boundaries`；首轮实现 `deec8f2`） |
-| implementation tree | `e422f6ed91c98c6673305ccb85c6017779aaa45c` |
-| 代码改动范围 | `f331e09..96b8270`，15 个文件，+4192 / -7（`deec8f2` 首轮实现 15 个文件 +4130/-7；`96b8270` 边界加固 3 个文件 +72/-10） |
+| implementation tip | `08532dc8cf15980b70452721384a6600b016f4a0`（`fix: address T08 review findings`；首轮实现 `deec8f2`，边界加固 `96b8270`） |
+| implementation tree | `78523029bf0967a377f50ee0f552cba1ddd25d2a` |
+| 代码改动范围 | `f331e09..08532dc`，15 个文件，+4682 / -7（`deec8f2` 首轮实现；`96b8270` 边界加固；`08532dc` 正式审查 R1–R4 修复 7 个文件 +505/-15） |
 | 审查请求/进度/计划/契约文档 | 在 implementation tip 之后单独提交；文档提交号见交付回复，不改变 implementation tip，避免用自身提交号循环引用 |
 | 工作区未提交内容 | 仅本轮审查请求与进度/计划/契约文档；没有夹带其他任务改动、`.env`、凭证或业务库修改 |
-| 正式审查报告 | 尚未生成；本请求不预填 `approved` |
+| 首轮正式审查报告 | `docs/superpowers/reviews/manual-agent/T08-review-report.md`（`changes_requested`，R1–R4） |
+| 复审状态 | `awaiting_review`；本请求不预填 `approved` |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型，未访问私有账户，未发起真实交易。
 
@@ -29,19 +30,19 @@
 | --- | --- |
 | `backend/src/app/agent/interactive/__init__.py` | `65d75af2aa009a88afb185b9d76ed58fff8541c6bbbec095ed0c3e9c765365f9` |
 | `backend/src/app/agent/interactive/adapters/__init__.py` | `54a4521d81d503a67c77c25b85c799f540b3b0f47eb61075b81f8e173cd5adc1` |
-| `backend/src/app/agent/interactive/adapters/research_evidence.py` | `74d398efb38b3f742ae2618d53922884c7beb27012866641a9a67bb4b74aace3` |
-| `backend/src/app/agent/interactive/context.py` | `cdc17287f22f5b78940dadab8bdf9984ea904d7800fc8d97bd64d13e1145ebf9` |
+| `backend/src/app/agent/interactive/adapters/research_evidence.py` | `b149c41e53ada71c0b066b43976750db0238a83334c2fad126b95f3d4a1cd3c3` |
+| `backend/src/app/agent/interactive/context.py` | `dc0ccf3759150fc51be7baea7b833623ef6d89d99c364a51ec5f1e2bdea02a41` |
 | `backend/src/app/agent/interactive/context_budget.py` | `89fe3280088c45c3307f14bed0d26c60d33b21023e997879abcc431593c3d9b6` |
 | `backend/src/app/agent_runs/__init__.py` | `56a3dd4a8c641e58b030b9426007a195e0689db2493ea7f8a926a12841d70c3c` |
 | `backend/src/app/agent_runs/contracts.py` | `e24aeb5342b05786fefeeb39f4b914d5332d6b0e595b592a9f165df5ae21567a` |
-| `backend/src/app/agent_runs/evidence.py` | `532fcf4123a53f0d64c6d2f7845727e043bed00feff7aaa35469d76d367c46f7` |
-| `backend/src/app/infrastructure/persistence/agent_run_repository.py` | `e3665ba2eee0cf6c0d59273a6048eaf0418d0dfa2a65e65c1496fca864db593f` |
+| `backend/src/app/agent_runs/evidence.py` | `cc9970e24a7e95e62be5c4245b58ed1f09050d7c46f185b8f8846ce80bd8e165` |
+| `backend/src/app/infrastructure/persistence/agent_run_repository.py` | `d7bf30b3f5922021bd2733809ce846e06446ea62972b2208cbf4c66b9a56c241` |
 | `backend/src/app/research/evidence.py` | `1fd66292963267d3ed062c55dcd939b7653366d13b05ac232942d1cc41e35a7e` |
 | `backend/tests/agent/interactive/__init__.py` | `e629bd263d58312f20029d6cfc418dbe370ff39ec1228d03709767000ab306b5` |
-| `backend/tests/agent/interactive/test_context.py` | `893815b6d99618a4481f1c1ed2fbed6038d9257005e948130615ef800ecfc212` |
+| `backend/tests/agent/interactive/test_context.py` | `250b1e6f016d52d262355c5d63b31df59f7b5824aa9df5c0f93e9aea25f3b068` |
 | `backend/tests/agent/interactive/test_context_budget.py` | `5cb4d9f185f2220c50ae05d52e7352de3f56dd6a365d89dac0e1cf8ebe7cbb41` |
-| `backend/tests/agent/interactive/test_evidence_epochs.py` | `0c6dea6e8ba4eff8314069e5533cacdca4d883fe7fe77585a310f31f46f40276` |
-| `backend/tests/persistence/test_agent_evidence.py` | `2d30efeefa9d6c77ebc6b0afd04c3f03c6da8236b6778d9e66c7fded665f88cb` |
+| `backend/tests/agent/interactive/test_evidence_epochs.py` | `4f2160ad5f5c3207a80e61e3db68a418129bf296b95cf5ffdc2abdf8a765e1f8` |
+| `backend/tests/persistence/test_agent_evidence.py` | `b8c3f3bad0b0c2a7203e32191996a3dfc6f00e0a10d7081b24bbd08fb1f0d894` |
 
 ## 2. 任务范围与 FR/AC/HN 映射
 
@@ -90,6 +91,19 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 10. **边界加固（`96b8270`）**：历史模式检查前移到复用已保存 epoch 之前；`ExecutionContext.evidence_epoch` 改为核对当前 revision 的最新 epoch；`ContextBuilder` 拒绝调用方证据与 `ExecutionContext.evidence_epoch` 不一致、过滤未来摘要、对规划引用去重。
 11. **生产历史读取端口尚未实现**：`ContextHistoryReader` 在 T08 是纯协议；`test_context.py` 使用替身验证水位/摘要/工具配对。T11/T14 必须提供 SQL 实现并接线，T08 不宣称生产上下文读取已完整交付。
 
+### 3.1 正式审查 R1–R4 修复
+
+首轮正式审查结论为 `changes_requested`，开发端按报告逐项复现并修复：
+
+| 发现 | 修复与回归 |
+| --- | --- |
+| R1/P1 传输预算按聚合调用低估实际扇出/重试 | `MarketResearchEvidencePort.planned_transport_calls` 改为 `(3 个摘要端点 + 每周期 1 个 klines 端点) × 网关最大 2 次尝试`，单周期为 8、四周期为 14；`MAX_EVIDENCE_TRANSPORT_CALLS` 调整为 16，刷新区段随之扩大。新增真实 `BinanceUsdmPublicMarketGateway` + `httpx.MockTransport` 用例：每个端点首次 500 后重试，两周期实际 10 次请求 ≤ 预留 10；预算仅 9 次时服务在预留阶段停止，网关请求数为 0。 |
+| R2/P2 必需证据投影被 4000 字符静默截断 | 删除 `projected[:4000]` 字符切片；投影器必须生成完整有界事实。事实超过单次消息安全上限时明确 `evidence_projection_too_large`，必需块超出输入预算时 `context_budget_exceeded`。新增 3990 字符后接 `price=12345.67 closeAt=...` 的完整保留测试，以及 20k 投影必须失败的测试。 |
+| R3/P2 manifest 未绑定保存围栏 | 保存前比对 manifest 与 fence 的 workspace/run/revision/segment，并在事务内核对引用证据属于同一 workspace/run/revision；读取时同样核对行/文档归属、片段存在性与证据归属。新增跨工作台/运行/修订/片段、跨修订证据、错绑读取和未知片段数据库拒绝测试。 |
+| R4/P2 携带已绑定 epoch 时忽略 refresh | 复用路径限定为 `context.evidence_epoch is not None and not refresh`；显式刷新继续走运行校验、新动作序号区段和重新公开读取。新增“已绑定 epoch + refresh”测试，断言新 epoch、公开读取发生、预算区段推进。 |
+
+R1–R4 修复后聚焦 55 passed、D3 阶段回归 422 passed、后端 full `verification=passed；1300 collected / 1300 passed / 0 failed / 0 skipped / 0 collection errors`（`.tmp/quality/manual-agent-t08-fix-full-backend-1.json`）。首轮审查报告见 `docs/superpowers/reviews/manual-agent/T08-review-report.md`；本轮修复不改变正式审查状态，等待原审查助手复审。
+
 ## 4. 公共接口、依赖与迁移影响
 
 ### 4.1 新增/修改公共接口
@@ -132,9 +146,9 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 | --- | --- | --- | --- | --- | --- |
 | 改动前基线 | `D:\t08\backend` | `uv run --locked --no-sync pytest tests/research/strategies tests/research/knowledge tests/agent_runs tests/security -q --basetemp=../.tmp/pytest/t08-baseline-20261113` | 0 | 142 passed | 终端记录 |
 | 首轮预期红 | `D:\t08\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/persistence/test_agent_evidence.py -q --basetemp=../.tmp/pytest/t08-red-1` | 2 | 4 个 collection error（缺少新模块/符号），退出 2；符合测试先行预期 | 终端记录 |
-| 聚焦最终 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive/test_context.py tests/agent/interactive/test_evidence_epochs.py tests/agent/interactive/test_context_budget.py tests/persistence/test_agent_evidence.py -q --basetemp=../.tmp/pytest/t08-focus-final2` | 0 | **46 passed / 0 failed / 0 skipped** | 终端记录 |
-| D3 阶段回归 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research/strategies tests/research/knowledge tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_evidence.py tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/security tests/governance tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t08-stage-final2` | 0 | **413 passed / 0 failed / 0 skipped** | 终端记录 |
-| 后端 full（最终） | `D:\t08` + 专用 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t08-full-backend-3.json` | 0 | `verification=passed`；1291 collected / 1291 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/manual-agent-t08-full-backend-3.json` |
+| 聚焦最终 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive/test_context.py tests/agent/interactive/test_evidence_epochs.py tests/agent/interactive/test_context_budget.py tests/persistence/test_agent_evidence.py -q --basetemp=../.tmp/pytest/t08-fix-focus-1` | 0 | **55 passed / 0 failed / 0 skipped** | 终端记录 |
+| D3 阶段回归 | `D:\t08\backend` + 专用 PostgreSQL 17 | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research/strategies tests/research/knowledge tests/persistence/test_agent_runs.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_evidence.py tests/persistence/test_strategy_catalog.py tests/persistence/test_knowledge_index.py tests/persistence/test_migrations.py tests/security tests/governance tests/agent/test_technical_engine.py -q --basetemp=../.tmp/pytest/t08-fix-stage-1` | 0 | **422 passed / 0 failed / 0 skipped** | 终端记录 |
+| 后端 full（最终） | `D:\t08` + 专用 PostgreSQL 17 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t08-fix-full-backend-1.json` | 0 | `verification=passed`；1300 collected / 1300 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/manual-agent-t08-fix-full-backend-1.json` |
 | 首次 full（环境/类型失败） | `D:\t08` + tmpfs 测试库 | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-t08-full-backend-1.json` | 1 | `backend-types=1`（`run_state_conflict` 未加入错误码）；`backend-tests=1`（tmpfs 写满导致 204 个数据库用例失败）；修复/重建后最终 full 通过 | `.tmp/quality/manual-agent-t08-full-backend-1.json` |
 | Ruff | `D:\t08\backend` | `uv run --locked --no-sync ruff check .` | 0 | All checks passed | 终端记录 |
 | 格式 | `D:\t08\backend` | `uv run --locked --no-sync ruff format --check .` | 0 | 377 files already formatted | 终端记录 |
@@ -151,7 +165,7 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 - 真实公开源持续可用性、真实产品规则/费率/保证金、真实策略质量与收益。
 - 业务库迁移、部署、回退演练；本轮只验证临时测试 schema。
 - `ContextHistoryReader` 的 SQL 生产实现：T08 只有协议与替身；T11/T14 必须实现并接线。
-- 逐 HTTP 请求的精确传输计数：T08 按 `1 + len(timeframes)` 聚合预留，缓存命中会高估；T09/T10 的模型工具/MCP 仍需逐次守卫。
+- 逐 HTTP 请求的精确传输计数：T08 按公开网关固定扇出与最大重试次数做保守上界预留，缓存命中会高估；T09/T10 的模型工具/MCP 仍需逐请求守卫。
 - 前端 lint/typecheck/Vitest/build、浏览器 e2e、http-e2e 均未执行；本轮 full 使用 `--component backend`。
 
 ### 6.2 重点审查位置
@@ -159,7 +173,7 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 1. **证据预算与时钟**：`agent_runs/evidence.py` 的 `freeze` 是否在读取前完成全部 `reserve`/`mark_sent`，读取异常是否按 `unknown` 保守保留，`sealed_at` 是否在读取后采样，`refresh` 是否使用新动作序号区段，已保存 epoch 是否可被跨 run 复用。
 2. **围栏与锁序**：`agent_run_repository._lock_live_fence` 是否在任务行锁后读取数据库时钟并锁片段，是否核对 owner/lease_epoch/revision/namespace/取消标记，是否与 T07 的锁序一致；证据/manifest 是否跨工作台隔离、读取时重算指纹。
 3. **上下文优先级与裁剪**：`context.py` 必需块是否真的不可裁剪，新消息是否全部进入，旧消息顺序是否保持时间顺序，摘要/知识/工具轮次是否整块省略，是否存在孤立 tool 消息或超过 16384 的漏检路径。
-4. **Manifest 最小化**：`ContextManifest` 与内部 `context_manifest` artifact 是否只含引用/长度/水位/原因，是否可能泄漏金额、仓位、杠杆、原始证据或用户财务文本；T14 是否会误投影内部类型。
+4. **Manifest 归属与最小化**：保存/读取是否核对 workspace/run/revision/segment 与引用证据归属；`ContextManifest` 与内部 `context_manifest` artifact 是否只含引用/长度/水位/原因，是否可能泄漏金额、仓位、杠杆、原始证据或用户财务文本；T14 是否会误投影内部类型。
 5. **历史/过期语义**：`EvidenceService` 是否拒绝历史模式；`ContextBuilder` 是否以 `analysis_as_of`/`sealed_at` 和声明 `as_of` 过滤知识/证据；过期证据是否只标记限制而不改写为当前事实。
 6. **安全门禁兼容**：`ModelContext.model_validate(...)` 传空工具 Schema 是否只是 T08 的兼容构造，而非绕过门禁；T09 是否按计划细化 `tools=` 禁词并保留旧固定路径隔离。
 7. **新增错误码**：`run_state_conflict` 是否确实用于“调用方传入未持久化/不属于当前 run 的 epoch”，是否应复用既有错误码而非新增公共枚举值。
