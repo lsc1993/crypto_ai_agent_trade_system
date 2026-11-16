@@ -110,7 +110,7 @@ R1–R4 修复后聚焦 55 passed、D3 阶段回归 422 passed、后端 full `ve
 - 2026-11-16 用户传回原审查助手复审结论：**T08 R1–R4 代码审查通过，原四项发现关闭，未发现新的阻断项**；`reviewed_tip=08532dc8cf15980b70452721384a6600b016f4a0`。
 - 复审范围 `f331e09..08532dc`，重点对照 `96b8270..08532dc` 修复；报告 `docs/superpowers/reviews/manual-agent/T08-review-report.md` 的 `08532dc` 段为最新结论，首次 `changes_requested` 历史保留。
 - 复审端独立运行 `pytest tests/agent/interactive -q` 为 42 passed，并复验四周期真实网关替身预留 14/实际 14；该独立结果不包含 PostgreSQL、422 阶段、1300 后端 full、Pyright 或生产装配，开发端自测记录不冒充审查端独立验收。
-- T08 当前为 `verified`/`approved`；按用户指令执行仅本单元的提交、fast-forward 合并到 `main` 并推送。合并 tip 在本请求/进度文档的后续变更中记录。
+- T08 当前为 `verified`/`approved`；按用户指令执行仅本单元的提交、fast-forward 合并到 `main` 并推送。合并 tip `06d5ff7`；本段之后的 docs 提交记录合并/推送结果。
 
 ## 4. 公共接口、依赖与迁移影响
 
