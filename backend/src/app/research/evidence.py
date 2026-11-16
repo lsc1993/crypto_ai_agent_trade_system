@@ -1,10 +1,11 @@
-# 定义只读研究证据 epoch：共同分析截止口径、逐项来源/时间/质量和内容引用。
+# 定义只读研究证据 epoch：共同分析截止口径、逐项来源/时间/质量、计算版本和内容引用。
 # 该模块是纯研究契约，不读取公开源、不冻结数据库、不依赖 Agent 图或交易执行。
 # 证据封存后不得改写；市场详情只用于确定性评估，刷新当前数据不能冒充旧时点证据。
 from __future__ import annotations
 
 import copy
 import json
+import re
 from datetime import datetime
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -24,6 +25,8 @@ from app.shared.agent_types import (
 
 MARKET_EVIDENCE_KIND = "market_detail"
 _MAX_CONTENT_BYTES = 4 * 1024 * 1024
+# 计算版本用于区分同一来源的不同确定性解析/渲染实现；缺失表示历史证据未记录该字段。
+_CALCULATION_VERSION_PATTERN = re.compile(r"[a-z0-9_]{1,64}\Z")
 
 
 # 证据不可用错误携带稳定原因码；调用方据此返回安全的无计划状态。
@@ -42,7 +45,7 @@ class EvidenceQuality(StrEnum):
     MISSING = "missing"
 
 
-# 单条冻结证据：来源、观测/首次可得/抓取时间、内容指纹、质量和可选内容。
+# 单条冻结证据：来源、观测/首次可得/抓取时间、内容指纹、质量、计算版本和可选内容。
 # content 只提供给本地确定性评估；content_ref 用于后续持久化或大型载荷引用。
 class EvidenceItem(AgentModel):
     evidence_id: UUID
@@ -53,6 +56,7 @@ class EvidenceItem(AgentModel):
     fetched_at: UtcDateTime
     payload_sha256: str
     quality: EvidenceQuality
+    calculation_version: str | None = None
     content: JsonObject | None = None
     content_ref: ArtifactRef | None = None
 
@@ -88,6 +92,16 @@ class EvidenceItem(AgentModel):
     def validate_payload_sha256(cls, value: str) -> str:
         if not is_sha256(value):
             raise ValueError("证据内容指纹必须是 64 位小写十六进制")
+        return value
+
+    # 计算版本只允许稳定短标识；历史证据没有该字段时保持 None，读取时不伪造版本。
+    @field_validator("calculation_version")
+    @classmethod
+    def validate_calculation_version(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if _CALCULATION_VERSION_PATTERN.fullmatch(value) is None:
+            raise ValueError("证据计算版本必须是稳定短标识")
         return value
 
     @field_validator("observed_at", "available_at", "fetched_at")
@@ -273,6 +287,8 @@ def _epoch_payload(
         "analysisAsOf": analysis_as_of.isoformat(),
         "sealedAt": sealed_at.isoformat(),
         "items": [
+            # 历史证据没有计算版本时省略该键，保持原 epoch 指纹可重验；
+            # 新增非空版本必须进入指纹，防止同一来源的不同计算实现复用旧 epoch。
             {
                 "evidenceId": str(item.evidence_id),
                 "kind": item.kind,
@@ -287,6 +303,11 @@ def _epoch_payload(
                     None
                     if item.content_ref is None
                     else item.content_ref.model_dump(mode="json", by_alias=False)
+                ),
+                **(
+                    {}
+                    if item.calculation_version is None
+                    else {"calculationVersion": item.calculation_version}
                 ),
             }
             for item in items

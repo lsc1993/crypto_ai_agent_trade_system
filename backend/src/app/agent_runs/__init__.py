@@ -1,4 +1,4 @@
-# Agent 任务领域包入口：导出 T04 任务契约、T05 尝试/预算/片段纯类型与服务。
+# Agent 任务领域包入口：导出 T04 任务契约、T05 尝试/预算/片段纯类型、T08 证据服务。
 # 不在此装配数据库、启动 worker 或执行模型/工具；SQL 实现位于 infrastructure/persistence。
 """Persistent agent task contracts, attempts, budgets, segment types and services."""
 
@@ -51,6 +51,17 @@ from app.agent_runs.decisions import (
     ProposalDiff,
 )
 from app.agent_runs.events import RunEvent, RunEventPage, RunEventType
+from app.agent_runs.evidence import (
+    EVIDENCE_ACTION_SEQUENCE_BASE,
+    MAX_EVIDENCE_ITEMS,
+    MAX_EVIDENCE_TRANSPORT_CALLS,
+    EvidenceCollection,
+    EvidenceDraft,
+    EvidenceFactProjector,
+    EvidenceRepository,
+    EvidenceService,
+    ResearchEvidencePort,
+)
 from app.agent_runs.interactions import (
     FeedbackReceipt,
     HumanInteraction,
@@ -90,11 +101,14 @@ from app.agent_runs.service import AgentRunService
 __all__ = [
     "ACTIVITY_SAFETY_MARGIN_SECONDS",
     "MAX_ATTEMPTS_PER_STEP",
+    "MAX_EVIDENCE_ITEMS",
+    "MAX_EVIDENCE_TRANSPORT_CALLS",
     "MAX_INPUT_TOKENS_PER_CALL",
     "MAX_OUTPUT_TOKENS_PER_CALL",
     "MODEL_TIMEOUT_SECONDS",
     "RUNNABLE_CAPACITY",
     "WAITING_CAPACITY_PER_WORKSPACE",
+    "EVIDENCE_ACTION_SEQUENCE_BASE",
     "EMPTY_TOOL_CATALOG_SHA256",
     "HEARTBEAT_SECONDS",
     "LEASE_SECONDS",
@@ -116,6 +130,11 @@ __all__ = [
     "ControlAction",
     "ControlProposal",
     "DecisionPolicy",
+    "EvidenceCollection",
+    "EvidenceDraft",
+    "EvidenceFactProjector",
+    "EvidenceRepository",
+    "EvidenceService",
     "ExecutionContext",
     "FeedbackReceipt",
     "GuardAction",
@@ -141,6 +160,7 @@ __all__ = [
     "RunInput",
     "RunQuality",
     "RunSnapshot",
+    "ResearchEvidencePort",
     "RunStatus",
     "SegmentOutcome",
     "SegmentOutcomeKind",

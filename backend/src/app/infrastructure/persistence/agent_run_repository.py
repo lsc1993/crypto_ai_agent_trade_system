@@ -2,12 +2,13 @@
 # 入队顺序固定为请求锁 -> 重放检查 -> 会话/父任务解析 -> 队列锁 -> 任务/修订/请求/事件提交。
 # 同一 request_id 先查已提交映射，因此队列已满时仍能重放原任务；不同请求键不按币种合并。
 # 该仓储不解析策略参数、不调用模型/工具、不访问私有账户或交易执行。
+# T08 追加冻结证据 epoch 与内部 context manifest 的围栏持久化，二者均不可变。
 from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import JsonValue, ValidationError
 from sqlalchemy import Text, func, select, text
@@ -15,6 +16,7 @@ from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agent.interactive.context import ContextManifest
 from app.agent_runs.contracts import (
     RUNNABLE_CAPACITY,
     RUNNABLE_RUN_STATUSES,
@@ -35,11 +37,14 @@ from app.agent_runs.events import (
     appendable_event,
     build_enqueue_events,
 )
+from app.agent_runs.segments import RunFence, graph_namespace
 from app.infrastructure.persistence.models.agent_interactions import (
     AgentInteractionRecord,
     AgentRunCancelRequestRecord,
 )
 from app.infrastructure.persistence.models.agent_runs import (
+    AgentArtifactRecord,
+    AgentEvidenceEpochRecord,
     AgentRunEventRecord,
     AgentRunQueueRecord,
     AgentRunRecord,
@@ -47,6 +52,8 @@ from app.infrastructure.persistence.models.agent_runs import (
     AgentRunRevisionRecord,
     AgentThreadRecord,
 )
+from app.infrastructure.persistence.models.agent_segments import AgentSegmentRecord
+from app.research.evidence import EvidenceEpoch
 from app.shared.agent_types import ArtifactRef, ProductKey, require_utc, sha256_json
 
 _MAX_EVENT_PAGE = 100
@@ -401,6 +408,214 @@ class SqlAlchemyAgentRunRepository:
         except SQLAlchemyError:
             raise AgentRunError("storage_unavailable") from None
 
+    # 保存冻结证据 epoch；围栏校验与插入在同一事务，历史行只允许幂等重放。
+    # 证据正文/指纹在读取时重新校验，不能仅凭数据库行 sha 字段信任内容。
+    async def save_evidence(self, fence: RunFence, epoch: EvidenceEpoch) -> EvidenceEpoch:
+        snapshot = epoch.validated_snapshot()
+        document = snapshot.model_dump(mode="json")
+        try:
+            async with self._factory() as session, session.begin():
+                await _lock_live_fence(session, fence)
+                existing = await session.get(AgentEvidenceEpochRecord, snapshot.epoch_id)
+                if existing is not None:
+                    if (
+                        existing.workspace_id != fence.workspace_id
+                        or existing.run_id != fence.run_id
+                        or existing.revision != fence.revision
+                        or existing.sha256 != snapshot.sha256
+                    ):
+                        raise AgentRunError("integrity_violation")
+                    return snapshot
+                session.add(
+                    AgentEvidenceEpochRecord(
+                        id=snapshot.epoch_id,
+                        workspace_id=fence.workspace_id,
+                        run_id=fence.run_id,
+                        revision=fence.revision,
+                        analysis_as_of=snapshot.analysis_as_of,
+                        sealed_at=snapshot.sealed_at,
+                        sha256=snapshot.sha256,
+                        document=cast(dict[str, object], document),
+                        created_at=self._now(),
+                    )
+                )
+                await session.flush()
+                return snapshot
+        except AgentRunError:
+            raise
+        except IntegrityError:
+            # 并发保存同一 epoch：读取已提交行后只接受完全相同的内容。
+            existing = await self.load_evidence(
+                fence.workspace_id,
+                fence.run_id,
+                snapshot.epoch_id,
+            )
+            if existing is not None and existing.sha256 == snapshot.sha256:
+                return existing
+            raise AgentRunError("storage_unavailable") from None
+        except (SQLAlchemyError, ValidationError):
+            raise AgentRunError("storage_unavailable") from None
+
+    # 读取指定证据 epoch；跨工作台/任务按不存在处理，正文不一致 fail-closed。
+    async def load_evidence(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        epoch_id: UUID,
+    ) -> EvidenceEpoch | None:
+        try:
+            async with self._factory() as session:
+                row = await session.scalar(
+                    select(AgentEvidenceEpochRecord).where(
+                        AgentEvidenceEpochRecord.id == epoch_id,
+                        AgentEvidenceEpochRecord.workspace_id == workspace_id,
+                        AgentEvidenceEpochRecord.run_id == run_id,
+                    )
+                )
+                if row is None:
+                    return None
+                return _evidence_from_row(row)
+        except AgentRunError:
+            raise
+        except (SQLAlchemyError, ValidationError):
+            raise AgentRunError("storage_unavailable") from None
+
+    # 读取当前修订最新证据；用于片段重入时复用已封存 epoch，避免重复外部读取。
+    async def load_latest_evidence(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        revision: int,
+    ) -> EvidenceEpoch | None:
+        try:
+            async with self._factory() as session:
+                row = await session.scalar(
+                    select(AgentEvidenceEpochRecord)
+                    .where(
+                        AgentEvidenceEpochRecord.workspace_id == workspace_id,
+                        AgentEvidenceEpochRecord.run_id == run_id,
+                        AgentEvidenceEpochRecord.revision == revision,
+                    )
+                    .order_by(
+                        AgentEvidenceEpochRecord.created_at.desc(),
+                        AgentEvidenceEpochRecord.id.desc(),
+                    )
+                    .limit(1)
+                )
+                if row is None:
+                    return None
+                return _evidence_from_row(row)
+        except AgentRunError:
+            raise
+        except (SQLAlchemyError, ValidationError):
+            raise AgentRunError("storage_unavailable") from None
+
+    # 统计当前修订证据 epoch 数，用于刷新时分配新的动作序号区段。
+    async def count_evidence(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        revision: int,
+    ) -> int:
+        try:
+            async with self._factory() as session:
+                value = await session.scalar(
+                    select(func.count())
+                    .select_from(AgentEvidenceEpochRecord)
+                    .where(
+                        AgentEvidenceEpochRecord.workspace_id == workspace_id,
+                        AgentEvidenceEpochRecord.run_id == run_id,
+                        AgentEvidenceEpochRecord.revision == revision,
+                    )
+                )
+                return value if isinstance(value, int) else 0
+        except SQLAlchemyError:
+            raise AgentRunError("storage_unavailable") from None
+
+    # 将上下文 manifest 保存为内部不可变 artifact；T14 的公开产物投影不得把它当业务报告。
+    async def save_context_manifest(
+        self,
+        fence: RunFence,
+        manifest: ContextManifest,
+    ) -> ArtifactRef:
+        document = manifest.model_dump(mode="json")
+        digest = sha256_json(cast(JsonValue, document))
+        artifact_id = uuid5(
+            NAMESPACE_URL,
+            f"context-manifest:{fence.run_id}:{fence.revision}:{digest}",
+        )
+        try:
+            async with self._factory() as session, session.begin():
+                await _lock_live_fence(session, fence)
+                existing = await session.get(AgentArtifactRecord, artifact_id)
+                if existing is not None:
+                    if (
+                        existing.workspace_id != fence.workspace_id
+                        or existing.run_id != fence.run_id
+                        or existing.revision != fence.revision
+                        or existing.artifact_type != "context_manifest"
+                        or existing.sha256 != digest
+                    ):
+                        raise AgentRunError("integrity_violation")
+                    return ArtifactRef(artifact_id=artifact_id, sha256=digest)
+                session.add(
+                    AgentArtifactRecord(
+                        id=artifact_id,
+                        workspace_id=fence.workspace_id,
+                        run_id=fence.run_id,
+                        revision=fence.revision,
+                        artifact_type="context_manifest",
+                        quality=None,
+                        sha256=digest,
+                        document=cast(dict[str, object], document),
+                        parent_artifact_id=None,
+                        created_at=self._now(),
+                    )
+                )
+                await session.flush()
+                return ArtifactRef(artifact_id=artifact_id, sha256=digest)
+        except AgentRunError:
+            raise
+        except IntegrityError:
+            existing_manifest = await self.load_context_manifest(
+                fence.workspace_id,
+                fence.run_id,
+                artifact_id,
+            )
+            if existing_manifest == manifest:
+                return ArtifactRef(artifact_id=artifact_id, sha256=digest)
+            raise AgentRunError("storage_unavailable") from None
+        except (SQLAlchemyError, ValidationError):
+            raise AgentRunError("storage_unavailable") from None
+
+    # 读取内部 context manifest；重新计算文档指纹并拒绝被改写/跨类型的 artifact。
+    async def load_context_manifest(
+        self,
+        workspace_id: UUID,
+        run_id: UUID,
+        artifact_id: UUID,
+    ) -> ContextManifest | None:
+        try:
+            async with self._factory() as session:
+                row = await session.scalar(
+                    select(AgentArtifactRecord).where(
+                        AgentArtifactRecord.id == artifact_id,
+                        AgentArtifactRecord.workspace_id == workspace_id,
+                        AgentArtifactRecord.run_id == run_id,
+                    )
+                )
+                if row is None:
+                    return None
+                if row.artifact_type != "context_manifest":
+                    raise AgentRunError("integrity_violation")
+                if sha256_json(cast(JsonValue, row.document)) != row.sha256:
+                    raise AgentRunError("integrity_violation")
+                return ContextManifest.model_validate(row.document)
+        except AgentRunError:
+            raise
+        except (SQLAlchemyError, ValidationError):
+            raise AgentRunError("storage_unavailable") from None
+
     # 唯一约束冲突后的独立事务重放；内容不同仍返回冲突而不是伪成功。
     async def _replay(
         self,
@@ -424,6 +639,75 @@ class SqlAlchemyAgentRunRepository:
             raise
         except SQLAlchemyError:
             return None
+
+
+# 读取数据库当前时刻；围栏判断不使用客户端时钟或事务开始时钟。
+async def _database_now(session: AsyncSession) -> datetime:
+    value = await session.scalar(text("SELECT clock_timestamp()"))
+    if not isinstance(value, datetime):
+        raise AgentRunError("integrity_violation")
+    return require_utc(value)
+
+
+# 在任务/片段行锁后核对当前 owner、租约代次、修订、namespace 和取消标记。
+# 证据/manifest 写入与 T07 片段提交使用相同锁序（任务 -> 片段），避免反向死锁。
+async def _lock_live_fence(session: AsyncSession, fence: RunFence) -> AgentRunRecord:
+    run = await session.scalar(
+        select(AgentRunRecord)
+        .where(
+            AgentRunRecord.id == fence.run_id,
+            AgentRunRecord.workspace_id == fence.workspace_id,
+        )
+        .with_for_update()
+    )
+    if run is None:
+        raise AgentRunError("lease_lost")
+    database_now = await _database_now(session)
+    segment = await session.scalar(
+        select(AgentSegmentRecord)
+        .where(AgentSegmentRecord.id == fence.segment_id)
+        .with_for_update()
+    )
+    if (
+        run.status != RunStatus.RUNNING.value
+        or run.owner is None
+        or run.owner != fence.owner
+        or run.lease_epoch != fence.lease_epoch
+        or run.revision != fence.revision
+        or run.lease_expires_at is None
+        or run.lease_expires_at <= database_now
+        or segment is None
+        or segment.workspace_id != fence.workspace_id
+        or segment.run_id != fence.run_id
+        or segment.revision != fence.revision
+        or segment.owner != fence.owner
+        or segment.lease_epoch != fence.lease_epoch
+        or segment.graph_namespace != graph_namespace(fence)
+        or segment.status != "running"
+        or segment.lease_expires_at is None
+        or segment.lease_expires_at <= database_now
+    ):
+        raise AgentRunError("lease_lost")
+    if run.cancel_requested_at is not None:
+        raise AgentRunError("run_cancelling")
+    return run
+
+
+# 从数据库行恢复证据并重新计算 epoch 标识/内容指纹；任何不一致都按完整性破坏处理。
+def _evidence_from_row(row: AgentEvidenceEpochRecord) -> EvidenceEpoch:
+    try:
+        epoch = EvidenceEpoch.model_validate(row.document)
+        epoch = epoch.validated_snapshot()
+    except (ValidationError, TypeError, ValueError) as error:
+        raise AgentRunError("integrity_violation") from error
+    if (
+        epoch.epoch_id != row.id
+        or epoch.sha256 != row.sha256
+        or epoch.analysis_as_of != row.analysis_as_of
+        or epoch.sealed_at != row.sealed_at
+    ):
+        raise AgentRunError("integrity_violation")
+    return epoch
 
 
 # 解析/验证有效会话与父任务；父任务必须终态且属于同一会话，避免并行子任务借用旧上下文。

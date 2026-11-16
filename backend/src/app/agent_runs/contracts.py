@@ -85,6 +85,7 @@ AgentRunErrorCode = Literal[
     "version_conflict",
     "run_terminal",
     "run_cancelling",
+    "run_state_conflict",
     "interaction_not_found",
     "interaction_active",
     "review_conflict",
