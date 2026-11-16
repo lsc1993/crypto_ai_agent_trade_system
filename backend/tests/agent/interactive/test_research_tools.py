@@ -15,6 +15,7 @@ from app.agent.interactive.adapters.technical_strategy import (
     TechnicalStrategyEvaluator,
 )
 from app.agent.interactive.tools.contracts import (
+    MAX_TOOL_SUMMARY_BYTES,
     JsonObject,
     ToolObservationStatus,
     ToolQuality,
@@ -763,6 +764,33 @@ async def test_approved_news_reader_uses_fixed_lookback_and_rejects_unapproved_s
     rejected = await bad_harness.call("read_approved_news_factors", {})
     assert rejected.status is ToolObservationStatus.DEGRADED
     assert rejected.reason_code == "news_source_unapproved"
+
+
+@pytest.mark.asyncio
+async def test_news_summary_is_finally_bounded_after_truncation_warnings() -> None:
+    strategy = _strategy()
+    epoch = _epoch(_detail())
+    summary = ApprovedNewsSummary(
+        safe_summary="新闻摘要" * 660,
+        sources=("coindesk", "decrypt"),
+        evidence_ids=(uuid4(), uuid4()),
+        quality=ToolQuality.VALID,
+        observed_at=NOW - timedelta(minutes=5),
+        fetched_at=NOW - timedelta(minutes=4),
+        limitations=("partial_coverage", "budget_truncated"),
+    )
+    service, _, _ = _service(
+        strategy=strategy,
+        epoch=epoch,
+        news_reader=FakeNewsReader(summary),
+    )
+    harness = _Harness(service=service, strategy=strategy, epoch=epoch)
+
+    observation = await harness.call("read_approved_news_factors", {})
+
+    assert observation.status is not ToolObservationStatus.FAILED
+    assert len(observation.safe_summary.encode("utf-8")) <= MAX_TOOL_SUMMARY_BYTES
+    assert "限制" in observation.safe_summary
 
 
 @pytest.mark.asyncio

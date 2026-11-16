@@ -306,7 +306,10 @@ class ResearchToolService:
         )
         summary, omitted = _bounded_summary(header, tuple(blocks))
         if omitted:
-            summary += "\n限制：有证据项因摘要大小上限未展示，完整内容保留在本地引用。"
+            summary = _append_note(
+                summary,
+                "限制：有证据项因摘要大小上限未展示，完整内容保留在本地引用。",
+            )
         result_ref = ArtifactRef(artifact_id=epoch.epoch_id, sha256=epoch.sha256)
         if item is None:
             reason = "market_evidence_missing"
@@ -381,7 +384,10 @@ class ResearchToolService:
             blocks.append("limitations=" + ",".join(news.limitations))
         summary, omitted = _bounded_summary(header, tuple(blocks))
         if omitted:
-            summary += "\n限制：新闻摘要因大小上限截断；原始条目仍保留在本地引用。"
+            summary = _append_note(
+                summary,
+                "限制：新闻摘要因大小上限截断；原始条目仍保留在本地引用。",
+            )
         reason = (
             None
             if news.quality is ToolQuality.VALID
@@ -436,7 +442,10 @@ class ResearchToolService:
         )
         summary, omitted = _bounded_summary(header, _technical_fact_blocks(analysis.facts))
         if omitted:
-            summary += "\n限制：部分技术事实因摘要大小上限未展示，完整事实保留在本地证据。"
+            summary = _append_note(
+                summary,
+                "限制：部分技术事实因摘要大小上限未展示，完整事实保留在本地证据。",
+            )
         return ToolResult(
             status=ToolResultStatus.OK,
             safe_summary=summary,
@@ -500,7 +509,10 @@ class ResearchToolService:
         blocks = _evaluation_blocks(evaluation)
         summary, omitted = _bounded_summary(header, blocks)
         if omitted:
-            summary += "\n限制：部分事实/候选因摘要大小上限未展示，完整结果保留在本地评估。"
+            summary = _append_note(
+                summary,
+                "限制：部分事实/候选因摘要大小上限未展示，完整结果保留在本地评估。",
+            )
         if evaluation.candidates:
             status = ToolResultStatus.OK
             quality = ToolQuality.VALID
@@ -573,7 +585,10 @@ class ResearchToolService:
         blocks = tuple(_knowledge_block(hit) for hit in hits[:_MAX_SUMMARY_HITS])
         summary, omitted = _bounded_summary(header, blocks)
         if omitted or len(hits) > _MAX_SUMMARY_HITS:
-            summary += "\n限制：其余命中因摘要/条数上限未展示，完整内容保留在知识索引。"
+            summary = _append_note(
+                summary,
+                "限制：其余命中因摘要/条数上限未展示，完整内容保留在知识索引。",
+            )
         return ToolResult(
             status=ToolResultStatus.OK,
             safe_summary=summary,
@@ -650,7 +665,10 @@ class ResearchToolService:
         header = f"策略定义（只读版本）：strategyRef={strategy.ref.version_id}"
         summary, omitted = _bounded_summary(header, tuple(blocks))
         if omitted:
-            summary += "\n限制：策略定义摘要超出大小上限，完整版本应按引用读取。"
+            summary = _append_note(
+                summary,
+                "限制：策略定义摘要超出大小上限，完整版本应按引用读取。",
+            )
         return ToolResult(
             status=ToolResultStatus.OK,
             safe_summary=summary,
@@ -891,11 +909,23 @@ def _bounded_summary(
     parts = [header, *included]
     if omitted:
         parts.append(f"限制：另有 {omitted} 个块因大小上限未展示。")
-    text = "\n".join(parts)
-    if len(text.encode("utf-8")) > limit:
-        marker = "\n[摘要已截断]"
-        text = _truncate_utf8(text, limit - len(marker.encode("utf-8")))[0] + marker
-    return text, omitted
+    return _finalize_summary("\n".join(parts), limit=limit), omitted
+
+
+# 追加提示前先为提示预留字节，避免“限长后再追加”再次突破 8 KiB。
+def _append_note(text: str, note: str, *, limit: int = MAX_TOOL_SUMMARY_BYTES) -> str:
+    note_bytes = len(note.encode("utf-8"))
+    base_limit = max(0, limit - note_bytes)
+    return _finalize_summary(_finalize_summary(text, limit=base_limit) + note, limit=limit)
+
+
+# 对最终拼接文本统一执行 UTF-8 字节限长；截断标记本身也计入上限。
+def _finalize_summary(text: str, *, limit: int = MAX_TOOL_SUMMARY_BYTES) -> str:
+    if len(text.encode("utf-8")) <= limit:
+        return text
+    marker = "\n[摘要已截断]"
+    marker_bytes = len(marker.encode("utf-8"))
+    return _truncate_utf8(text, max(0, limit - marker_bytes))[0] + marker
 
 
 def _truncate_utf8(text: str, max_bytes: int) -> tuple[str, bool]:

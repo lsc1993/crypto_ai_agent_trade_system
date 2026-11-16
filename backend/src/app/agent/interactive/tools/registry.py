@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Iterable, Mapping
 from typing import cast
 
@@ -20,7 +21,8 @@ from app.shared.agent_types import JsonValue, sha256_json
 # 工具目录是启动时冻结的只读集合；同一次运行只能使用与 ExecutionContext 匹配的目录。
 class ToolRegistry(ToolCatalogReader):
     def __init__(self, tools: Iterable[RegisteredTool]) -> None:
-        bounded = tuple(tools)
+        # 隔离构造输入：后续修改调用方持有的 RegisteredTool 嵌套 Schema 不能改变已登记契约。
+        bounded = tuple(_isolated_tool(tool) for tool in tools)
         names = tuple(tool.name for tool in bounded)
         if len(set(names)) != len(names):
             raise ToolContractError("duplicate_tool", "工具名称不能重复登记")
@@ -33,17 +35,19 @@ class ToolRegistry(ToolCatalogReader):
 
     @property
     def tools(self) -> tuple[RegisteredTool, ...]:
-        return self._tools
+        # 每次返回隔离副本，避免调用方通过嵌套字典改变内部 Schema 而指纹不变。
+        return tuple(_isolated_tool(tool) for tool in self._tools)
 
     @property
     def catalog_sha256(self) -> str:
         return self._catalog_sha256
 
     def get(self, name: str) -> RegisteredTool | None:
-        return next((tool for tool in self._tools if tool.name == name), None)
+        found = next((tool for tool in self._tools if tool.name == name), None)
+        return None if found is None else _isolated_tool(found)
 
     def model_tools(self) -> tuple[ModelTool, ...]:
-        return self._model_tools
+        return tuple(_isolated_model_tool(tool) for tool in self._model_tools)
 
     def model_version(self, name: str) -> str | None:
         return next(
@@ -54,7 +58,7 @@ class ToolRegistry(ToolCatalogReader):
     # ContextBuilder 的只读目录端口；目录指纹由调用方按同一投影重新计算。
     async def authorized(self, context: ExecutionContext) -> tuple[ModelTool, ...]:
         _ = context
-        return self._model_tools
+        return tuple(_isolated_model_tool(tool) for tool in self._model_tools)
 
     # 验证处理函数与目录一一对应；缺少实现或多余处理函数都 fail-closed。
     def bind_handlers(self, handlers: Mapping[str, ToolHandler]) -> dict[str, ToolHandler]:
@@ -76,13 +80,25 @@ class ToolRegistry(ToolCatalogReader):
 def _model_tool(tool: RegisteredTool) -> ModelTool:
     entry = tool.catalog_entry()
     digest = sha256_json(cast(JsonValue, entry))
-    version = f"{tool.version}_{digest[:12]}"
+    # 基础版本允许点和横线，但模型可见版本只允许 [a-z0-9_]；用确定性替换编码，
+    # 并保留目录条目哈希后缀消除潜在碰撞。
+    safe_version = re.sub(r"[^a-z0-9]", "_", tool.version)
+    version = f"{safe_version}_{digest[:12]}"
     return ModelTool(
         name=tool.name,
         version=version,
         description=tool.description,
         input_schema=copy.deepcopy(tool.input_schema),
     )
+
+
+def _isolated_tool(tool: RegisteredTool) -> RegisteredTool:
+    # 通过序列化重建复制嵌套 Schema；Pydantic 的 frozen 只阻止顶层赋值。
+    return RegisteredTool.model_validate(tool.model_dump(mode="python", by_alias=False))
+
+
+def _isolated_model_tool(tool: ModelTool) -> ModelTool:
+    return ModelTool.model_validate(tool.model_dump(mode="python", by_alias=False))
 
 
 # 名称别名便于上层按“目录”语义引用，不产生第二套实现。

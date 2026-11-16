@@ -180,7 +180,7 @@ class ToolGateway:
                 tool_version=model_version,
                 step=step,
                 arguments_sha256=normalized_sha,
-                observed_at=now,
+                checked_at=require_utc(self._clock()),
             )
         if step.status is not AttemptStatus.PREPARED:
             if step.status is AttemptStatus.UNKNOWN:
@@ -189,6 +189,8 @@ class ToolGateway:
 
         # mark_sent 未成功返回时不能调用处理器；保留实际状态交给恢复器，不伪造发送。
         await self._budget.mark_sent(context.fence, step.attempt_id)
+        # 发送时刻与结果校验时刻分离：处理器可能执行数秒并产生新的合法观测。
+        sent_at = require_utc(self._clock())
 
         try:
             async with asyncio.timeout(tool.timeout_seconds):
@@ -196,7 +198,7 @@ class ToolGateway:
                     context,
                     snapshot,
                     arguments,
-                    sent_at=now,
+                    sent_at=sent_at,
                 )
         except AgentRunError as error:
             # 预算/租约/存储等控制错误必须交给 worker 停止；不能伪装成可继续的普通观察。
@@ -208,6 +210,7 @@ class ToolGateway:
             )
             raise
         except TimeoutError:
+            checked_at = require_utc(self._clock())
             await self._settle_outcome(
                 context.fence,
                 step,
@@ -222,9 +225,10 @@ class ToolGateway:
                 arguments_sha256=normalized_sha,
                 status=ToolObservationStatus.UNKNOWN,
                 reason_code="tool_timeout",
-                observed_at=now,
+                observed_at=checked_at,
             )
         except Exception:
+            checked_at = require_utc(self._clock())
             await self._settle_outcome(
                 context.fence,
                 step,
@@ -239,15 +243,16 @@ class ToolGateway:
                 arguments_sha256=normalized_sha,
                 status=ToolObservationStatus.UNKNOWN,
                 reason_code="tool_outcome_unknown",
-                observed_at=now,
+                observed_at=checked_at,
             )
 
-        # 处理器返回类型/形状/Schema/大小/时效均在结算前验证；失败不得伪装成功。
+        # 处理器返回类型/形状/Schema/大小/时效均在处理器完成后重新采样校验。
+        result_checked_at = require_utc(self._clock())
         try:
             normalized_result = self._validate_handler_result(
                 tool,
                 result,
-                now=now,
+                checked_at=result_checked_at,
             )
         except ToolContractError as error:
             await self._settle_outcome(
@@ -264,7 +269,7 @@ class ToolGateway:
                 arguments_sha256=normalized_sha,
                 status=ToolObservationStatus.FAILED,
                 reason_code=error.code,
-                observed_at=now,
+                observed_at=result_checked_at,
             )
 
         payload = normalized_result.model_dump(mode="json", by_alias=False, exclude_none=True)
@@ -378,14 +383,14 @@ class ToolGateway:
         tool: RegisteredTool,
         result: object,
         *,
-        now: datetime,
+        checked_at: datetime,
     ) -> ToolResult:
         if not isinstance(result, ToolResult):
             raise ToolContractError("output_schema_mismatch", "处理器结果类型非法")
         limit = min(tool.max_result_bytes, MAX_TOOL_SUMMARY_BYTES)
         if len(result.safe_summary.encode("utf-8")) > limit:
             raise ToolContractError("output_too_large", "工具摘要超过登记大小上限")
-        if result.observed_at > now:
+        if result.observed_at > checked_at:
             raise ToolContractError("result_time_in_future", "工具结果观测时间晚于服务端当前时刻")
         if result.expires_at is not None and result.expires_at < result.observed_at:
             raise ToolContractError("result_time_invalid", "工具结果到期时间早于观测时间")
@@ -398,7 +403,7 @@ class ToolGateway:
             raise ToolContractError(
                 "output_schema_mismatch", "工具结果不符合输出 Schema"
             ) from error
-        if result.expires_at is not None and result.expires_at < now:
+        if result.expires_at is not None and result.expires_at < checked_at:
             # 已过期结果仍可审计，但不能再作为当前完整观察返回。
             return result.model_copy(
                 update={
@@ -495,10 +500,23 @@ class ToolGateway:
         tool_version: str,
         step: StepAttempt,
         arguments_sha256: str,
-        observed_at: datetime,
+        checked_at: datetime,
     ) -> ToolObservation:
         cached = self._observations.get(step.step_id)
         if cached is not None and cached.result_ref == step.result_ref:
+            if cached.expires_at is not None and cached.expires_at < checked_at:
+                return cached.model_copy(
+                    update={
+                        "status": ToolObservationStatus.DEGRADED,
+                        "quality": ToolQuality.STALE,
+                        "reason_code": "result_expired",
+                        "safe_summary": (
+                            "该工具调用的缓存结果已过期；保留引用与审计信息，不能继续表示当前有效。"
+                        ),
+                        "call_id": request.call_id,
+                        "arguments_sha256": arguments_sha256,
+                    }
+                )
             return cached.model_copy(
                 update={
                     "call_id": request.call_id,
@@ -520,7 +538,7 @@ class ToolGateway:
             safe_summary="该工具调用已成功执行；本进程不重建历史摘要，只复用持久化结果引用。",
             quality=ToolQuality.MISSING,
             reason_code="tool_result_reuse",
-            observed_at=observed_at,
+            observed_at=checked_at,
             expires_at=None,
             sent=True,
         )

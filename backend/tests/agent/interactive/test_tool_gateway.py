@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid4
@@ -348,6 +349,17 @@ def _tool(
     )
 
 
+class MutableClock:
+    def __init__(self, value: datetime) -> None:
+        self.value = value
+
+    def __call__(self) -> datetime:
+        return self.value
+
+    def advance(self, delta: timedelta) -> None:
+        self.value += delta
+
+
 class SpyHandler:
     def __init__(
         self,
@@ -357,13 +369,16 @@ class SpyHandler:
         result: ToolResult | None = None,
         error: Exception | None = None,
         delay: float = 0.0,
+        on_handle: Callable[[], None] | None = None,
     ) -> None:
         self.tool = tool
         self.events = events if events is not None else []
         self.result = result
         self.error = error
         self.delay = delay
+        self.on_handle = on_handle
         self.calls: list[JsonObject] = []
+        self.sent_at_values: list[datetime] = []
         self.active = 0
         self.max_active = 0
 
@@ -375,14 +390,17 @@ class SpyHandler:
         *,
         sent_at: datetime,
     ) -> ToolResult:
-        _ = (context, snapshot, sent_at)
+        _ = (context, snapshot)
         self.calls.append(arguments)
+        self.sent_at_values.append(sent_at)
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         self.events.append("execute")
         try:
             if self.delay:
                 await asyncio.sleep(self.delay)
+            if self.on_handle is not None:
+                self.on_handle()
             if self.error is not None:
                 raise self.error
             return self.result or ToolResult(
@@ -401,6 +419,7 @@ def _runtime(
     *,
     snapshot: RunSnapshot | None = None,
     budget: SpyBudget | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> tuple[ToolGateway, SpyBudget, SpyRuns]:
     events = handler.events
     ledger = budget or SpyBudget(events=events)
@@ -411,7 +430,7 @@ def _runtime(
         budget=cast(BudgetLedger, ledger),
         catalog=catalog,
         handlers={handler.tool.name: handler},
-        clock=lambda: NOW,
+        clock=clock or (lambda: NOW),
     )
     return gateway, ledger, runs
 
@@ -681,6 +700,77 @@ async def test_output_schema_violation_and_future_observation_are_rejected() -> 
 
 
 @pytest.mark.asyncio
+async def test_result_time_validation_uses_post_handler_clock() -> None:
+    clock = MutableClock(NOW)
+    observed_at = NOW + timedelta(microseconds=1)
+    handler = SpyHandler(
+        _tool(),
+        result=ToolResult(
+            status=ToolResultStatus.OK,
+            safe_summary="处理器执行期间产生的当前观测",
+            quality=ToolQuality.VALID,
+            observed_at=observed_at,
+            expires_at=observed_at + timedelta(minutes=15),
+        ),
+        on_handle=lambda: clock.advance(timedelta(milliseconds=1)),
+    )
+    gateway, _, _ = _runtime(handler, clock=clock)
+
+    observation = await gateway.call(_context(gateway.catalog.catalog_sha256), _request())
+
+    assert observation.status is ToolObservationStatus.OK
+    assert observation.observed_at == observed_at
+    assert handler.sent_at_values == [NOW]
+
+
+@pytest.mark.asyncio
+async def test_true_future_result_still_rejected_after_clock_progress() -> None:
+    clock = MutableClock(NOW)
+    handler = SpyHandler(
+        _tool(),
+        result=ToolResult(
+            status=ToolResultStatus.OK,
+            safe_summary="真正未来结果",
+            quality=ToolQuality.VALID,
+            observed_at=NOW + timedelta(hours=1),
+            expires_at=NOW + timedelta(hours=2),
+        ),
+        on_handle=lambda: clock.advance(timedelta(milliseconds=1)),
+    )
+    gateway, budget, _ = _runtime(handler, clock=clock)
+
+    observation = await gateway.call(_context(gateway.catalog.catalog_sha256), _request())
+
+    assert observation.status is ToolObservationStatus.FAILED
+    assert observation.reason_code == "result_time_in_future"
+    assert budget.results[-1][1].status is AttemptStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_result_expiry_uses_post_handler_clock() -> None:
+    clock = MutableClock(NOW)
+    handler = SpyHandler(
+        _tool(),
+        result=ToolResult(
+            status=ToolResultStatus.OK,
+            safe_summary="处理器执行期间到期的结果",
+            quality=ToolQuality.VALID,
+            observed_at=NOW,
+            expires_at=NOW + timedelta(seconds=1),
+        ),
+        on_handle=lambda: clock.advance(timedelta(seconds=2)),
+    )
+    gateway, budget, _ = _runtime(handler, clock=clock)
+
+    observation = await gateway.call(_context(gateway.catalog.catalog_sha256), _request())
+
+    assert observation.status is ToolObservationStatus.DEGRADED
+    assert observation.quality is ToolQuality.STALE
+    assert observation.reason_code == "result_expired"
+    assert budget.results[-1][1].status is AttemptStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
 async def test_expired_handler_result_is_degraded_not_current_success() -> None:
     handler = SpyHandler(
         _tool(),
@@ -778,6 +868,36 @@ async def test_handlers_are_serialized_to_concurrency_one() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reused_observation_is_rechecked_against_current_time() -> None:
+    clock = MutableClock(NOW)
+    handler = SpyHandler(
+        _tool(),
+        result=ToolResult(
+            status=ToolResultStatus.OK,
+            safe_summary="十五分钟内有效的缓存观察",
+            quality=ToolQuality.VALID,
+            observed_at=NOW,
+            expires_at=NOW + timedelta(minutes=15),
+        ),
+    )
+    gateway, budget, _ = _runtime(handler, clock=clock)
+    context = _context(gateway.catalog.catalog_sha256)
+    request = _request(arguments={"symbol": "BTCUSDT"})
+
+    first = await gateway.call(context, request)
+    clock.advance(timedelta(hours=1))
+    second = await gateway.call(context, request)
+
+    assert first.status is ToolObservationStatus.OK
+    assert second.status is ToolObservationStatus.DEGRADED
+    assert second.quality is ToolQuality.STALE
+    assert second.reason_code == "result_expired"
+    assert second.result_ref == first.result_ref
+    assert handler.calls == [{"symbol": "BTCUSDT"}]
+    assert len(budget.steps) == 1
+
+
+@pytest.mark.asyncio
 async def test_repeated_identical_call_reuses_observation_without_second_send() -> None:
     handler = SpyHandler(_tool())
     gateway, budget, _ = _runtime(handler)
@@ -830,6 +950,73 @@ def test_registry_rejects_duplicate_tools_invalid_schemas_and_non_readonly_capab
             timeout_seconds=5,
             max_result_bytes=8_192,
         )
+
+
+def _schema_property(schema: JsonObject, name: str) -> JsonObject:
+    properties = cast(dict[str, JsonValue], schema["properties"])
+    return cast(JsonObject, properties[name])
+
+
+@pytest.mark.asyncio
+async def test_registry_isolates_nested_schemas_from_public_mutation() -> None:
+    original = _tool()
+    registry = ToolRegistry((original,))
+    digest = registry.catalog_sha256
+    version = registry.model_version("read_market_evidence")
+    assert version is not None
+
+    # 构造输入被隔离：修改原 RegisteredTool 的嵌套 Schema 不能改变已登记契约。
+    _schema_property(original.input_schema, "refresh")["type"] = "integer"
+    registered = registry.get("read_market_evidence")
+    assert registered is not None
+    assert _schema_property(registered.input_schema, "refresh")["type"] == "boolean"
+
+    # 每个公开访问器都返回隔离副本；修改返回值不能改变目录/模型投影/指纹。
+    accessed = registry.get("read_market_evidence")
+    assert accessed is not None
+    _schema_property(accessed.input_schema, "refresh")["type"] = "integer"
+    _schema_property(registry.tools[0].input_schema, "refresh")["type"] = "integer"
+    model_tools = registry.model_tools()
+    _schema_property(model_tools[0].input_schema, "refresh")["type"] = "integer"
+    authorized = await registry.authorized(_context(digest))
+    _schema_property(authorized[0].input_schema, "refresh")["type"] = "integer"
+
+    refreshed = registry.get("read_market_evidence")
+    assert refreshed is not None
+    assert _schema_property(refreshed.input_schema, "refresh")["type"] == "boolean"
+    assert _schema_property(registry.model_tools()[0].input_schema, "refresh")["type"] == "boolean"
+    assert registry.catalog_sha256 == digest
+    assert registry.model_version("read_market_evidence") == version
+
+    # 网关实际校验仍使用隔离后的原始契约，不会接受被外部改写的 integer 上限。
+    handler = SpyHandler(registry.get("read_market_evidence") or _tool())
+    gateway = ToolGateway(
+        runs=cast(AgentRunReader, SpyRuns(_snapshot())),
+        budget=cast(BudgetLedger, SpyBudget(events=handler.events)),
+        catalog=registry,
+        handlers={handler.tool.name: handler},
+        clock=lambda: NOW,
+    )
+    observation = await gateway.call(
+        _context(digest),
+        _request(arguments={"refresh": 1}),
+    )
+    assert observation.status is ToolObservationStatus.REJECTED
+    assert observation.reason_code == "invalid_arguments"
+    assert handler.calls == []
+
+
+def test_registered_base_versions_with_punctuation_and_max_length_build_model_projection() -> None:
+    digests: set[str] = set()
+    for base_version in ("1.0", "v1-beta", "a" * 32):
+        registry = ToolRegistry((_tool(version=base_version),))
+        model_tool = registry.model_tools()[0]
+        assert ModelTool.model_validate(model_tool.model_dump(mode="json")) == model_tool
+        assert registry.model_version("read_market_evidence") == model_tool.version
+        expected_prefix = base_version.replace(".", "_").replace("-", "_")
+        assert model_tool.version.startswith(f"{expected_prefix}_")
+        digests.add(registry.catalog_sha256)
+    assert len(digests) == 3
 
 
 def test_catalog_fingerprint_matches_context_projection() -> None:
