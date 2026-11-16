@@ -74,6 +74,26 @@ def test_live_agent_factory_routes_market_research_through_the_governance_kernel
     assert "app.state.audit_repository" not in source
 
 
+def test_interactive_tool_modules_cannot_import_trade_execution_or_model_clients() -> None:
+    # 工具处理器只依赖研究端口/领域服务；模型循环、真实发送和交易实现不能下沉到工具层。
+    files = tuple((BACKEND_ROOT / "src" / "app" / "agent" / "interactive" / "tools").glob("*.py"))
+    assert files
+    forbidden = (
+        "app.execution",
+        "app.risk",
+        "app.strategy",
+        "app.paper_trading",
+        "openai",
+        "anthropic",
+        "langchain",
+        "langgraph",
+        "litellm",
+    )
+    for path in files:
+        source = path.read_text(encoding="utf-8")
+        assert not any(token in source for token in forbidden), path
+
+
 def test_technical_plan_modules_cannot_access_execution_or_accounts() -> None:
     files = tuple((BACKEND_ROOT / "src" / "app" / "agent" / "technical").glob("*.py"))
     forbidden = (

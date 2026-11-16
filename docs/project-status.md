@@ -12,7 +12,8 @@
 | 研究币种管理 | 合约准入检查、目录登记、初始同步、失败重试、超时/租约恢复及归档；动态研究范围不扩大交易范围 | [symbols](../backend/src/app/symbols/)、[管理页](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.tsx)、[测试](../backend/tests/symbols/) |
 | 同步安全诊断 | 管理页展示 UTC 生命周期、固定中文失败原因与逐来源覆盖；离线缺项明确提示，不显示原始错误或来源载荷 | [诊断组件](../frontend/src/features/research-symbols/ResearchSymbolSyncDiagnostics.tsx)、[页面测试](../frontend/src/features/research-symbols/ResearchSymbolManagementPage.test.tsx) |
 | 手动公开源诊断 | 默认22项，显式包含情绪/ETF时25项，分别记录可用性与时效；不加入默认离线验收，不读取业务配置或数据库 | [检查脚本](../backend/scripts/check_public_sources.py)、[质量验证](quality-verification.md#手动验证真实公开源) |
-| 按需 AI 研究 | 固定 LangGraph、冻结证据、中文双周期叙事、模型校验与降级；无模型工具调用 | [agent](../backend/src/app/agent/)、[测试](../backend/tests/agent/) |
+| 按需 AI 研究 | 固定 LangGraph、冻结证据、中文双周期叙事、模型校验与降级；生产固定研究路径仍无模型工具调用 | [agent](../backend/src/app/agent/)、[测试](../backend/tests/agent/) |
+| 交互式工具守卫（模块） | 六个只读研究工具的服务端目录、输入/输出 Schema、范围/预算逐次守卫、串行执行与安全观察；尚未接入模型图/MCP/HTTP/前端，不等于生产模型可调用工具 | [tools](../backend/src/app/agent/interactive/tools/)、[守卫测试](../backend/tests/agent/interactive/test_tool_gateway.py)、[工具测试](../backend/tests/agent/interactive/test_research_tools.py) |
 | 报告专题 | 美国政策、近七天资金费率、BTC/ETH 美国现货 ETF 资金流；各专题独立处理缺失和失败 | [专题说明](report-factors.md)、[因子测试](../backend/tests/agent/test_factors.py) |
 | 独立技术研究 | v2 两阶段模型、程序验证的条件候选、引用校验、规则降级与持久化后台任务；保留 v1 同步接口和历史读取 | [交易计划书](technical-trading-plan.md)、[technical](../backend/src/app/agent/technical/)、[模型测试](../backend/tests/agent/test_technical_plan_model.py)、[worker 测试](../backend/tests/agent/test_technical_worker.py) |
 | 技术报告展示 | 字段路径、状态与方法中文展示；多周期结构对照、条件计划与分析依据，原始引用可追溯 | [中文映射](../frontend/src/features/technical-reports/technical-presentation.ts)、[市场结构](../frontend/src/features/technical-reports/TechnicalMarketStructure.tsx)、[计划书](../frontend/src/features/technical-reports/TechnicalPlanBook.tsx) |
@@ -49,6 +50,8 @@
 2026-11-06 按用户指定明确异构开发与集中审查分工，新增[开发模型提示词](superpowers/plans/2026-11-06-manual-trading-agent-developer-prompt.md)：其他模型按指定模块实现与自测，生成准确 base/tip、改动/契约/测试证据的审查请求，再由用户交回原设计与审查助手正式审查；修复后重验重审，当前版本通过后才放行下一审查单元。交接说明同步至 v1.1，开发审查与产品内计划审核分别管理，不改变单 Agent 产品架构；本次未开始任何开发任务。
 
 ## 本次整理的行为
+
+2026-11-17 T09 受控工具守卫与内部研究工具模块实现（待原审查助手审查）：新增 `agent/interactive/tools/` 的 `RegisteredTool`/`ToolRequest`/`ToolResult`/`ToolObservation`、不可变 `ToolRegistry`、串行 `ToolGateway` 与六个只读研究工具（读取冻结行情、批准新闻摘要、技术事实、所选策略评估、研究知识检索、策略定义）。每次调用核对运行修订/取消/策略与工具目录版本，校验受限参数 Schema 与当前币种/周期范围，再在 C5 账本预留 TOOL 步骤并提交发送；结果经输出 Schema、8 KiB 摘要、来源/未来时间校验后成功/失败/未知结算，拒绝和失败保留稳定原因，重复逻辑步骤不二次调用处理器。同步把架构门禁扩展到 `agent_runs`/`research`/`trade_planning` 的适用隔离，并保持 `governance/` 无工具路由；未新增依赖或迁移。聚焦工具 38 项、交互式模块 80 项、阶段回归 300 项通过；本机 Docker/PostgreSQL 不可用，未执行数据库、后端 full、HTTP/前端或真实模型/MCP 验证，不能宣称生产工具循环或完整验收已交付。审查请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`；正式审查状态须由用户传回原审查助手结论，不由开发端预填。
 
 2026-11-07 T00 治理内核命名迁移：后端 `app/harness/` 迁至 `app/governance/`，`HarnessRuntime`/`HarnessPolicy`/`HarnessCapability`/`HarnessRunKind`/`HarnessRunRequest`/`HarnessPolicyViolation`/`HarnessWorkflow` 及两个 `Harnessed*` 服务分别改为 `Governance*`/`Governed*` 命名；测试迁至 `tests/governance/`，导入、装配、AST 安全门禁与当前规范同步更新。`HarnessAudit*` 存储类型、表/审计事件值、`harness_*` 错误码、日志事件名及拒绝日志 `error_type` 保持历史值，以兼容既有观测与审计读取。复审阶段已在专用测试库通过 full（后端 1017 passed），并完成旧报告/审计读取 SQL 回归 34 passed；开发状态保持 `implemented`，等待原审查助手复审，不自行标记 `verified`。
 

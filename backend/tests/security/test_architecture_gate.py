@@ -20,6 +20,12 @@ REQUIRED_FILES = (
     "src/app/governance/audit.py",
     "src/app/risk/__init__.py",
     "src/app/risk/engine.py",
+    "src/app/agent_runs/__init__.py",
+    "src/app/agent_runs/budget.py",
+    "src/app/research/evidence.py",
+    "src/app/trade_planning/__init__.py",
+    "src/app/trade_planning/inputs.py",
+    "src/app/agent/interactive/tools/__init__.py",
 )
 
 
@@ -88,6 +94,11 @@ def test_gate_cli_checks_real_repository_and_writes_report(tmp_path: Path) -> No
         ("risk/probe.py", "from app import agent", "ARCH005"),
         ("risk/probe.py", "from openai import OpenAI", "ARCH005"),
         ("risk/probe.py", "import langgraph.graph", "ARCH005"),
+        ("agent_runs/probe.py", "import app.execution.engine", "ARCH007"),
+        ("agent_runs/probe.py", "import langgraph.graph", "ARCH008"),
+        ("trade_planning/probe.py", "from app.risk import engine", "ARCH007"),
+        ("trade_planning/probe.py", "from openai import OpenAI", "ARCH008"),
+        ("research/probe.py", "import langchain", "ARCH008"),
         (
             "agent/probe.py",
             "import importlib as loader\nloader.import_module('app.execution.engine')",

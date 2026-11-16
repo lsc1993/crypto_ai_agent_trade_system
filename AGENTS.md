@@ -36,7 +36,7 @@
 | `infrastructure/persistence/` | 数据库模型、仓储及不可变报告和审计记录；迁移位于 `backend/alembic/` |
 | `api/`、`shared/`、`dashboard/`、`trades/` | HTTP 契约、配置、日志、看板与交易日志/复盘 |
 
-`governance/` 是系统级 Harness 的准入与审计内核，不等于全部 Harness 能力。`HarnessAudit*` 存储类型以及既有 `harness_*` 表、审计事件值和日志名保留，以兼容历史记录；代码导入不得再使用 `app.harness`。当前仍是固定研究图，受控模型工具循环的放行属于后续实现批次。
+`governance/` 是系统级 Harness 的准入与审计内核，不等于全部 Harness 能力。`HarnessAudit*` 存储类型以及既有 `harness_*` 表、审计事件值和日志名保留，以兼容历史记录；代码导入不得再使用 `app.harness`。当前生产仍是固定研究图；`agent/interactive/tools/` 已提供模块级工具契约、目录和逐次守卫，但模型驱动图（T11）、真实 MCP（T10）及生产装配尚未完成，不能据此宣称生产模型已可调用工具。
 
 前端位于 `frontend/src/`，页面通过 `WorkbenchApi` 使用 Mock/HTTP/Hybrid 适配器。部署入口是根目录 `compose.yaml`，前后端构建入口分别位于 `backend/Dockerfile` 与 `frontend/Dockerfile`。
 

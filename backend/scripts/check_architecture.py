@@ -15,7 +15,7 @@ from importlib.util import resolve_name
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-SCOPES = ("agent", "governance", "risk")
+SCOPES = ("agent", "governance", "risk", "agent_runs", "research", "trade_planning")
 REQUIRED_FILES = (
     "src/app/agent/__init__.py",
     "src/app/agent/service.py",
@@ -26,8 +26,32 @@ REQUIRED_FILES = (
     "src/app/governance/audit.py",
     "src/app/risk/__init__.py",
     "src/app/risk/engine.py",
+    "src/app/agent_runs/__init__.py",
+    "src/app/agent_runs/budget.py",
+    "src/app/research/evidence.py",
+    "src/app/trade_planning/__init__.py",
+    "src/app/trade_planning/inputs.py",
+    "src/app/agent/interactive/tools/__init__.py",
 )
 TRADE_MODULES = ("app.execution", "app.risk", "app.strategy", "app.paper_trading")
+# 规划与任务账本不得反向依赖 Agent/交易实现；研究层仍允许回测读取交易模拟契约。
+PLANNING_FORBIDDEN = (
+    "app.agent",
+    "app.execution",
+    "app.risk",
+    "app.strategy",
+    "app.paper_trading",
+)
+# 研究/规划层不得直接依赖模型客户端；模型循环只允许在 agent/interactive 中装配。
+LLM_MODULES = (
+    "openai",
+    "anthropic",
+    "langchain",
+    "langchain_core",
+    "langchain_openai",
+    "langgraph",
+    "litellm",
+)
 RULES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "agent": (("ARCH001", TRADE_MODULES),),
     "governance": (
@@ -66,6 +90,15 @@ RULES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
                 "litellm",
             ),
         ),
+    ),
+    "agent_runs": (
+        ("ARCH007", PLANNING_FORBIDDEN),
+        ("ARCH008", LLM_MODULES),
+    ),
+    "research": (("ARCH008", LLM_MODULES),),
+    "trade_planning": (
+        ("ARCH007", PLANNING_FORBIDDEN),
+        ("ARCH008", LLM_MODULES),
     ),
 }
 SAFE_COMPONENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.py)?\Z")

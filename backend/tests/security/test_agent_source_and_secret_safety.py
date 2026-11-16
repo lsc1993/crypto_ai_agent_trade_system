@@ -3,6 +3,7 @@
 # 文档需保持手动研究与安全降级边界，配置只传可选密钥名称而不内置值。
 from pathlib import Path
 
+from app.agent.interactive.tools.research_tools import RESEARCH_TOOL_NAMES
 from app.news.contracts import ALLOWED_NEWS_SOURCES
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,45 @@ def test_agent_news_and_governance_contain_no_private_exchange_or_model_tool_sur
         "playwright",
     )
     assert not {token for token in forbidden if token in source}
+
+
+def test_interactive_tool_sources_are_read_only_and_have_no_execution_surface() -> None:
+    # 工具目录只允许六个只读研究工具；源码不能引入交易、私有账户、HTTP 客户端或模型凭据。
+    tool_root = BACKEND_ROOT / "src" / "app" / "agent" / "interactive" / "tools"
+    files = sorted(tool_root.rglob("*.py"))
+    assert files
+    source = "\n".join(path.read_text(encoding="utf-8") for path in files)
+    forbidden = (
+        "app.execution",
+        "app.risk",
+        "app.strategy",
+        "app.paper_trading",
+        "sqlalchemy",
+        "httpx",
+        "subprocess",
+        "os.system",
+        "ccxt",
+        "create_order",
+        "cancel_order",
+        "fetch_balance",
+        "fetch_positions",
+        "private_key",
+        "api_key",
+        "secret_key",
+        "selenium",
+        "playwright",
+        "tools=",
+    )
+    assert not {token for token in forbidden if token in source}
+    assert set(RESEARCH_TOOL_NAMES) == {
+        "read_market_evidence",
+        "read_approved_news_factors",
+        "compute_technical_facts",
+        "evaluate_selected_strategy",
+        "search_research_knowledge",
+        "read_strategy_definition",
+    }
+    assert "build_manual_trade_plan" not in RESEARCH_TOOL_NAMES
 
 
 def test_governance_source_contains_no_tool_or_external_io_surface() -> None:

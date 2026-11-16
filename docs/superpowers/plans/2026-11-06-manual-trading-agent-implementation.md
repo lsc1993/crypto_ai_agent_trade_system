@@ -258,18 +258,16 @@
 
 **Interfaces:** C6 ToolGateway.call 与 RegisteredTool/ToolObservation；消费 C2/C5 端口。初期登记六个研究工具，规划工具到 T14 才启用；并发固定 1，input/output Schema 和目录版本冻结。
 
-- [ ] **Step 1：写未登记/参数越权/目录变更/注入、先预留后发送、输出超限/非法 Schema 测试。**
-  ```python
-  assert forbidden_tool.calls == 0
-  assert reservation.committed_before_send
-  assert outside_symbol.reason_code == "scope_denied"
-  assert observer.max_concurrency == 1
-  ```
-  用端口 spy 证明预算不足、fence 失效和取消后没有 HTTP/工具发送。
-- [ ] **Step 2：运行 `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py tests/security -q`，确认新测试红、旧范围仍受门禁。**
-- [ ] **Step 3：实现 C6 的守卫顺序和固定处理器；禁止模型传任意 URL/SQL/代码/连接。** 同批才将全目录 tools= 禁词细化为“旧模型与治理内核禁止、interactive 允许受控 Schema”，AST 增加 agent_runs/research/trade_planning 到交易/LLM 的适用隔离；不全删安全断言。governance 不导入 MCP/HTTP/SQL。
-- [ ] **Step 4：同命令全绿，再运行 architecture。** 内部行情、策略、RAG 的实际调用链及失败审计可关联；工具描述中的恶意指令不改变授权；无下单/私有账户能力。
-- [ ] **Step 5：提交 `feat: guard registered agent tool calls`。** FR-02/FR-03，AC-01/AC-03/AC-06/AC-29，HN-01/HN-05/HN-09/HN-12。
+- [x] **Step 1：写未登记/参数越权/目录变更/注入、先预留后发送、输出超限/非法 Schema 测试。**
+  `test_tool_gateway.py` 覆盖未知工具、目录/策略版本变化、跨币种/周期、历史模式刷新、注入字段、预算不足、fence/取消、串行并发、重复步骤、输出 Schema/大小/未来时间与拒绝/失败审计标识；`test_research_tools.py` 覆盖六个处理器、真实技术引擎/策略服务/RAG 服务调用链、新闻不可用与未批准来源、长策略定义截断及财务值隔离。
+- [x] **Step 2：运行 `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py tests/security -q`，确认新测试红、旧范围仍受门禁。**
+  首次因 `app.agent.interactive.tools` 不存在收集红（模块导入失败）；实现后聚焦 38 passed、`tests/security` 63 passed。
+- [x] **Step 3：实现 C6 的守卫顺序和固定处理器；禁止模型传任意 URL/SQL/代码/连接。** 同批才将全目录 tools= 禁词细化为“旧模型与治理内核禁止、interactive 允许受控 Schema”，AST 增加 agent_runs/research/trade_planning 到交易/LLM 的适用隔离；不全删安全断言。governance 不导入 MCP/HTTP/SQL。
+  实际保留旧 `tests=...`/`tools=` 字符串断言；新增工具源码只读/无执行/无凭证测试，以及 `agent_runs`/`trade_planning` 的交易隔离和 `research` 的 LLM 隔离规则；governance 未新增工具/MCP/HTTP/SQL 依赖。
+- [x] **Step 4：同命令全绿，再运行 architecture。** 内部行情、策略、RAG 的实际调用链及失败审计可关联；工具描述中的恶意指令不改变授权；无下单/私有账户能力。
+  工具聚焦 38 passed（含目录指纹/策略版本/过期/控制错误用例），交互式模块 80 passed，阶段回归 300 passed；`scripts.check_architecture` 为 `files_scanned=82`、`findings=[]`。真实模型/MCP/HTTP 未接入，不能将端口替身当作生产发送证明。
+- [x] **Step 5：提交 `feat: guard registered agent tool calls`。** FR-02/FR-03，AC-01/AC-03/AC-06/AC-29，HN-01/HN-05/HN-09/HN-12。
+  实现 tip 见审查请求；本任务未新增依赖或迁移，未接入模型图/MCP/HTTP/前端或生产装配。
 
 ### T10：官方 MCP SDK、受控 HTTP 和本地只读服务（D3）
 
