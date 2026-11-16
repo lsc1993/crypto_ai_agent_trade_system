@@ -3,8 +3,8 @@
 - 任务/审查单元：**T09**（D3：冻结上下文、工具守卫、真实 MCP、模型驱动 LangGraph 的第二段）。
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本/推理实现未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明与当前仓库版本。
-- 自测状态：**`implemented`**（模块、聚焦/阶段/quick 后端和静态/架构门禁完成；后端 full 因本机无专用 PostgreSQL 阻塞，不能标 `verified`）。
-- 正式审查状态：**`awaiting_review`**（待用户转交原审查助手；开发端不预填 `approved`）。
+- 自测状态：**`implemented`**（修复后模块、聚焦/阶段/quick 后端和静态/架构门禁完成；后端 full 因本机无专用 PostgreSQL 阻塞，不能标 `verified`）。
+- 正式审查状态：**`awaiting_review`**（首轮正式审查提出 1 项 P1 + 4 项 P2；当前为修复后再次交审，开发端不预填 `approved`）。
 - 日期：2026-11-17。
 
 ## 1. 工作区、分支与提交范围
@@ -15,12 +15,14 @@
 | 隔离工作区 | `D:\t09`（从 `main` 的 `36cda45` 创建） |
 | 分支 | `t09-tool-gateway`（未推送、未合并、未部署） |
 | base | `36cda455670713f3ffaee18655c4d59113a90b22`（`main`，`docs: record T08 merge into main`） |
-| implementation tip | `2674f1692d09217daea008a6999d49b291383914`（`feat: guard registered agent tool calls`） |
-| implementation tree | `3d8c02cfff6e40171baf2cf4b1fb5337c85783a0` |
-| 代码改动范围 | `36cda45..2674f16`，19 个文件，+4115 / -20 |
-| 工作区未提交内容 | 仅本审查请求与进度更新；实现代码、测试、安全门禁和同步文档已在 implementation tip 中提交。未夹带其他任务改动、`.env`、凭证或业务库修改 |
-| docs 提交 | 本审查请求/进度在 implementation tip 之后单独提交；提交号见最终交付回复，不用自身提交号循环引用 |
-| 复审状态 | 尚未发生；等待原审查助手正式结论 |
+| 首轮受审 tip | `2674f1692d09217daea008a6999d49b291383914`（`feat: guard registered agent tool calls`；首轮审查范围 `36cda45..2674f16`） |
+| implementation tip | `063e8a3a8f099540e89dce890b76748cd7fcb02c`（`fix: address T09 review findings`） |
+| implementation tree | `1fca46491d2e39ccb4649357c0ce40b32d851258` |
+| 修复范围 | `81018be..063e8a3`，5 个文件，+310 / -31（P1 + 4 项 P2 修复与回归） |
+| 累计代码范围 | `36cda45..063e8a3`，21 个文件，+4668 / -40（含首轮代码、docs 包和本次修复） |
+| 工作区未提交内容 | 本次复审请求、进度及同步文档更新；修复代码/测试已提交，未夹带其他任务改动、`.env`、凭证或业务库修改 |
+| docs 提交 | 首轮审查包 `81018be`；本次修复复审包在 implementation tip 之后单独提交，提交号见最终交付回复 |
+| 复审状态 | 原 5 项发现待原审查助手复核；开发端不自行标记通过 |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型、MCP、私有账户或交易接口。
 
@@ -30,18 +32,18 @@
 | --- | --- |
 | `backend/src/app/agent/interactive/tools/__init__.py` | `216d50d6340602dd6783bd11b83130d458df7575cbd78bd356873b3badb3166a` |
 | `backend/src/app/agent/interactive/tools/contracts.py` | `b57729a2c84e4ccaea876057fdfaf4930dd1dbce5bedd1c6327bf2c3b0e3a988` |
-| `backend/src/app/agent/interactive/tools/registry.py` | `1290dbf8ac5c230ba36ebde347b35a0947b04bb2de5170d3333fb8aa79e63fa7` |
-| `backend/src/app/agent/interactive/tools/gateway.py` | `59bd70f1160f7878de45a1428a3c73642587888b872e55d103ece7990771b9c6` |
-| `backend/src/app/agent/interactive/tools/research_tools.py` | `df63c4146eab36cfd00d16f11464e8265910de698294b7fc1ab65efcc566bc8a` |
+| `backend/src/app/agent/interactive/tools/registry.py` | `511bac11e20f97acdfd3c75cc42dbc24f16b79826041fe752d1f94cc1aa4a45f` |
+| `backend/src/app/agent/interactive/tools/gateway.py` | `2946bebab0b9c03c5f13bce4f64a03ed23f3ea50ec17ea7743dc0128350ea879` |
+| `backend/src/app/agent/interactive/tools/research_tools.py` | `1a1de02129a7b799174c0d148f7637c2f262d515efa33ade5b33399a8bcdf6af` |
 | `backend/src/app/agent/interactive/__init__.py` | `c35f15741229ecfd30eab164f7dd80786633df8925b5ef6ab218e5d5aeccb905` |
-| `backend/tests/agent/interactive/test_tool_gateway.py` | `bbf3bf0457a8ff5de5c042608a30d15e6e28f1bc8e1dd31692136006f6c9183c` |
-| `backend/tests/agent/interactive/test_research_tools.py` | `8da9ae2cf93394251e51c7f8a409b1ab359f531476fc306563a169f6a0abdce8` |
+| `backend/tests/agent/interactive/test_tool_gateway.py` | `9fc4a26a736517d60af53da4d54d9bac2ebaf66b51dc7c693398679967b70de6` |
+| `backend/tests/agent/interactive/test_research_tools.py` | `f7f77ce46620e55a4ddc6bca08d7215e952ca40cc142b0c9f5c8f127c93a847d` |
 | `backend/scripts/check_architecture.py` | `4b78e99ed9864190dbd4d31500a3604050432629a9eb6bb3fd3c121ec2404355` |
 | `backend/tests/security/test_architecture_gate.py` | `1c5284896bd922e95d7349d7da2b8edc54e182a572f72d652e78beee4547c378` |
 | `backend/tests/security/test_agent_source_and_secret_safety.py` | `0c60d294642ff763bfa9a1778dc00a0c94dbefae14a0b42ce78594ca1a3a58fe` |
 | `backend/tests/security/test_agent_dependency_boundary.py` | `ea4ff4907c93f93a19ee8c64c848dccbf2dda79f608bac9e933644b584ba2ce6` |
 
-同步文档（已包含在 implementation tip）：`AGENTS.md`、`backend/AGENTS.md`、`docs/ai-maintenance.md`、`docs/operational-boundaries.md`、`docs/project-status.md`、`docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md`、`docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md`。
+同步文档（包含在相应提交中）：`AGENTS.md`、`backend/AGENTS.md`、`docs/ai-maintenance.md`、`docs/operational-boundaries.md`、`docs/project-status.md`、`docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md`、`docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md`。
 
 ## 2. 任务范围与 FR/AC/HN 映射
 
@@ -113,6 +115,20 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 8. **工具串行**：`asyncio.Lock` 固定并发 1，测试用处理器 spy 证明 `max_active == 1`；不引入并行图分支的恢复复杂度。
 9. **安全门禁不删旧断言**：保留旧 `tools=`/`tool_choice`/交易关键字字符串检查；新增工具源码和导入边界断言，不把“工具目录存在”当作生产工具循环已交付。
 
+### 3.3 首轮审查 R1–R5 修复
+
+首轮正式审查提出 1 项 P1 + 4 项 P2。开发端先补失败回归，再逐项修复，修复范围 `81018be..063e8a3`（5 个文件，+310/-31）：
+
+| 发现 | 根因 | 修复与回归 |
+| --- | --- | --- |
+| R1/P1 结果时间使用调用前时刻 | `_call_locked` 在处理器执行前取 `now`，并用它校验处理器完成后的 `observed_at`；处理器期间产生的新观测被误判为未来 | 处理器成功后重新采样 `result_checked_at`，用于未来/到期检查；发送时刻单独取 `sent_at` 并在 `mark_sent` 后采样。新增执行期间时钟推进的当前观测、真正未来结果、执行期间到期三个回归；`test_result_time_validation_uses_post_handler_clock`、`test_true_future_result_still_rejected_after_clock_progress`、`test_result_expiry_uses_post_handler_clock` |
+| R2/P2 成功缓存未重新检查到期 | `_reuse_succeeded` 直接返回缓存观察，未按当前时刻检查 `expires_at` | 复用前重新采样 `checked_at`；过期缓存返回 `DEGRADED/STALE/result_expired`，保留原结果引用，不重新发送。新增 `test_reused_observation_is_rechecked_against_current_time`，断言预算步骤/处理器调用仍为 1 |
+| R3/P2 嵌套 Schema 可修改且指纹不变 | Pydantic frozen 只保护顶层；注册表保留原对象且访问器返回内部嵌套字典，修改后执行契约可变但目录指纹不变 | 构造时通过序列化重建隔离输入；`get()`、`tools`、`model_tools()`、`authorized()` 均返回深隔离副本；新增 `test_registry_isolates_nested_schemas_from_public_mutation`，覆盖构造输入和四个访问路径，并用真实网关切断改写后的 integer 参数 |
+| R4/P2 追加提示超出 8 KiB | `_bounded_summary` 先限长，调用方再追加截断提示，最终字节数超限 | 新增 `_append_note` 预留提示字节和 `_finalize_summary` 最终 UTF-8 限长；六个处理器统一使用。新增 `test_news_summary_is_finally_bounded_after_truncation_warnings`，包含中文多字节、证据 ID、limitations、截断提示并通过真实网关 |
+| R5/P2 带点/横线的基础版本无法登记 | 模型可见版本直接拼接基础版本，`ModelTool.version` 只允许 `[a-z0-9_]` | 对基础版本做确定性 `[a-z0-9_]` 编码后再拼接目录条目哈希；新增 `test_registered_base_versions_with_punctuation_and_max_length_build_model_projection`，覆盖 `1.0`、`v1-beta`、32 字符版本及目录指纹差异 |
+
+修复后工具+安全聚焦 108 passed、交互式 87 passed、D3 阶段 307 passed、quick 后端 1127 passed；后端 full 仍因专用测试数据库缺失 blocked。详见第 5 节。
+
 ## 4. 公共接口、依赖与迁移影响
 
 ### 4.1 新增/修改公共接口
@@ -145,23 +161,42 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 - 测试数据：合成任务/策略/知识/公开行情/新闻摘要/工具结果；财务哨兵仅用于断言不泄漏。
 - `.tmp/quality/` 证据是本地未提交产物，不随分支传递；上表命令可在有专用测试库环境重跑。
 
-### 5.2 实际命令与结果
+### 5.2 首轮验证（供对照）
 
 | 检查 | 目录 | 完整命令 | 退出码 | 实际结果 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 改动前基线 | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research/strategies tests/research/knowledge tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-baseline-3` | 0 | 248 passed | 终端记录 |
 | 首轮预期红 | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py -q --basetemp=../.tmp/pytest/t09-red-1` | 2 | 2 个 collection error（缺少 `app.agent.interactive.tools`），符合测试先行预期 | 终端记录 |
-| 工具+安全聚焦（最终） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py tests/security -q --basetemp=../.tmp/pytest/t09-focus-final-4` | 0 | **101 passed / 0 failed / 0 skipped**（38 工具 + 63 安全） | 终端记录 |
-| 交互式模块（最终） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive -q --basetemp=../.tmp/pytest/t09-interactive-final-4` | 0 | 80 passed | 终端记录 |
-| D3 阶段回归（非数据库，最终） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-stage-final-4` | 0 | 300 passed / 0 failed / 0 skipped | 终端记录 |
-| 后端 quick（最终） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t09-quick-backend-final.json` | 0 | `verification=passed`；1120 collected / 1120 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t09-quick-backend-final.json` |
-| 后端 full（阻塞，不计为通过） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t09-full-backend-final-blocked-2.json` | 2 | `verification=blocked`；`test-database=blocked(environment_not_ready)`；`backend-tests=blocked(prerequisite_not_passed)`；数据库/后端 full 未执行 | `.tmp/quality/t09-full-backend-final-blocked-2.json` |
+| 工具+安全聚焦（首轮） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py tests/security -q --basetemp=../.tmp/pytest/t09-focus-final-4` | 0 | **101 passed / 0 failed / 0 skipped**（38 工具 + 63 安全） | 终端记录 |
+| 交互式模块（首轮） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive -q --basetemp=../.tmp/pytest/t09-interactive-final-4` | 0 | 80 passed | 终端记录 |
+| D3 阶段回归（非数据库，首轮） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-stage-final-4` | 0 | 300 passed / 0 failed / 0 skipped | 终端记录 |
+| 后端 quick（首轮） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t09-quick-backend-final.json` | 0 | `verification=passed`；1120 collected / 1120 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t09-quick-backend-final.json` |
+| 后端 full（首轮，阻塞，不计为通过） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t09-full-backend-final-blocked-2.json` | 2 | `verification=blocked`；`test-database=blocked(environment_not_ready)`；`backend-tests=blocked(prerequisite_not_passed)`；数据库/后端 full 未执行 | `.tmp/quality/t09-full-backend-final-blocked-2.json` |
 | Ruff | `D:\t09\backend` | `uv run --locked --no-sync ruff check .` | 0 | All checks passed | 终端记录 |
 | 格式 | `D:\t09\backend` | `uv run --locked --no-sync ruff format --check .` | 0 | 384 files already formatted | 终端记录 |
 | Pyright | `D:\t09\backend` | `uv run --locked --no-sync python -m pyright` | 0 | 0 errors / 0 warnings | 终端记录 |
 | 架构门禁 | `D:\t09\backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | 0 | `status=passed`，`files_scanned=82`，`findings=[]` | 终端记录 |
 | 迁移链 | `D:\t09\backend` | `uv run --locked --no-sync alembic heads` | 0 | `0027_agent_segments (head)` | 终端记录 |
 | 文档空白/差异 | `D:\t09` | `git diff --check` | 0 | 无输出 | 终端记录 |
+
+### 5.3 审查修复后的最终验证
+
+| 检查 | 目录 | 完整命令 | 退出码 | 实际结果 | 证据 |
+| --- | --- | --- | --- | --- | --- |
+| R1–R3 失败测试（修复前） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py -q --basetemp=../.tmp/pytest/t09-review-red-1`；随后加入注册表/版本用例用 `--basetemp=../.tmp/pytest/t09-review-red-2` | 1 | 先 3 failed / 28 passed，再 5 failed / 28 passed；分别复现结果时间、缓存到期、嵌套 Schema、基础版本问题 | 终端记录 |
+| R4 失败测试（修复前） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_research_tools.py -q --basetemp=../.tmp/pytest/t09-review-red-3` | 1 | 1 failed / 11 passed；新闻长摘要经真实网关返回 `FAILED/output_too_large` | 终端记录 |
+| 工具+安全聚焦（修复后） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py tests/security -q --basetemp=../.tmp/pytest/t09-review-fix-focus-1` | 0 | **108 passed / 0 failed / 0 skipped**（45 工具 + 63 安全） | 终端记录 |
+| 交互式模块（修复后） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive -q --basetemp=../.tmp/pytest/t09-review-green-6` | 0 | 87 passed | 终端记录 |
+| D3 阶段回归（非数据库，修复后） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-review-fix-stage-1` | 0 | 307 passed / 0 failed / 0 skipped | 终端记录 |
+| 后端 quick（修复后） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t09-review-fix-quick-backend.json` | 0 | `verification=passed`；1127 collected / 1127 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t09-review-fix-quick-backend.json` |
+| 后端 full（修复后，阻塞） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t09-review-fix-full-blocked.json` | 2 | `verification=blocked`；`test-database=blocked(environment_not_ready)`；`backend-tests=blocked(prerequisite_not_passed)`；数据库/后端 full 未执行 | `.tmp/quality/t09-review-fix-full-blocked.json` |
+| Ruff / 格式 | `D:\t09\backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | 0 | All checks passed；384 files already formatted | 终端记录 |
+| Pyright | `D:\t09\backend` | `uv run --locked --no-sync python -m pyright` | 0 | 0 errors / 0 warnings | 终端记录 |
+| 架构门禁 | `D:\t09\backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | 0 | `status=passed`，`files_scanned=82`，`findings=[]` | 终端记录 |
+| 迁移链 | `D:\t09\backend` | `uv run --locked --no-sync alembic heads` | 0 | `0027_agent_segments (head)` | 终端记录 |
+| 文档空白/差异 | `D:\t09` | `git diff --check` | 0 | 无输出 | 终端记录 |
+
+注：修复前失败命令的 `--basetemp` 目录已分别保留，未用通过结果覆盖失败证据；修复后计数以当前 tip 为准。
 
 ## 6. 未验证项、已知风险与重点审查位置
 
@@ -185,9 +220,10 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 6. **安全门禁**：新增 `ARCH007`/`ARCH008` 是否覆盖 `agent_runs`/`research`/`trade_planning` 的适用边界而不误伤 `research/backtests` 合法模拟依赖；工具源码字符串断言是否会漏过动态导入/反射（已知不是任意代码安全证明）。
 7. **工具处理器**：`read_strategy_definition` 的方法/参数摘要是否满足模型最小化；`read_approved_news_factors` 默认不可用是否会被误认为“无新闻”；知识片段注入文本是否只在数据角色展示。
 8. **策略版本默认值**：`policy_version="interactive_planning_v1"` 是否应在 T14 显式注入；不同策略版本是否会被错误拒绝。
+9. **R1–R5 复核**：请重点确认修复是否关闭首轮发现，尤其是“发送时刻/结果校验时刻”分离、缓存到期复用、四个访问路径的深隔离、最终摘要限长和模型版本编码；新增回归位于 `test_tool_gateway.py` 与 `test_research_tools.py`。
 
 ## 7. 自测状态与正式审查状态
 
-- **自测状态：`implemented`**。实现、聚焦、阶段、quick 后端、Ruff/格式/Pyright/架构/迁移链完成；后端 full 因本机无专用 PostgreSQL 阻塞，未完成必需全量验证，因此不标 `verified`。
-- **正式审查状态：`awaiting_review`**。等待用户把本请求和 implementation tip `2674f16` 交回原审查助手；开发端不自行填写 `approved`，也不进入 T10/T11。
-- 若原审查助手要求修复，开发端先核对/复现，再逐条修复并补回归，记录新 tip 与验证结果后再次交审。
+- **自测状态：`implemented`**。首轮 1 P1 + 4 P2 已逐项修复并补回归；修复后聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed，Ruff/格式/Pyright/架构/迁移链完成；后端 full 因本机无专用 PostgreSQL 阻塞，未完成必需全量验证，因此不标 `verified`。
+- **正式审查状态：`awaiting_review`**。等待用户把本复审请求和 implementation tip `063e8a3` 交回原审查助手；首轮 `2674f16` 的 5 项发现待复核，开发端不自行填写 `approved`，也不进入 T10/T11。
+- 若复审仍有意见，开发端先核对/复现，再逐条修复并补回归，记录新 tip 与验证结果后再次交审。

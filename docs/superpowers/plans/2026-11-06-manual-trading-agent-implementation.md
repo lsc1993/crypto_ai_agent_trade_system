@@ -265,7 +265,7 @@
 - [x] **Step 3：实现 C6 的守卫顺序和固定处理器；禁止模型传任意 URL/SQL/代码/连接。** 同批才将全目录 tools= 禁词细化为“旧模型与治理内核禁止、interactive 允许受控 Schema”，AST 增加 agent_runs/research/trade_planning 到交易/LLM 的适用隔离；不全删安全断言。governance 不导入 MCP/HTTP/SQL。
   实际保留旧 `tests=...`/`tools=` 字符串断言；新增工具源码只读/无执行/无凭证测试，以及 `agent_runs`/`trade_planning` 的交易隔离和 `research` 的 LLM 隔离规则；governance 未新增工具/MCP/HTTP/SQL 依赖。
 - [x] **Step 4：同命令全绿，再运行 architecture。** 内部行情、策略、RAG 的实际调用链及失败审计可关联；工具描述中的恶意指令不改变授权；无下单/私有账户能力。
-  工具聚焦 38 passed（含目录指纹/策略版本/过期/控制错误用例），交互式模块 80 passed，阶段回归 300 passed；`scripts.check_architecture` 为 `files_scanned=82`、`findings=[]`。真实模型/MCP/HTTP 未接入，不能将端口替身当作生产发送证明。
+  首轮审查 1 P1 + 4 P2 已修复；修复后工具聚焦 108 passed（45 工具 + 63 安全）、交互式模块 87 passed、阶段回归 307 passed、quick 后端 1127 passed；`scripts.check_architecture` 为 `files_scanned=82`、`findings=[]`。真实模型/MCP/HTTP 未接入，不能将端口替身当作生产发送证明。
 - [x] **Step 5：提交 `feat: guard registered agent tool calls`。** FR-02/FR-03，AC-01/AC-03/AC-06/AC-29，HN-01/HN-05/HN-09/HN-12。
   实现 tip 见审查请求；本任务未新增依赖或迁移，未接入模型图/MCP/HTTP/前端或生产装配。
 
