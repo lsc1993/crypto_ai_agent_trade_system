@@ -1,29 +1,28 @@
 # 实盘手动计划 Agent 开发进度
 
-- 记录日期：2026-11-16
+- 记录日期：2026-11-17
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。
-- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 及后续单元仍须等待用户明确指定。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；聚焦 38、交互式 80、阶段 300、quick 后端 1120 passed，但本机无 Docker/专用 PostgreSQL，后端 full 被测试库前置阻塞，自测状态为 `implemented`，`review_status=awaiting_review`。
+- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 已提交待原审查助手审查，正式状态只由用户传回的结论更新。
 
 ## 当前工作区
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main` tip `f331e09`，工作区干净；T07 已合并） |
-| 隔离工作区 | `D:\t08`（从 `main` 的 `f331e09` 创建） |
-| 分支 | `t08-evidence-context`（未推送、未合并、未部署） |
-| base | `f331e09b7d1652060dc03fb792fa65726a11a9bb`（`main`） |
-| implementation tip | `08532dc8cf15980b70452721384a6600b016f4a0`（`fix: address T08 review findings`；首轮实现 `deec8f2`，边界加固 `96b8270`） |
-| tree | `78523029bf0967a377f50ee0f552cba1ddd25d2a` |
-| 代码改动范围 | `f331e09..08532dc` 15 个文件，+4682/-7（`deec8f2` 首轮；`96b8270` 边界加固；`08532dc` 正式审查 R1–R4 修复 7 个文件 +505/-15） |
-| review_status | `approved`（2026-11-16 用户传回原审查助手复审结论） |
-| reviewed_tip | `08532dc8cf15980b70452721384a6600b016f4a0` |
-| 审查请求 | `docs/superpowers/reviews/manual-agent/T08-review-request.md` |
-| 文档提交 | `fe464b3`、`2be68da`、`0bb1331`、`ffd47c2`、`06d5ff7`（审查包/进度/计划/契约/批准记录） |
-| 合并 tip | `06d5ff7b90c03b40c3db060503d4c3000b25dce3`（fast-forward 到 `main` 并推送；本 docs 提交记录合并结果） |
-| 首次 full 环境失败证据 | `.tmp/quality/manual-agent-t08-full-backend-1.json`（tmpfs 写满 + 类型错误；不计为通过） |
-| 最终 full 证据 | `.tmp/quality/manual-agent-t08-fix-full-backend-1.json`（`verification=passed`，1300 passed） |
-| 首轮正式审查报告 | `docs/superpowers/reviews/manual-agent/T08-review-report.md`（`changes_requested`，R1–R4） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main` tip `36cda45`，工作区干净；T08 已合并） |
+| 隔离工作区 | `D:\t09`（从 `main` 的 `36cda45` 创建） |
+| 分支 | `t09-tool-gateway`（未推送、未合并、未部署） |
+| base | `36cda455670713f3ffaee18655c4d59113a90b22`（`main`，`docs: record T08 merge into main`） |
+| implementation tip | `2674f1692d09217daea008a6999d49b291383914`（`feat: guard registered agent tool calls`） |
+| tree | `3d8c02cfff6e40171baf2cf4b1fb5337c85783a0` |
+| 代码改动范围 | `36cda45..2674f16` 19 个文件，+4115/-20 |
+| self_test | `implemented`（聚焦 38、交互式 80、阶段 300、quick 后端 1120 passed；后端 full 被专用测试库缺失阻塞） |
+| review_status | `awaiting_review`（待用户转交原审查助手；不得自行填写 approved） |
+| reviewed_tip | 未产生；等待原审查助手正式结论 |
+| 审查请求 | `docs/superpowers/reviews/manual-agent/T09-review-request.md`（本次 docs 提交） |
+| 文档提交 | 本次审查包/进度提交；具体哈希见最终交付回复，不用自身提交号循环引用 |
+| quick 证据 | `.tmp/quality/t09-quick-backend-final.json`（`verification=passed`，1120 passed / 0 failed / 0 skipped） |
+| full 证据（阻塞） | `.tmp/quality/t09-full-backend-final-blocked.json`（`test-database=blocked(environment_not_ready)`，`backend-tests=blocked`，`verification=blocked`） |
 | 复审状态 | `approved`（R1–R4 关闭，未发现新增阻断项） |
 
 ## T00：治理内核与规范迁移（D0）
@@ -661,6 +660,67 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 5. `EvidenceItem.calculation_version` 对历史 epoch 指纹的兼容：缺失字段不进入载荷，保持旧哈希可重验。
 6. 当前安全门禁用 `model_validate` 传递空工具 Schema 的兼容取舍；T09 必须按计划细化门禁，不能把该写法当作工具循环已交付。
 
+## T09：逐次工具守卫与内部研究工具（D3）
+
+| 项目 | 记录 |
+| --- | --- |
+| 任务 | T09；C6 `RegisteredTool`/`ToolRequest`/`ToolResult`/`ToolObservation`、不可变目录、逐次 `ToolGateway` 与六个只读研究工具 |
+| FR/AC/HN | FR-02/FR-03；AC-01/AC-03/AC-06/AC-29；HN-01/HN-05/HN-09/HN-12。工具还消费 T08 证据/上下文与 T01/T02 策略/知识端口，但不实现 T10 MCP、T11 模型图、T12/T13 规划或 T14 HTTP/装配 |
+| 时间 | 2026-11-17 |
+| 任务状态 | `implemented`（实现、聚焦、阶段、quick 后端和静态/架构门禁完成；后端 full 因本机无专用 PostgreSQL 阻塞，不能标 `verified`） |
+| review_status | `awaiting_review`（待用户转交原审查助手；不得自行填写 approved） |
+| 隔离工作区 | `D:\t09`（`t09-tool-gateway`，未推送/合并/部署） |
+| base | `36cda455670713f3ffaee18655c4d59113a90b22`（`main`） |
+| implementation tip | `2674f1692d09217daea008a6999d49b291383914`（`feat: guard registered agent tool calls`） |
+| implementation tree | `3d8c02cfff6e40171baf2cf4b1fb5337c85783a0` |
+| 代码改动范围 | `36cda45..2674f16`，19 个文件，+4115/-20 |
+| 改动 | 新增 `agent/interactive/tools/contracts.py`、`registry.py`、`gateway.py`、`research_tools.py` 与两组测试；扩展架构门禁到 `agent_runs`/`research`/`trade_planning` 的适用隔离；新增工具源码只读/无执行安全测试；同步根/后端规范、维护/运行边界与项目状态 |
+| 公共接口 | `RegisteredTool`/`ToolRegistry`/`ToolCatalog`、`ToolRequest`/`ToolResult`/`ToolObservation`、`ToolGateway.call`、`RESEARCH_TOOL_NAMES`、`ResearchToolService.handlers`、`ApprovedNewsReader`/`ApprovedNewsSummary`；`TOOL_ACTION_SEQUENCE_BASE=2_000_000`、8 KiB 摘要上限、六个工具固定版本 |
+| 依赖/迁移 | 无新增依赖；无新增迁移；迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
+
+### T09 关键实现结果
+
+- **目录与版本**：`RegisteredTool` 冻结输入/输出 Schema、只读能力、范围、超时和结果上限；模型可见版本由“基础版本 + 完整目录条目哈希”组成，因此 Schema/能力/范围/超时任一变化都会改变 `tool_catalog_sha256`。`ToolRegistry` 拒绝重复名称、非法 Schema 和非只读能力，处理器集合必须与目录一一对应。
+- **逐次守卫**：`ToolGateway.call` 每次读取运行快照，核对修订/取消/策略；随后经 C5 `BudgetLedger.status` 验证当前 fence，并核对策略版本、目录指纹、工具登记、参数 Schema、当前币种/周期和刷新模式。拒绝路径不预留预算、不调用处理器。
+- **先预留后发送**：预检通过后，按 `status.tool_calls` 分配高位 TOOL 动作序号，`reserve` 成功并 `mark_sent` 后才调用处理器；预算/租约/存储错误交由 worker 停止，不伪装成可继续观察。
+- **结果校验与结算**：处理器结果必须通过 `ToolResult`、目录输出 Schema、8 KiB 摘要、未来/到期时间检查；成功以证据/策略引用为准，缺少时用逻辑步骤身份与结果摘要生成引用；失败/未知不携带结果引用；过期结果降级为 `stale/result_expired`。工具固定串行执行，进程内只缓存已成功观察；重启后的重复步骤只复用持久化引用并降级。
+- **六个只读工具**：`read_market_evidence` 复用 T08 冻结 epoch/refresh；`read_approved_news_factors` 默认明确 `news_source_unavailable`；`compute_technical_facts` 复用既有技术引擎；`evaluate_selected_strategy` 精确绑定当前策略版本/参数/评估器；`search_research_knowledge` 以证据截至时刻检索并标注外部不可信文本；`read_strategy_definition` 精确读取所选版本并截断长方法摘要。`build_manual_trade_plan` 尚未登记。
+- **安全门禁**：保留旧 `tools=`/`tool_choice`/交易关键字断言；新增工具源码禁止交易执行/HTTP/SQL/模型客户端/凭证关键词的测试；AST 新增 `agent_runs`/`trade_planning` 禁止 Agent/交易/模拟执行依赖、`research` 禁止 LLM 依赖；`governance/` 仍未导入工具/MCP/HTTP/SQL。
+- **未接入**：T10 MCP、T11 模型驱动 LangGraph、T12/T13 确定性规划、T14 HTTP/生产装配、前端和真实模型/MCP/TCP 均未实现；现有固定研究路径仍不向模型提供工具。
+
+### T09 测试证据
+
+| 检查 | 目录 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 改动前基线 | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research/strategies tests/research/knowledge tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-baseline-3` | 248 passed，退出 0 |
+| 首轮预期红 | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py -q --basetemp=../.tmp/pytest/t09-red-1` | 2 个 collection error（缺少 `app.agent.interactive.tools`），退出 2；符合测试先行预期 |
+| 工具+安全聚焦 | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_tool_gateway.py tests/agent/interactive/test_research_tools.py tests/security -q --basetemp=../.tmp/pytest/t09-focus-final-4` | **101 passed / 0 failed / 0 skipped**（38 工具 + 63 安全），退出 0 |
+| 交互式模块 | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive -q --basetemp=../.tmp/pytest/t09-interactive-final-4` | 80 passed，退出 0 |
+| D3 阶段回归（非数据库） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-stage-final-4` | 300 passed / 0 failed / 0 skipped，退出 0 |
+| 后端 quick 最终 | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t09-quick-backend-final.json` | 退出 0；`verification=passed`；1120 collected / 1120 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/t09-quick-backend-final.json` |
+| 后端 full（阻塞，不计为通过） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t09-full-backend-final-blocked.json` | `verification=blocked`；`test-database=blocked(environment_not_ready)`；`backend-tests=blocked(prerequisite_not_passed)`；未执行数据库/后端 full；证据 `.tmp/quality/t09-full-backend-final-blocked.json` |
+| Ruff / 格式 | `D:\t09\backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | 全部通过，退出 0；384 files already formatted |
+| Pyright | `D:\t09\backend` | `uv run --locked --no-sync python -m pyright` | 0 errors / 0 warnings，退出 0 |
+| 架构门禁 | `D:\t09\backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=82`，`findings=[]`，退出 0 |
+| 迁移链 | `D:\t09\backend` | `uv run --locked --no-sync alembic heads` | `0027_agent_segments (head)`，退出 0 |
+
+### T09 环境说明
+
+- 隔离工作区 `D:\t09` 从 `main` 的 `36cda45` 创建；主工作区保持干净。未推送、合并、部署或迁移业务库。
+- 使用独立 `.venv`（锁定依赖）；本机没有运行中的 Docker/PostgreSQL，无法执行 `test-database`、SQL 持久化测试和后端 full。全量扫描/静态/非数据库测试仍通过，但不得将 quick 或聚焦结果称为完整验收。
+- 前端未改动；未执行前端 lint/typecheck/Vitest/build、浏览器 e2e 或 HTTP e2e。未调用真实模型、MCP、私有账户或交易执行；工具/测试数据均为合成值。
+
+### T09 重点审查位置与已知风险
+
+1. **动作序号与幂等**：`ToolGateway._reserve_step` 用 C5 `status.tool_calls` + 进程内输入指纹映射分配序号；进程重启后同一工具输入可能生成新逻辑步骤（只读工具仍安全，但不是跨进程持久幂等）。是否接受该折衷、是否需要 T14 提供持久 sequencer，请重点审查。
+2. **合成结果引用**：处理器没有提供证据/版本引用时，网关用 `ArtifactRef(artifact_id=step_id, sha256=结果摘要)` 结算；该引用指向逻辑步骤而非 `agent_artifacts` 行，T14 不能把它当可读取产物。是否需要立即增加持久结果 artifact 端口，请审查。
+3. **工具级预算与传输预算**：市场 refresh 经 T08 `EvidenceService` 逐次传输预算；新闻读取器默认不可用，生产读取器访问公开源时必须自行使用 C5 传输预算。T09 未证明任何新闻 HTTP 或 MCP 发送。
+4. **结果摘要与过期**：`ToolResult` 允许最多 64 KiB 以便网关校验，网关再按登记/8 KiB 上限拒绝；过期结果降级为 `stale/result_expired`。新闻/知识摘要按块截断，完整内容仍在本地引用。
+5. **策略版本**：网关默认 `policy_version="interactive_planning_v1"`，与 T07 当前默认一致；T14 装配时必须显式传入生产值，否则旧/新策略版本可能被错误拒绝。
+6. **目录指纹**：模型可见版本嵌入了完整目录条目哈希，`ContextBuilder` 的输入 Schema 摘要测试已覆盖；T11/T14 必须使用同一个 `ToolRegistry` 实例/指纹，不能另建目录。
+7. **工具输出安全投影**：六个处理器只读取公开/用户已选策略数据；测试断言无金额/仓位/杠杆/凭证。但 `read_strategy_definition` 会返回用户策略方法与参数 Schema 的有界摘要，是否满足产品最小化要求需审查。
+8. **未验证**：SQL `agent_steps`/`agent_attempts` 真实预留/结算、失败触发器、并发/恢复、T10 MCP/TCP、T11 模型图、T14 HTTP/生产 lifespan、前端、业务库迁移、真实模型质量/抗注入均未执行。
+
 ## 后续接续规则
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
@@ -672,4 +732,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
 8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；已按用户指令 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送，本 docs 提交记录合并/推送结果。
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
-10. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
+10. T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；实现 tip `2674f16`（19 个文件，+4115/-20），聚焦 101、交互式 80、阶段 300、quick 后端 1120 passed；后端 full 因无专用 PostgreSQL 阻塞。当前 `implemented`/`awaiting_review`，审查请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`；未取得原审查助手结论，不进入 T10/T11。
+11. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
