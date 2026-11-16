@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本/推理实现未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
 - 自测状态：`verified`（聚焦、D3 阶段回归、后端 full、Ruff/格式/Pyright/架构门禁/迁移链均完成；详见第 5 节）。
-- 正式审查状态：首轮 **`changes_requested`**（R1–R4）；本轮修复后为 `awaiting_review`（等待原审查助手复审；开发自测不替代正式审查，未预填通过）。
+- 正式审查状态：首轮 **`changes_requested`**（R1–R4）；修复后用户于 2026-11-16 传回原审查助手复审结论 **`approved`**（`reviewed_tip=08532dc`）。通过结论不替代独立 full/数据库验收。
 - 日期：2026-11-16。
 
 ## 1. 工作区、分支与提交范围
@@ -20,7 +20,8 @@
 | 审查请求/进度/计划/契约文档 | 在 implementation tip 之后单独提交；文档提交号见交付回复，不改变 implementation tip，避免用自身提交号循环引用 |
 | 工作区未提交内容 | 仅本轮审查请求与进度/计划/契约文档；没有夹带其他任务改动、`.env`、凭证或业务库修改 |
 | 首轮正式审查报告 | `docs/superpowers/reviews/manual-agent/T08-review-report.md`（`changes_requested`，R1–R4） |
-| 复审状态 | `awaiting_review`；本请求不预填 `approved` |
+| 复审状态 | `approved`（2026-11-16 用户传回原审查助手复审结论；`reviewed_tip=08532dc`） |
+| 复审结论 | R1–R4 关闭，未发现新增阻断项；报告 `T08-review-report.md` 的 `08532dc` 复审段 |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型，未访问私有账户，未发起真实交易。
 
@@ -102,7 +103,14 @@ T08 不生成 `TradeIntent`、不访问私有账户、不发送真实订单、�
 | R3/P2 manifest 未绑定保存围栏 | 保存前比对 manifest 与 fence 的 workspace/run/revision/segment，并在事务内核对引用证据属于同一 workspace/run/revision；读取时同样核对行/文档归属、片段存在性与证据归属。新增跨工作台/运行/修订/片段、跨修订证据、错绑读取和未知片段数据库拒绝测试。 |
 | R4/P2 携带已绑定 epoch 时忽略 refresh | 复用路径限定为 `context.evidence_epoch is not None and not refresh`；显式刷新继续走运行校验、新动作序号区段和重新公开读取。新增“已绑定 epoch + refresh”测试，断言新 epoch、公开读取发生、预算区段推进。 |
 
-R1–R4 修复后聚焦 55 passed、D3 阶段回归 422 passed、后端 full `verification=passed；1300 collected / 1300 passed / 0 failed / 0 skipped / 0 collection errors`（`.tmp/quality/manual-agent-t08-fix-full-backend-1.json`）。首轮审查报告见 `docs/superpowers/reviews/manual-agent/T08-review-report.md`；本轮修复不改变正式审查状态，等待原审查助手复审。
+R1–R4 修复后聚焦 55 passed、D3 阶段回归 422 passed、后端 full `verification=passed；1300 collected / 1300 passed / 0 failed / 0 skipped / 0 collection errors`（`.tmp/quality/manual-agent-t08-fix-full-backend-1.json`）。首轮审查报告见 `docs/superpowers/reviews/manual-agent/T08-review-report.md`；该报告已追加 `08532dc` 复审段。
+
+### 3.2 复审通过
+
+- 2026-11-16 用户传回原审查助手复审结论：**T08 R1–R4 代码审查通过，原四项发现关闭，未发现新的阻断项**；`reviewed_tip=08532dc8cf15980b70452721384a6600b016f4a0`。
+- 复审范围 `f331e09..08532dc`，重点对照 `96b8270..08532dc` 修复；报告 `docs/superpowers/reviews/manual-agent/T08-review-report.md` 的 `08532dc` 段为最新结论，首次 `changes_requested` 历史保留。
+- 复审端独立运行 `pytest tests/agent/interactive -q` 为 42 passed，并复验四周期真实网关替身预留 14/实际 14；该独立结果不包含 PostgreSQL、422 阶段、1300 后端 full、Pyright 或生产装配，开发端自测记录不冒充审查端独立验收。
+- T08 当前为 `verified`/`approved`；按用户指令执行仅本单元的提交、fast-forward 合并到 `main` 并推送。合并 tip 在本请求/进度文档的后续变更中记录。
 
 ## 4. 公共接口、依赖与迁移影响
 

@@ -1,5 +1,25 @@
 # T08 正式审查报告
 
+## 08532dc 修复复审（2026-11-16）
+
+- 结论：**R1–R4 代码审查通过，原四项发现关闭；本轮未发现新的阻断项。** 本结论不代表独立后端 full 或数据库验收通过。
+- 审查范围：`f331e09..08532dc`，重点对照 `96b8270..08532dc` 的修复；当前 HEAD `ffd47c2` 相对目标 tip 只有文档变化。以下旧报告保留作为首次审查历史，以本节作为四项问题的最新状态。
+- R1：预留改为 `(3 + 周期数) * MAX_ATTEMPTS`，当前 MAX_ATTEMPTS=2，四周期最坏为 14；16 是硬上限及新区段宽度，并非每次固定预留 16。真实网关 get_market 路径的摘要三端点、每周期单 klines 请求和重试循环均与公式一致。独立运行四周期冷缓存、每端点首次 500 后重试的 MockTransport 实验，得到 `timeframes=4 reserved=14 actual=14`。新增预算不足测试在第十次预留失败，真实网关 HTTP 请求列表为空；服务先完成全部预留再 mark_sent/collect，发送前停止路径成立。
+- R2：移除了 4000 字符切片；完整数字和时间字段保留测试通过，必需证据超过输入预算时报 `context_budget_exceeded`，未降为可选块或静默省略。超过投影自身长度限制会明确拒绝。没有发现残留的事实字符截断路径。
+- R3：保存前校验 workspace/run/revision/segment 与 fence 一致，持锁后校验证据存在、同 workspace/run/revision、SHA、analysis_as_of 和逐项 evidence ID。读取重新验证文档 SHA、行/文档 workspace/run/revision，查询 segment 并验证其 workspace/run/revision，同时执行相同证据归属校验。历史读取不要求片段仍活跃，符合不可变审计读取用途。新增数据库测试覆盖四项保存身份错绑、跨修订证据、读取行/文档错绑和未知片段；本次仅审阅，未运行真实 PostgreSQL 测试。
+- R4：已绑定 epoch 的直接复用限定为 `not refresh`；refresh=True 进入运行状态检查、重新预留及采集，并按持久化 epoch 数乘 16 分配新区段。新增绑定 epoch 刷新测试通过，断言发生采集、新 epoch 保存及动作序号进入下一段。
+- 锁序仍为任务→片段，内部 artifact 类型边界与 calculation_version 历史哈希逻辑未被此次修复改变。
+
+本次独立验证（目录 `D:\t08\backend`）：
+
+1. `uv run --locked --no-sync pytest tests/agent/interactive -q`：**42 passed**。
+2. 四周期真实网关 + 合成 HTTP 响应离线实验：预留 14 / 实际 14，无真实网络访问。
+3. `uv run --locked --no-sync ruff check src/app/agent/interactive src/app/agent_runs/evidence.py src/app/infrastructure/persistence/agent_run_repository.py`：**All checks passed**。
+
+限制：当前进程无显式 `TEST_DATABASE_URL`；未独立执行持久化测试、422 阶段回归、1300 后端 full、Pyright 或生产装配验证。开发端 55 / 422 / 1300 仅为开发申报，不计为本次独立验证结果。本轮仅更新审查报告，未修改实现或配置。
+
+## 首次审查历史（96b8270）
+
 - 日期：2026-11-16
 - 范围：`f331e09..96b8270`；当前 HEAD `0bb1331` 相对 tip 仅有说明文档变化。
 - 结论：**changes_requested**。开发自测不替代本次审查；以下四项需修复后复审。
