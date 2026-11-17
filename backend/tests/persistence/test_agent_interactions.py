@@ -91,7 +91,8 @@ def _draft(
         request_id=request_id or uuid4(),
         action=ControlAction.ADOPT_MANUAL_PLAN,
         material_hash="1" * 64,
-        expires_at=datetime.now(UTC) + expires_in,
+        # 与仓储固定时钟 NOW 对齐；使用真实当前时间会在 7 天窗口边界后自发失败。
+        expires_at=NOW + expires_in,
         diffs=(
             ProposalDiff(
                 field="entry_zone",
