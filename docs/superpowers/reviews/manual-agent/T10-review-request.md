@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本、推理实现和供应商侧版本未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明与当前仓库版本。
 - 自测状态：**`verified`**（实现、聚焦、阶段、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
-- 正式审查状态：**`awaiting_review`**（首轮正式审查 `changes_requested`，审查对象 `690d726`；R1/R2 已修复，等待复审）。
+- 正式审查状态：**`approved`**（2026-11-17 用户传回原审查助手正式结论；复审版本 `reviewed_tip=b5509ac`，tree `c2f504`；首轮 `690d726` 的 R1/R2 已关闭）。
 - 日期：2026-11-17。
 
 ## 1. 工作区、分支与提交范围
@@ -24,8 +24,8 @@
 | R1 修复 | `6df36e4`（`fix: bound parameterized JSON MCP responses`；2 个文件，+129/-2） |
 | R2 修复 | `b5509ac`（`fix: reject non-ascii MCP service credentials`；2 个文件，+45/-1） |
 | 审查请求 docs 提交 | 生成后另行提交；不把自身提交号写入 `implementation tip` |
-| review_status | `awaiting_review`（首轮 `changes_requested`） |
-| reviewed_tip | `690d726892ea6deaf14c77a705ca06539fb7cd0a`（首轮正式审查不通过版本） |
+| review_status | `approved`（2026-11-17 用户传回原审查助手正式结论） |
+| reviewed_tip | `b5509ac876462820a0850d424d19f4c5fe23b557`（复审通过版本；首轮不通过版本 `690d726`） |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型、外部 MCP、私有账户或交易接口。
 
@@ -231,5 +231,5 @@ T10 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 ## 7. 自测状态与正式审查状态
 
 - **自测状态：`verified`**。实现与测试已落地；首轮实现 `a9d3b24`、首轮加固 `690d726`、R1/R2 修复 `6df36e4`/`b5509ac`、辅助测试修复 `619fe2c`；最终 MCP 聚焦 32、MCP/安全/交互式阶段 183、quick 后端 1160、full 后端 1399（专用 PostgreSQL 17）均通过；Ruff/格式/Pyright/架构/迁移链完成。full 首次 3 个失败已定位为 T06 测试夹具固定时钟问题，并以单独测试提交 `619fe2c` 修复；不是 T10 生产逻辑失败。
-- **正式审查状态：`awaiting_review`**。首轮正式审查对象 `690d726` 的结论为 `changes_requested`（`reviewed_tip=690d726`）；R1/R2 已修复到当前 tip `b5509ac`，等待原审查助手复审。开发自测、本审查请求和后续子 Agent/本地检查均不能替代该正式结论。
+- **正式审查状态：`approved`**。2026-11-17 用户传回原审查助手正式结论：复审版本 `reviewed_tip=b5509ac`（tree `c2f504`）通过；首轮 `690d726` 的 R1/P1、R2/P2 已关闭，复审未提出新的阻断项。开发自测不能替代正式审查，但本次正式结论已由用户明确传回。
 - 本轮不自动进入 T11，不推送、不合并、不部署；等待用户转交审查意见或修复要求。

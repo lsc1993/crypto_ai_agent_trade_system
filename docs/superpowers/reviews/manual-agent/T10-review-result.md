@@ -1,5 +1,30 @@
 # T10 正式审查结论
 
+## 当前复审结论
+
+- 复审日期：2026-11-17。
+- review_status：`approved`。
+- reviewed_tip：`b5509ac876462820a0850d424d19f4c5fe23b557`。
+- reviewed_tree：`c2f50474aac062311c8dba408396960d96dfc769`。
+- base：`b80071c`；修复提交 `6df36e4` / `b5509ac`；复审请求 docs `1b277b7`。
+- 正式结论：当前 T10 模块范围审查通过。首轮 R1/P1、R2/P2 均已关闭，复审未发现新的阻断项；T11 的 T10 审查前置门槛已满足。本次不启动 T11，不执行合并、推送或部署。
+
+### 修复核验
+
+- R1：按分号前的媒体类型做精确 SSE 匹配；带 `profile="text/event-stream"` 的 JSON 仍经过限长。新增真实 SDK 大响应拒绝、小响应接受回归。另独立执行无 Content-Length 的流式探针：上限 128 字节，每块 64 字节，共 100 块；200、400、500 响应均在第 3 块抛出 `payload_too_large` 并关闭流，剩余 97 块未读取。
+- R2：将 ASGI Latin-1 头还原为字节并作常量时间比较，无法编码的候选直接拒绝。新增单元与真实 TCP 原始 `0xff` 请求头测试，验证返回 401 且策略读取次数为零；合法凭据正常通过。
+- 修复生产代码只涉及 `transport.py`、`registry.py`，没有新增依赖、迁移或交易能力；首轮接受的辅助测试修复 `619fe2c` 保持不变。
+
+### 本次验证证据与限制
+
+- 起始工作区干净，分支、提交和完整 tree 已核对。
+- 在 `D:/project_git/t10/backend` 独立执行 `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py tests/security tests/agent/interactive -q --basetemp=../.tmp/pytest/t10-rereview-independent`：退出码 0，**183 passed**。
+- 同目录独立运行上述内存流式传输探针：200/400/500 三种状态均按预期拒绝并关闭。
+- 已核对开发侧 `.tmp/quality/t10-review-full.json`：full/backend 为 passed，1399 passed、0 failed、0 skipped、0 collection errors。本次没有独立重跑数据库 full、前端或生产装配验收。
+- 通过范围仍是本地只读 MCP 模块。任务级 C5 传输预算接线、SDK 断流重连故障注入、模型图和生产 lifespan 的后续验收义务保留；本结论不代表这些能力已交付。
+
+## 首轮结论（历史记录，已由上述复审结论取代）
+
 - 审查日期：2026-11-17。
 - review_status：`changes_requested`。
 - reviewed_tip：`690d726892ea6deaf14c77a705ca06539fb7cd0a`。
