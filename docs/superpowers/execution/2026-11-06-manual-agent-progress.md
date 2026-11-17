@@ -9,9 +9,9 @@
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main` tip `36cda45`，工作区干净；T08 已合并） |
+| 主工作区 | `D:\project_git\crypto_ai_agent_trade_system`（`main` 已合并 T09；合并 tip `2df4bf0`，本 docs 提交记录合并结果；工作区干净） |
 | 隔离工作区 | `D:\t09`（从 `main` 的 `36cda45` 创建） |
-| 分支 | `t09-tool-gateway`（未推送、未合并、未部署） |
+| 分支 | `t09-tool-gateway`（未推送、未部署；已合并到 `main`） |
 | base | `36cda455670713f3ffaee18655c4d59113a90b22`（`main`，`docs: record T08 merge into main`） |
 | 首轮受审 tip | `2674f1692d09217daea008a6999d49b291383914`（`feat: guard registered agent tool calls`） |
 | implementation tip | `063e8a3a8f099540e89dce890b76748cd7fcb02c`（`fix: address T09 review findings`） |
@@ -22,6 +22,7 @@
 | review_status | `approved`（2026-11-17 用户传回原审查助手正式结论） |
 | reviewed_tip | `063e8a3a8f099540e89dce890b76748cd7fcb02c`（首轮 R1–R5 修复版本） |
 | SQL 验证 tip | `a9d19dfab7991d319c5dcc35e0312ef39e6f5980`（`test: record T09 postgres gateway verification`） |
+| 合并 tip | `2df4bf0f0922032da9bc9e43a067283ad931aa5b`（fast-forward 到 `main`；本 docs 提交记录结果） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T09-review-request.md` |
 | 文档提交 | 首轮审查包 `81018be`；修复复审包 `3c458ba`；SQL 验证测试提交 `a9d19df`；审批文档提交号见最终交付回复 |
 | quick 证据 | `.tmp/quality/t09-review-fix-quick-backend.json`（开发环境 `verification=passed`，1127 passed） |
@@ -712,7 +713,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 - 2026-11-17 用户传回原审查助手正式通过结论：首轮 **1 P1 + 4 P2 全部关闭**，修复版本 `reviewed_tip=063e8a3`，未提出新的阻断项。
 - 审查阶段新增真实 PostgreSQL 独立验证：C5/片段/进程恢复 33 passed、网关与真实 SQL 账本集成 14 passed、后端 full 1366 collected / 1366 passed / 0 failed / 0 skipped；记录见 `docs/superpowers/reviews/manual-agent/T09-sql-verification.md`。
 - 新增 SQL 测试只证明网关与既有账本/仓储的集成边界，不修改生产实现；超时为合成分支，取消为协程取消，不冒充操作系统进程终止或 T10/T11 能力。
-- T09 当前 `verified`/`approved`；按用户指令提交并 fast-forward 合并到 `main`。正式审查通过不改变自动交易限制、默认审核或后续审查门槛。
+- T09 当前 `verified`/`approved`；按用户指令提交并 fast-forward 合并到 `main`，合并 tip `2df4bf0`。正式审查通过不改变自动交易限制、默认审核或后续审查门槛。
 
 ### T09 测试证据
 
@@ -759,5 +760,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
 8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；已按用户指令 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送，本 docs 提交记录合并/推送结果。
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
-10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令提交并合并到 `main`，不自动进入 T10/T11。
+10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
