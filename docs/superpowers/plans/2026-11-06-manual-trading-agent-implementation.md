@@ -286,7 +286,7 @@
 - [x] **Step 2：在缺 SDK 时运行 `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py -q` 确认预期红。** 首次收集为 4 个 `ModuleNotFoundError`（`httpx2`/新模块不存在）；随后执行 `uv add "mcp==2.3.0" "httpx2>=2.10.0,<3"`，对比锁定文件仅新增 MCP 传递依赖，LangGraph 1.2.10、checkpoint-postgres 3.1.2、langchain-core 1.5.3 未变。
 - [x] **Step 3：按 C6 实现官方 Client/Streamable HTTP 与 bounded transport，锁定完整传递依赖。** 新增 `registry.py`（固定 loopback/协议/工具 Schema 指纹/进程内凭据）、`transport.py`（3xx/目标/64 KiB JSON 和 SSE/64 请求上限）、`client.py`（官方 `Client` + `streamable_http_client`，绑定 T09 `ToolGateway`）和 `server.py`（官方 `MCPServer.streamable_http_app`、只登记 `read_strategy_definition`、显式 lifespan）。httpx2 单独声明；未安装 CLI/extras 或遥测 exporter；未启用 stdio、sampling、roots 或 elicitation。
 - [x] **Step 4：同命令全绿、Ruff/Pyright 通过。** 聚焦 `tests/mcp` + `tests/tooling/test_mcp_lifespan.py` **27 passed**（含默认 64 KiB JSON 边界与未登记 Host 拒绝），MCP/安全/交互式阶段 **178 passed**，Ruff/Pyright/架构门禁全绿；真实 TCP 只使用本机随机端口，未连接外部 MCP。最终 quick 后端 1155 passed、full 后端 1394 passed（专用 PostgreSQL 17）。
-- [ ] **Step 5：提交 `feat: add bounded MCP client and local research service`。** FR-03，AC-02/AC-03/AC-17，HN-01/HN-04/HN-05/HN-12；新依赖和影响同步维护文档。执行后以实际提交记录为准。
+- [x] **Step 5：提交 `feat: add bounded MCP client and local research service`。** FR-03，AC-02/AC-03/AC-17，HN-01/HN-04/HN-05/HN-12；新依赖和影响同步维护文档。T10 首轮代码/测试/文档提交 `a9d3b24`，结果/协议加固 `690d726`（2 个文件，+50/-22）；累计 `b80071c..690d726` 22 个文件，+2789/-14。另以 `619fe2c` 单独修复 T06 测试夹具的固定时钟依赖（1 个文件，+2/-1），不混入 T10 生产代码。
 
 ### T11：原生 Tool Calling 与有限 LangGraph（D3）
 

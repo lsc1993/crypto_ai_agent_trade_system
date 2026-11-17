@@ -3,7 +3,7 @@
 - 记录日期：2026-11-17
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
 - 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；首轮正式审查提出 1 P1 + 4 P2，修复 tip `063e8a3` 后开发聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；审查阶段独立 PostgreSQL 验证 C5/片段/恢复 33、SQL 网关 14、后端 full 1366 passed。2026-11-17 用户传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前为 `verified`/`approved`。
-- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 首轮审查的 1 P1 + 4 P2 已修复，用户于 2026-11-17 传回正式通过结论（`reviewed_tip=063e8a3`），当前为 `approved`。
+- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 首轮审查的 1 P1 + 4 P2 已修复，用户于 2026-11-17 传回正式通过结论（`reviewed_tip=063e8a3`），当前为 `approved`。T10 已完成实现与自测，`self_test=verified`、`review_status=awaiting_review`，等待原审查助手正式审查，不自行标记通过或进入 T11。
 
 ## 当前工作区
 
@@ -27,6 +27,7 @@
 | 文档提交 | 首轮审查包 `81018be`；修复复审包 `3c458ba`；SQL 验证测试提交 `a9d19df`；审批文档提交号见最终交付回复 |
 | quick 证据 | `.tmp/quality/t09-review-fix-quick-backend.json`（开发环境 `verification=passed`，1127 passed） |
 | SQL/full 证据 | `docs/superpowers/reviews/manual-agent/T09-sql-verification.md`、`.tmp/quality/t09-sql-full-20261117.json`（独立 PostgreSQL 环境，full 1366 passed） |
+| T10 隔离工作区 | `D:/project_git/t10`（从 `main` 的 `b80071c` 创建；分支 `t10-mcp-transport`；未推送/合并/部署） |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -749,6 +750,70 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 7. **工具输出安全投影**：六个处理器只读取公开/用户已选策略数据；测试断言无金额/仓位/杠杆/凭证。但 `read_strategy_definition` 会返回用户策略方法与参数 Schema 的有界摘要，是否满足产品最小化要求需审查。
 8. **验证边界**：SQL `agent_steps`/`agent_attempts` 真实预留/结算、失败触发器、并发/恢复已由审查阶段独立 PostgreSQL 验证覆盖；T10 MCP/TCP、T11 模型图、T14 HTTP/生产 lifespan、前端、业务库迁移、真实模型质量/抗注入仍未执行。
 
+## T10：官方 MCP SDK、受控 HTTP 和本地只读服务（D3）
+
+| 项目 | 记录 |
+| --- | --- |
+| 任务 | T10；`infrastructure/mcp/` 固定端点登记、有界 Streamable HTTP 传输、官方 SDK 客户端与同进程只读 `read_strategy_definition` 服务 |
+| FR/AC/HN | FR-03（Tool Calling/MCP、权限/传输拒绝）；AC-02（登记工具经真实 TCP MCP 调用）、AC-03（未登记/越权/注入拒绝）、AC-17（安全轨迹，仅模块边界）；HN-01、HN-04、HN-05、HN-12。T10 不实现 T11 模型图、T12/T13 规划、T14 HTTP/生产 lifespan、前端或真实模型质量 |
+| 时间 | 2026-11-17 |
+| 任务状态 | `verified`（实现、聚焦、阶段、quick、独立 PostgreSQL full、静态检查均完成；不等于正式审查通过） |
+| review_status | `awaiting_review` |
+| 隔离工作区 | `D:/project_git/t10`（`t10-mcp-transport`，未推送/合并/部署） |
+| base | `b80071c`（`main`，`docs: record T09 merge into main`） |
+| implementation tip | `690d726892ea6deaf14c77a705ca06539fb7cd0a`（`fix: harden MCP result handling and protocol pinning`；首轮实现 `a9d3b24`） |
+| implementation tree | `6221e3f0d03721883a6dc713d49143ddfc94d62a` |
+| 辅助提交 | `619fe2c429cb40de401154dc2aa82af48cf5395f`（`test: anchor interaction lifetime fixture to repository clock`；1 个文件 +2/-1，非 T10 生产代码；见下） |
+| 加固提交 | `690d726892ea6deaf14c77a705ca06539fb7cd0a`（`fix: harden MCP result handling and protocol pinning`；2 个文件 +50/-22） |
+| 代码范围 | `b80071c..690d726`，22 个文件，+2789/-14（T10 代码、测试、加固与同步文档）；辅助测试修复 `a9d3b24..619fe2c`，1 个文件 +2/-1；加固 `619fe2c..690d726`，2 个文件 +50/-22 |
+| 改动 | 新增 `backend/src/app/infrastructure/mcp/{__init__,registry,transport,client,server}.py` 与 `backend/tests/mcp/{support,test_compatibility,test_guarded_transport,test_local_http}.py`、`backend/tests/tooling/test_mcp_lifespan.py`；修改 `backend/pyproject.toml`/`uv.lock`、`research_tools.strategy_definition_tool()`、依赖安全测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约 |
+| 公共接口 | `McpServiceCredential`/`McpToolDescriptor`/`LocalMcpServiceDescriptor`/`McpEndpoint`/`McpEndpointRegistry`、`BoundedMcpTransport`/`build_http_client`、`McpToolClient`（T09 `ToolHandler`，`call` 需绑定 `ToolGateway`）、`ResearchMcpRuntime`/`build_research_mcp`、`strategy_definition_tool()` |
+| 依赖/迁移 | 新增顶层生产依赖 `mcp==2.3.0` 与 `httpx2>=2.10.0,<3`；锁定 `mcp-types==2.3.0`、`httpx2==2.16.2` 及传递依赖；LangGraph 1.2.10、checkpoint-postgres 3.1.2、langchain-core 1.5.3 未变；无新增迁移，迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
+
+### T10 关键实现结果
+
+- **固定端点与凭据**：`McpEndpointRegistry` 只接受 `127.0.0.1` 固定端口/路径、`2026-07-28` 协议和工具输入/输出 Schema 指纹；`McpServiceCredential` 使用 `SecretStr`，进程启动时生成，公开 descriptor 和 `repr(runtime)` 不含令牌。`runtime.build_client_registry()` 在进程内创建客户端登记，宿主不需要直接持有令牌。
+- **有界传输**：`BoundedMcpTransport` 在 SDK 前核对目标、拒绝所有 3xx、按每次工具调用最多 64 个实际 HTTP 请求计数；非 SSE 响应增量读取，超过 64 KiB 立即中止，SSE 单事件通过 SDK `max_sse_event_size` 使用同一登记值。未登记 Host 由 SDK 的 transport security 拒绝（测试为 421）。
+- **SDK 客户端**：`McpToolClient` 使用官方 `Client` + `streamable_http_client`，`mode="auto"` 协商后必须为 `2026-07-28`；`tools/list` 必须与登记工具集合/输入输出 Schema 指纹一致，之后才调用固定 `read_strategy_definition`。工具参数只包含当前工作台/策略版本/指纹，模型不能指定 URL、端点或服务。
+- **守卫绑定**：`McpToolClient` 实现 T09 `ToolHandler`，由 `ToolGateway` 先完成运行快照/目录/策略/参数/预算/fence 检查并 `mark_sent` 后才调用；公共 `call` 未绑定网关时直接失败。MCP 传输内部的 discover/list/call 每个 POST 都被计数（正常路径 3 次）。
+- **只读服务**：`build_research_mcp` 使用官方 `MCPServer.streamable_http_app()`，只登记 `read_strategy_definition`，返回有界安全摘要/质量/原因/版本引用；`json_response=True`、`stateless_http=True`、`host="127.0.0.1"`。`runtime.app` 可独立由 uvicorn 运行并自带 lifespan；挂载到宿主时由宿主显式调用 `runtime.lifespan()`，关闭顺序由宿主控制。
+- **安全边界**：无 stdio、外部服务发现、sampling、roots、动态 elicitation、任意 URL/命令、SQL/代码、私有账户、订单或资金操作；未登记工具名在客户端构造时拒绝，`build_manual_trade_plan` 未登记。
+- **未接入**：T11 模型驱动 LangGraph、T12/T13 确定性规划/计划采纳、T14 HTTP/前端/生产 lifespan、真实模型质量、真实外部 MCP、业务库迁移均未实现或未验证。当前生产固定研究路径仍不能调用工具。
+
+### T10 验证证据
+
+| 检查 | 目录 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 首轮预期红 | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py -q` | 4 个 collection error（缺少 `httpx2`/新模块），退出 2；符合测试先行预期 |
+| MCP 聚焦 | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py -q --basetemp=../.tmp/pytest/t10-focus-final3` | 27 passed / 0 failed / 0 skipped，退出 0 |
+| MCP/安全/交互式阶段 | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py tests/security tests/agent/interactive -q --basetemp=../.tmp/pytest/t10-focus-final3` | 178 passed / 0 failed / 0 skipped，退出 0 |
+| 后端 quick | `D:/project_git/t10` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t10-quick-backend-final3.json` | `verification=passed`；1155 collected / 1155 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| 后端 full（专用 PostgreSQL 17） | `D:/project_git/t10` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t10-full-backend-final3.json` | `verification=passed`；1394 collected / 1394 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| Ruff / 格式 | `D:/project_git/t10/backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | 全部通过，退出 0；395 files already formatted |
+| Pyright | `D:/project_git/t10/backend` | `uv run --locked --no-sync python -m pyright` | 0 errors / 0 warnings，退出 0 |
+| 架构门禁 | `D:/project_git/t10/backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=82`，`findings=[]`，退出 0 |
+| 迁移链 | `D:/project_git/t10/backend` | `uv run --locked --no-sync alembic heads` | `0027_agent_segments (head)`，退出 0 |
+| 依赖差异 | `D:/project_git/t10` | 对比 `b80071c` 与当前 `backend/uv.lock` 的包名/版本 | 只新增 MCP/httpx2 及传递依赖；既有框架版本未变 |
+
+### T10 环境说明与验证边界
+
+- 使用隔离工作区 `D:/project_git/t10` 的独立 `.venv`（`uv sync --locked`）；未修改主工作区、`.env`、业务配置或业务库。
+- 专用 PostgreSQL 17 临时容器使用本机回环随机端口、临时数据目录、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`；通过项目 `check_test_database` 只读身份/权限预检；验证后停止并删除容器。未打印连接串。
+- 真实 TCP 测试只连接本机临时端口；未访问外部 MCP、真实模型、私有账户或交易接口。
+- 前端未改动；本轮 quick/full 使用 `--component backend`，未执行前端 lint/typecheck/Vitest/build、浏览器 e2e、HTTP e2e 或完整生产 lifespan 装配。
+- **辅助测试修复**：后端 full 首次运行时 3 个 T06 测试因 `_draft()` 使用真实当前时间、而仓储使用固定 `NOW`，在 7 天审核窗口边界后自发失败；以最小测试夹具修改改为 `NOW + expires_in`，不修改生产实现。该修复单独提交并在审查请求中披露，避免把它当作 T10 生产能力。
+
+### T10 已知风险与重点审查位置
+
+1. **`McpToolClient.call` 的网关绑定**：`call` 必须由宿主先 `bind_gateway`，否则抛 `tool_gateway_required`；需确认 T14 装配不会绕过或忘记绑定。
+2. **单次调用传输上限**：`max_transport_requests=64` 是每次工具调用的局部上限，尚未接入 C5 任务级传输预算；T11/T14 必须把实际 MCP 请求纳入任务总预算，不能以局部 64 次替代任务 64 次。
+3. **SDK 内部请求**：正常 discover/list/call 计 3 次；SDK 后台 SSE 重连未单独触发真实场景，传输层逐请求计数/上限由直接测试覆盖，是否足够需审查。
+4. **JSON/SSE 边界**：非 SSE 响应增量读取，超 64 KiB 立即中止；SSE 单事件上限依赖 SDK `max_sse_event_size`，总 SSE 流仍按长连接处理。需确认是否还需要总时长/总字节上限。
+5. **服务凭据**：`SecretStr` 与公开 descriptor 已隔离，但 `runtime.build_client_registry()` 在进程内持有凭据；需确认 T14 不把 registry/凭据序列化到能力接口或日志。
+6. **Host/Origin**：服务依赖 SDK 的 transport security 做 Host/Origin 检查（测试覆盖未登记 Host 421）；本地部署的 Origin 头策略仍需 T14/部署验收。
+7. **Schema 指纹**：输入/输出 Schema 和描述都进入指纹；SDK 版本升级若改变生成的 Schema，会按预期拒绝，需在升级时重新登记而非自动放行。
+8. **服务端策略读取**：MCP 服务只按 `workspace_id + VersionRef` 读取策略，未额外校验调用者工作台会话；内部服务凭据是当前边界，T14 必须保证只有同进程/受信任装配能取得客户端登记。
+
 ## 后续接续规则
 
 1. T00 已由原审查助手正式通过，`reviewed_tip` 为 `f870de1`，并以 fast-forward 方式合并到 `main`。
@@ -761,4 +826,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；已按用户指令 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送，本 docs 提交记录合并/推送结果。
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
-11. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
+11. T10 已完成实现与自测，`self_test=verified`、`review_status=awaiting_review`；审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`。不自动进入 T11；下一单元须等待用户传回原审查助手对当前版本的正式结论。
+12. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
