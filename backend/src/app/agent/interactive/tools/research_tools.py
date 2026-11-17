@@ -261,7 +261,7 @@ class ResearchToolService:
                 self._search_knowledge,
             ),
             _ResearchToolHandler(
-                _tool("read_strategy_definition", _EMPTY_INPUT_SCHEMA),
+                strategy_definition_tool(),
                 self._read_strategy,
             ),
         )
@@ -695,6 +695,11 @@ class ResearchToolService:
         return (await self._evidence.freeze(context)).validated_snapshot()
 
 
+# 公开策略定义工具描述；MCP 适配器必须复用它才能与 T09 目录绑定一致。
+def strategy_definition_tool() -> RegisteredTool:
+    return _tool("read_strategy_definition", _EMPTY_INPUT_SCHEMA)
+
+
 # 固定工具描述与 Schema；版本变更必须同时改变模型可见目录指纹。
 def _tool(name: str, input_schema: JsonObject) -> RegisteredTool:
     descriptions = {
@@ -949,4 +954,5 @@ __all__ = [
     "ResearchToolService",
     "StrategyEvaluationService",
     "UnavailableApprovedNewsSource",
+    "strategy_definition_tool",
 ]

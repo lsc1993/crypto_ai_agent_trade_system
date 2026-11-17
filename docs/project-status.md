@@ -14,6 +14,7 @@
 | 手动公开源诊断 | 默认22项，显式包含情绪/ETF时25项，分别记录可用性与时效；不加入默认离线验收，不读取业务配置或数据库 | [检查脚本](../backend/scripts/check_public_sources.py)、[质量验证](quality-verification.md#手动验证真实公开源) |
 | 按需 AI 研究 | 固定 LangGraph、冻结证据、中文双周期叙事、模型校验与降级；生产固定研究路径仍无模型工具调用 | [agent](../backend/src/app/agent/)、[测试](../backend/tests/agent/) |
 | 交互式工具守卫（模块） | 六个只读研究工具的服务端目录、输入/输出 Schema、范围/预算逐次守卫、串行执行与安全观察；尚未接入模型图/MCP/HTTP/前端，不等于生产模型可调用工具 | [tools](../backend/src/app/agent/interactive/tools/)、[守卫测试](../backend/tests/agent/interactive/test_tool_gateway.py)、[工具测试](../backend/tests/agent/interactive/test_research_tools.py) |
+| 本地只读 MCP 适配（模块） | 固定 loopback 端点、`2026-07-28` 协议与工具 Schema 指纹、进程内服务凭据、64 KiB/64 次有界传输、真实 TCP `read_strategy_definition` 服务与受控 lifespan；尚未接入模型图/HTTP/前端/生产 lifespan，不是通用 MCP 客户端 | [mcp](../backend/src/app/infrastructure/mcp/)、[传输测试](../backend/tests/mcp/test_guarded_transport.py)、[本地 TCP 测试](../backend/tests/mcp/test_local_http.py)、[生命周期测试](../backend/tests/tooling/test_mcp_lifespan.py) |
 | 报告专题 | 美国政策、近七天资金费率、BTC/ETH 美国现货 ETF 资金流；各专题独立处理缺失和失败 | [专题说明](report-factors.md)、[因子测试](../backend/tests/agent/test_factors.py) |
 | 独立技术研究 | v2 两阶段模型、程序验证的条件候选、引用校验、规则降级与持久化后台任务；保留 v1 同步接口和历史读取 | [交易计划书](technical-trading-plan.md)、[technical](../backend/src/app/agent/technical/)、[模型测试](../backend/tests/agent/test_technical_plan_model.py)、[worker 测试](../backend/tests/agent/test_technical_worker.py) |
 | 技术报告展示 | 字段路径、状态与方法中文展示；多周期结构对照、条件计划与分析依据，原始引用可追溯 | [中文映射](../frontend/src/features/technical-reports/technical-presentation.ts)、[市场结构](../frontend/src/features/technical-reports/TechnicalMarketStructure.tsx)、[计划书](../frontend/src/features/technical-reports/TechnicalPlanBook.tsx) |
@@ -50,6 +51,8 @@
 2026-11-06 按用户指定明确异构开发与集中审查分工，新增[开发模型提示词](superpowers/plans/2026-11-06-manual-trading-agent-developer-prompt.md)：其他模型按指定模块实现与自测，生成准确 base/tip、改动/契约/测试证据的审查请求，再由用户交回原设计与审查助手正式审查；修复后重验重审，当前版本通过后才放行下一审查单元。交接说明同步至 v1.1，开发审查与产品内计划审核分别管理，不改变单 Agent 产品架构；本次未开始任何开发任务。
 
 ## 本次整理的行为
+
+2026-11-17 T10 本地只读 MCP 适配实现（待原审查助手审查）：新增 `infrastructure/mcp/` 的固定端点登记/进程内凭据、Streamable HTTP 有界传输、官方 SDK 客户端和同进程只读 `read_strategy_definition` 服务；新增 `mcp==2.3.0` 与 `httpx2>=2.10.0,<3` 生产依赖并锁定传递依赖，既有 LangGraph/checkpoint/langchain 版本未变。传输层拒绝未登记目标、3xx、超过 64 KiB 的 JSON/SSE 单事件和单次调用超过 64 个实际请求；JSON 增量读取，SDK 内部请求逐次计数。MCP 工具必须经 T09 `ToolGateway` 预算/目录/fence 守卫，`McpToolClient.call` 未绑定网关时直接失败。新增测试覆盖 SDK/协议兼容、真实 loopback TCP、凭据/降级/协议/Schema 不匹配、重定向与载荷上限、未登记 Host、lifespan 启动/关闭；最终 quick 后端 1155 passed、full 后端 1394 passed（专用 PostgreSQL 17），Ruff/格式/Pyright/架构门禁全绿。未新增数据库迁移，未接入模型图/HTTP/前端/生产 lifespan，未调用真实模型或外部 MCP。自测状态为 `verified`（详见进度文件和审查请求）；正式审查状态为 `awaiting_review`，不得自行标记通过。
 
 2026-11-17 原审查助手正式通过 T09：首轮 1 P1 + 4 P2 已关闭，`reviewed_tip=063e8a3`；开发修复后聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed，审查阶段独立 PostgreSQL 验证 C5/片段/恢复 33、SQL 网关 14、后端 full 1366 passed（记录 `T09-sql-verification.md`）。当前 `verified`/`approved`，按用户指令提交并 fast-forward 合并到 `main`；未进入 T10/T11，未改变自动交易限制、默认审核或生产工具循环范围。
 

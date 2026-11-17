@@ -28,7 +28,15 @@
 
 `ToolGateway.call` 每次重新读取运行快照，核对策略/工具目录/策略版本，验证参数 Schema 与当前币种/周期范围，然后在 C5 预算账本中预留 TOOL 步骤并提交发送，之后才调用处理器；结果必须通过输出 Schema、8 KiB 摘要、来源时间和未来时间校验，成功/失败/未知均结算。工具串行执行，进程内只缓存已成功观察；重启后重复步骤只复用持久化结果引用并显式降级，不伪造摘要。
 
-当前模块**尚未接入**模型驱动 LangGraph、真实 MCP、HTTP/SSE、前端或生产 lifespan；现有综合/技术固定研究路径仍不允许模型调用工具。`read_approved_news_factors` 的默认读取器明确返回“未装配”，不是无新闻；生产新闻读取器如访问真实公开源，必须自行使用同一 C5 传输预算逐次预留/发送/结算。工具不生成订单、数量、资金或 TradeIntent，也不访问私有账户或执行服务。
+当前工具模块**尚未接入**模型驱动 LangGraph、HTTP/SSE、前端或生产 lifespan；T10 已提供本地真实 TCP MCP 适配，但模型图仍不能调用工具。`read_approved_news_factors` 的默认读取器明确返回“未装配”，不是无新闻；生产新闻读取器如访问真实公开源，必须自行使用同一 C5 传输预算逐次预留/发送/结算。工具不生成订单、数量、资金或 TradeIntent，也不访问私有账户或执行服务。
+
+### 本地只读 MCP 适配（T10 模块）
+
+`backend/src/app/infrastructure/mcp/` 提供固定 loopback 端点、进程内服务凭据、有界 Streamable HTTP 传输和同进程只读服务。服务只登记 `read_strategy_definition`，协议固定为 `2026-07-28`；`McpEndpointRegistry` 冻结主机、端口、路径和工具输入/输出 Schema 指纹，客户端在调用前核对 SDK 协商版本、工具集合与指纹。服务凭据只在进程内创建并交给客户端登记，不出现在公开 descriptor、日志或浏览器投影。
+
+`BoundedMcpTransport` 在官方 SDK 之前拒绝未登记目标、任何 3xx、超过 64 KiB 的 JSON/SSE 单事件，以及单次工具调用超过 64 个实际 HTTP 请求的路径；JSON 响应增量读取，超限立即中止而不是先无界缓冲。SDK 的自动重连/重列也会逐请求计数并受同一上限。`McpToolClient` 实现 T09 `ToolHandler`，必须由 `ToolGateway` 完成预算预留/发送提交后调用；其公共 `call` 在未绑定网关时直接失败，避免绕过守卫。`build_research_mcp` 返回 ASGI app、受控 lifespan 和公开服务描述；宿主挂载时必须显式运行 lifespan，宿主装配可用 `build_client_registry` 取得不含凭据外泄的客户端登记。
+
+当前仍未接入模型图、HTTP/SSE、前端或生产 lifespan；没有通用 MCP 客户端、stdio、外部服务发现、sampling/roots/elicitation 或交易/账户能力。真实模型质量、真实外部 MCP 和业务库迁移不在 T10 证明范围。
 
 ## AI Agent 生成与维护代码的注释要求
 

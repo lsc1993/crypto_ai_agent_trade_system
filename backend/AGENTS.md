@@ -27,6 +27,7 @@ AI Agent 新增、生成或修改后端代码时，必须把详细中文注释�
 ## AI 与领域隔离
 
 - 先读 [AI 维护指南](../docs/ai-maintenance.md)。研究 `agent/` 与策略 `strategy/` 是不同边界：前者生成证据化报告或研究结论，后者生成 `TradeIntent`。`agent/interactive/` 可在授权工具、范围和预算内执行受控模型工具循环；`agent/interactive/tools/` 是唯一工具守卫，只调用服务端登记的有界只读研究工具，不接受模型提供的 URL、SQL、代码、连接或凭据。该循环仍不能访问私有账户、模拟订单或真实执行。
+- `infrastructure/mcp/` 只承载固定 loopback 的只读 MCP 端点、进程内服务凭据、有界传输和 `read_strategy_definition` 服务。端点主机/端口/路径、协议和工具输入/输出 Schema 指纹必须来自服务端登记；不接受模型/用户提供的 URL、命令、stdio、sampling、roots、动态 elicitation 或外部服务发现。MCP 结果必须经 `agent/interactive/tools/` 网关的预算/目录/fence 校验，不能直连模型或形成第二条调用路径；当前尚未接入模型图、HTTP/SSE 或生产 lifespan。
 - `agent_runs/` 与 `trade_planning/` 不得反向依赖 `app.agent`、交易/风控放行或模拟执行实现；研究回测仍可按既有边界读取模拟成交契约。
 - `governance/` 是系统级 Harness 的治理内核，保持受限协调层，通过注入的协议执行固定研究工作流；禁止引入模型工具循环、私有账户、模拟盘或执行服务调用。`HarnessAudit*` 存储类型及既有 `harness_*` 表/事件值保留，但代码不得再导入 `app.harness`。
 - 模型输出必须经过确定性契约、证据引用和文本校验。不要为消除降级而直接放宽验证、伪造证据或复用旧数据冒充新采集。
@@ -56,6 +57,7 @@ uv run pytest
 | 治理内核/系统级 Harness 策略、生命周期或审计 | `tests/governance/`、`tests/persistence/test_harness_audit_repository.py`、`tests/security/` |
 | 研究币种、公开源与专题 | `tests/symbols/`、`tests/market/`、`tests/agent/test_factors.py`、相关 API 与持久化测试 |
 | 交互式工具目录、Schema、范围或预算守卫 | `tests/agent/interactive/test_tool_gateway.py`、`test_research_tools.py`、`tests/security/` |
+| MCP 端点、有界传输、只读服务与关闭生命周期 | `tests/mcp/`、`tests/tooling/test_mcp_lifespan.py`、`tests/security/test_agent_dependency_boundary.py` |
 | 报告字段与迁移 | 报告/API/仓储/迁移测试，以及对应前端解码与展示测试 |
 | 策略、回测、风控、模拟成交 | `tests/strategy/`、`tests/research/backtests/`、`tests/risk/`、`tests/execution/`、`tests/paper_trading/` |
 

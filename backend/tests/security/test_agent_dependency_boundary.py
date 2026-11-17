@@ -15,13 +15,20 @@ def test_agent_dependencies_include_required_packages_and_exclude_forbidden_pack
     dependencies = tuple(pyproject["project"]["dependencies"])
     dependency_names = {Requirement(dependency).name for dependency in dependencies}
 
-    assert {"langgraph", "langgraph-checkpoint-postgres", "defusedxml"} <= dependency_names
+    assert {
+        "langgraph",
+        "langgraph-checkpoint-postgres",
+        "defusedxml",
+        "mcp",
+        "httpx2",
+    } <= dependency_names
     assert not {
         dependency
         for dependency in dependencies
         if dependency.startswith("langchain-openai")
         or dependency.startswith("ccxt")
         or dependency.startswith(("binance", "coinbase", "kraken", "okx", "bybit"))
+        or dependency.startswith("mcp[")
     }
 
 
@@ -108,3 +115,47 @@ def test_technical_plan_modules_cannot_access_execution_or_accounts() -> None:
     for path in files:
         source = path.read_text(encoding="utf-8")
         assert not any(token in source for token in forbidden)
+
+
+# MCP 基础设施只能承载本地只读策略定义；不得下沉交易、任意网络/进程或模型客户端能力。
+def test_mcp_infrastructure_is_read_only_and_has_no_trade_or_generic_network_surface() -> None:
+    files = sorted((BACKEND_ROOT / "src" / "app" / "infrastructure" / "mcp").glob("*.py"))
+    assert files
+    source = "\n".join(path.read_text(encoding="utf-8") for path in files)
+    forbidden = (
+        "app.execution",
+        "app.risk",
+        "app.strategy",
+        "app.paper_trading",
+        "app.agent.interactive.model_port",
+        "openai",
+        "anthropic",
+        "langchain",
+        "langgraph",
+        "litellm",
+        "ccxt",
+        "subprocess",
+        "os.system",
+        "stdio_client",
+        "SamplingFnT",
+        "ListRootsFnT",
+        "ElicitationFnT",
+        "sampling_callback",
+        "list_roots_callback",
+        "elicitation_callback",
+        "create_order",
+        "cancel_order",
+        "fetch_balance",
+        "fetch_positions",
+        "private_key",
+        "api_key",
+        "secret_key",
+        "build_manual_trade_plan",
+    )
+    assert not {token for token in forbidden if token in source}
+    # 只登记一个只读工具，且不注册模型可调用的批准/订单工具。
+    assert source.count("@server.tool(") == 1
+    assert 'STRATEGY_DEFINITION_TOOL = "read_strategy_definition"' in source
+    assert "app.infrastructure.mcp" in source
+    assert "httpx2" in source
+    assert "httpx." not in source
