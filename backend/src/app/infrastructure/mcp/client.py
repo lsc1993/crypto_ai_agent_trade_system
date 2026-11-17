@@ -14,6 +14,7 @@ from uuid import UUID
 import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
 from mcp.types import TextContent, Tool
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -31,6 +32,7 @@ from app.agent_runs.segments import ExecutionContext
 from app.infrastructure.mcp.registry import (
     MAX_MCP_RESULT_BYTES,
     MAX_MCP_SUMMARY_BYTES,
+    MCP_PROTOCOL_VERSION,
     McpEndpoint,
     McpEndpointRegistry,
     McpRegistryError,
@@ -42,6 +44,11 @@ from app.infrastructure.mcp.transport import (
     build_http_client,
 )
 from app.shared.agent_types import ArtifactRef, UtcDateTime, is_sha256, require_utc
+
+
+# 已绑定的返回载荷不合法；与网络/协议错误分开，避免把解析缺陷伪装成服务不可用。
+class _McpPayloadError(ValueError):
+    pass
 
 
 # 已绑定网关的最小协议；避免客户端导入网关实现并形成循环依赖。
@@ -175,19 +182,21 @@ class McpToolClient:
         except McpTransportError as error:
             reason = _REASON_BY_TRANSPORT.get(error.code, "mcp_unavailable")
             return _degraded(reason, now=require_utc(self._clock()))
-        except ValueError:
+        except _McpPayloadError:
             return _degraded("mcp_invalid_result", now=require_utc(self._clock()))
+        except MCPError:
+            return _degraded("mcp_unavailable", now=require_utc(self._clock()))
         except BaseExceptionGroup as group:
-            # anyio/SDK 会把上下文退出期间的错误包成 ExceptionGroup；先提取可识别守卫原因。
+            # anyio/SDK 会把上下文退出期间的错误包成 ExceptionGroup；只映射已知安全原因。
             if _contains_cancelled(group):
                 raise
-            reason = _group_reason(group) or "mcp_unavailable"
+            reason = _group_reason(group)
+            if reason is None:
+                # 未识别异常不能让网关误以为工具已成功；交给 T09 按 UNKNOWN 结算。
+                raise
             return _degraded(reason, now=require_utc(self._clock()))
         except (httpx2.HTTPError, OSError, RuntimeError):
             # 连接失败、SDK 协商失败或服务不可达都降级；不重试、不切换其他供应商/端点。
-            return _degraded("mcp_unavailable", now=require_utc(self._clock()))
-        except Exception:
-            # 未预期异常不向外抛出上游文本；工具调用已经发送，按不可用观察返回。
             return _degraded("mcp_unavailable", now=require_utc(self._clock()))
         return self._payload_to_result(payload, context, now=require_utc(self._clock()))
 
@@ -197,6 +206,10 @@ class McpToolClient:
         endpoint: McpEndpoint,
         context: ExecutionContext,
     ) -> _McpStrategyPayload:
+        # 即使登记被误配为旧协议，也拒绝静默降级；生产只接受 2026-07-28。
+        self._last_request_count = 0
+        if endpoint.protocol_version != MCP_PROTOCOL_VERSION:
+            raise McpTransportError("mcp_protocol_mismatch")
         transport = BoundedMcpTransport(
             inner=httpx2.AsyncHTTPTransport(),
             endpoint=endpoint,
@@ -206,7 +219,6 @@ class McpToolClient:
             self._registry.credential,
             transport=transport,
         )
-        self._last_request_count = None
         try:
             async with asyncio.timeout(self._timeout_seconds):
                 async with http_client:
@@ -241,6 +253,14 @@ class McpToolClient:
                                         "sha256": context.strategy_ref.sha256,
                                     },
                                 )
+                                if result.is_error:
+                                    return _McpStrategyPayload(
+                                        status="degraded",
+                                        quality="missing",
+                                        safe_summary="MCP 工具返回受控错误；未获得策略定义。",
+                                        reason_code="mcp_tool_error",
+                                        observed_at=require_utc(self._clock()),
+                                    )
                                 return _parse_tool_result(
                                     result.structured_content,
                                     result.content,
@@ -319,22 +339,25 @@ def _parse_tool_result(
     structured: Any,
     content: list[Any],
 ) -> _McpStrategyPayload:
-    if structured is None:
-        text_blocks = [item.text for item in content if isinstance(item, TextContent)]
-        if not text_blocks:
-            raise ValueError("MCP 工具没有返回结构化结果")
-        raw_text = text_blocks[0]
-        if len(raw_text.encode("utf-8")) > MAX_MCP_RESULT_BYTES:
+    try:
+        if structured is None:
+            text_blocks = [item.text for item in content if isinstance(item, TextContent)]
+            if not text_blocks:
+                raise ValueError("MCP 工具没有返回结构化结果")
+            raw_text = text_blocks[0]
+            if len(raw_text.encode("utf-8")) > MAX_MCP_RESULT_BYTES:
+                raise ValueError("MCP 工具结果超过 64 KiB")
+            decoded: Any = json.loads(raw_text)
+        else:
+            decoded = structured
+        if not isinstance(decoded, dict):
+            raise ValueError("MCP 工具结果必须是对象")
+        serialized = json.dumps(decoded, ensure_ascii=False, separators=(",", ":"))
+        if len(serialized.encode("utf-8")) > MAX_MCP_RESULT_BYTES:
             raise ValueError("MCP 工具结果超过 64 KiB")
-        decoded: Any = json.loads(raw_text)
-    else:
-        decoded = structured
-    if not isinstance(decoded, dict):
-        raise ValueError("MCP 工具结果必须是对象")
-    serialized = json.dumps(decoded, ensure_ascii=False, separators=(",", ":"))
-    if len(serialized.encode("utf-8")) > MAX_MCP_RESULT_BYTES:
-        raise ValueError("MCP 工具结果超过 64 KiB")
-    return _McpStrategyPayload.model_validate(cast(dict[str, Any], decoded))
+        return _McpStrategyPayload.model_validate(cast(dict[str, Any], decoded))
+    except (ValueError, TypeError) as error:
+        raise _McpPayloadError("invalid_mcp_result") from error
 
 
 def _payload_ref(payload: _McpStrategyPayload) -> ArtifactRef | None:
@@ -359,6 +382,10 @@ def _safe_registry_reason(code: str) -> str:
 def _group_reason(error: BaseException) -> str | None:
     if isinstance(error, TimeoutError):
         return "mcp_timeout"
+    if isinstance(error, _McpPayloadError):
+        return "mcp_invalid_result"
+    if isinstance(error, (MCPError, httpx2.HTTPError, OSError, RuntimeError)):
+        return "mcp_unavailable"
     if isinstance(error, McpTransportError):
         return _REASON_BY_TRANSPORT.get(error.code)
     if isinstance(error, McpRegistryError):

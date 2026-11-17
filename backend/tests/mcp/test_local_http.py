@@ -460,6 +460,7 @@ async def test_protocol_mismatch_is_reported_without_strategy_read() -> None:
     assert observation.status is ToolObservationStatus.DEGRADED
     assert observation.reason_code == "mcp_protocol_mismatch"
     assert catalog.calls == []
+    assert harness.client.last_request_count == 0
 
 
 @pytest.mark.asyncio
