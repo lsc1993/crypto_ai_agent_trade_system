@@ -28,7 +28,7 @@
 
 `ToolGateway.call` 每次重新读取运行快照，核对策略/工具目录/策略版本，验证参数 Schema 与当前币种/周期范围，然后在 C5 预算账本中预留 TOOL 步骤并提交发送，之后才调用处理器；结果必须通过输出 Schema、8 KiB 摘要、来源时间和未来时间校验，成功/失败/未知均结算。工具串行执行，进程内只缓存已成功观察；重启后重复步骤只复用持久化结果引用并显式降级，不伪造摘要。
 
-当前工具模块**尚未接入**模型驱动 LangGraph、HTTP/SSE、前端或生产 lifespan；T10 已提供本地真实 TCP MCP 适配，但模型图仍不能调用工具。`read_approved_news_factors` 的默认读取器明确返回“未装配”，不是无新闻；生产新闻读取器如访问真实公开源，必须自行使用同一 C5 传输预算逐次预留/发送/结算。工具不生成订单、数量、资金或 TradeIntent，也不访问私有账户或执行服务。
+T11 已提供模块级模型图，但工具模块**仍未接入生产 lifespan/HTTP/前端**；当前固定研究路径仍不向模型提供工具。`read_approved_news_factors` 的默认读取器明确返回“未装配”，不是无新闻；生产新闻读取器如访问真实公开源，必须自行使用同一 C5 传输预算逐次预留/发送/结算。工具不生成订单、数量、资金或 TradeIntent，也不访问私有账户或执行服务。
 
 ### 本地只读 MCP 适配（T10 模块）
 
@@ -36,7 +36,17 @@
 
 `BoundedMcpTransport` 在官方 SDK 之前拒绝未登记目标、任何 3xx、超过 64 KiB 的 JSON/SSE 单事件，以及单次工具调用超过 64 个实际 HTTP 请求的路径；JSON 响应增量读取，超限立即中止而不是先无界缓冲。SDK 的自动重连/重列也会逐请求计数并受同一上限。`McpToolClient` 实现 T09 `ToolHandler`，必须由 `ToolGateway` 完成预算预留/发送提交后调用；其公共 `call` 在未绑定网关时直接失败，避免绕过守卫。`build_research_mcp` 返回 ASGI app、受控 lifespan 和公开服务描述；宿主挂载时必须显式运行 lifespan，宿主装配可用 `build_client_registry` 取得不含凭据外泄的客户端登记。
 
-当前仍未接入模型图、HTTP/SSE、前端或生产 lifespan；没有通用 MCP 客户端、stdio、外部服务发现、sampling/roots/elicitation 或交易/账户能力。真实模型质量、真实外部 MCP 和业务库迁移不在 T10 证明范围。
+T11 的模型图仅通过注入的 `ToolPort` 消费已登记工具，未把 MCP 端点、凭据或协议暴露给模型；MCP 适配器仍未接入生产 lifespan/HTTP/SSE/前端。没有通用 MCP 客户端、stdio、外部服务发现、sampling/roots/elicitation 或交易/账户能力。真实模型质量、真实外部 MCP 和业务库迁移不在 T10/T11 证明范围。
+
+### 模型驱动研究与原生 Tool Calling（T11 模块）
+
+`backend/src/app/agent/interactive/model_port.py` 定义 `ToolBatch`、`ModelControlDecision`、`FinalAnalysis` 三种模型决策和 `AnalysisArtifactStager` 协议。`ModelControlDecision` 是 T06 `ControlProposal` 的薄包装，额外携带本次 usage/供应商标识；不修改审核材料类型。`ModelPort.decide` 仍是唯一决策入口，另外提供 `available`、`requested_model` 与 `estimate_request` 供预算/降级/指纹记录使用。
+
+`deepseek.py` 使用注入的 httpx 客户端向固定 DeepSeek 端点发送 `messages`、原生工具 `tools`、`thinking:{type:disabled}` 和 4096 `max_tokens`；不发送工具选择参数、不依赖 `reasoning_content`、不自动重试。工具调用参数解析为 JSON object；超过四个调用、无效参数/JSON、缺失模型名、超长响应和未知 finish reason 都转成固定 `ModelCallError`。usage 缺失保持 `None`，不写零；trace 只记录 requested/returned model、Prompt/Schema/工具目录指纹、供应商标识和已知用量。
+
+`graph.py` 的 `build_interactive_graph(GraphDependencies) -> SegmentRunner` 在单个片段内完成：加载当前运行/冻结证据/上下文 → 每次模型决策经 C5 预留/mark_sent/结算 → ToolBatch 逐个经 T09 `ToolGateway` → 控制提案经 `DecisionPolicy` 分类后只准备 preparing 待办 → FinalAnalysis 经 `AnalysisArtifactStager` 和证据引用校验后完成或准备 AP-01 审核。模型失败/预算不足/上下文超限安全降级；失败/超时分别按 failed/unknown 结算，不自动重放。图状态仅保存阶段、计数、结果类型、引用和 preparing 待办；live tool turn 只在片段内存中，不写入 checkpoint，也不成为第二业务真相。
+
+`worker.py` 新增 `runner` + `audit_coordinator` 注入路径：由 `GovernedSegmentExecutor` 完成 T07 四阶段审计和原子提交；已有 `executor` 注入保持兼容。等待片段在模型提出澄清/审核并保存 preparing 待办后立即结束，等待期间不轮询模型。当前未接入生产 lifespan/HTTP/前端，未调用真实模型；真实模型语义质量、抗注入、真实 MCP 发送和业务库迁移不在 T11 证明范围。
 
 ## AI Agent 生成与维护代码的注释要求
 

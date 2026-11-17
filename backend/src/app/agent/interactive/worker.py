@@ -1,5 +1,5 @@
 # 交互式 Agent 片段 worker：领取队列任务、维持租约心跳、运行受治理片段并原子提交结果。
-# 不直接调用模型/工具；SegmentExecutor 由治理包装提供，worker 只消费其安全结果。
+# 不直接调用模型/工具；可通过 executor 注入治理包装，或提供 runner 交由本模块包装。
 # 心跳失败立即取消未提交工作；迟到提交由协调器以 lease_lost 拒绝，不覆盖新 owner。
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 import structlog
 
-from app.agent.interactive.ports import SegmentExecution, SegmentExecutor
+from app.agent.interactive.ports import SegmentExecution, SegmentExecutor, SegmentRunner
 from app.agent_runs.contracts import AgentRunError, RunSnapshot
 from app.agent_runs.ports import AgentRunReader, SegmentRepository
 from app.agent_runs.segments import (
@@ -18,6 +18,10 @@ from app.agent_runs.segments import (
     ExecutionContext,
     SegmentOutcome,
     SegmentOutcomeKind,
+)
+from app.governance.interactive_planning import (
+    GovernedSegmentExecutor,
+    SegmentAuditCoordinator,
 )
 
 
@@ -29,7 +33,9 @@ class InteractiveAgentWorker:
         *,
         run_repository: AgentRunReader,
         segment_repository: SegmentRepository,
-        executor: SegmentExecutor,
+        executor: SegmentExecutor | None = None,
+        runner: SegmentRunner | None = None,
+        audit_coordinator: SegmentAuditCoordinator | None = None,
         owner: UUID | None = None,
         clock: Callable[[], datetime] | None = None,
         heartbeat_interval: float = HEARTBEAT_SECONDS,
@@ -37,11 +43,23 @@ class InteractiveAgentWorker:
     ) -> None:
         if heartbeat_interval <= 0 or poll_interval <= 0:
             raise ValueError("worker 心跳与轮询间隔必须为正数")
+        # 两种注入方式互斥：已有执行器直接使用；真实图运行器必须由治理包装和审计协调器收尾。
+        if (executor is None) == (runner is None):
+            raise ValueError("必须且只能提供 executor 或 runner")
+        if runner is not None and audit_coordinator is None:
+            raise ValueError("注入 runner 时必须同时提供审计协调器")
         self._runs = run_repository
         self._segments = segment_repository
-        self._executor = executor
         self._owner = owner or uuid4()
         self._clock = clock or (lambda: datetime.now(UTC))
+        if executor is None:
+            assert runner is not None and audit_coordinator is not None
+            executor = GovernedSegmentExecutor(
+                runner=runner,
+                coordinator=audit_coordinator,
+                clock=self._clock,
+            )
+        self._executor: SegmentExecutor = executor
         self._heartbeat_interval = heartbeat_interval
         self._poll_interval = poll_interval
 
