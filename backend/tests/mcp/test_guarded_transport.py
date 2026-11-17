@@ -3,7 +3,9 @@
 # 测试只连接本机临时 stub 服务；不访问外部 MCP、不调用模型、不读写账户或业务库。
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from typing import Any
 from uuid import uuid4
 
 import httpx2
@@ -268,3 +270,125 @@ def test_internal_credential_is_not_serialized_in_public_descriptor() -> None:
     endpoint = _endpoint()
     assert credential.token.get_secret_value() not in endpoint.model_dump_json()
     assert endpoint.url == "http://127.0.0.1:9000/mcp"
+
+
+# 仅媒体类型精确为 text/event-stream 才走 SSE；带 profile 参数的 application/json 仍必须限长。
+@pytest.mark.asyncio
+async def test_parameterized_json_content_type_is_still_bounded() -> None:
+    body = b'{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"' + b"x" * 1_024 + b'"}}'
+    inner = _RecordingTransport(
+        lambda request: _json_response(
+            request,
+            body,
+            headers={"content-type": 'application/json; profile="text/event-stream"'},
+        )
+    )
+    guarded = BoundedMcpTransport(inner=inner, endpoint=_endpoint(max_json_body_bytes=128))
+    async with httpx2.AsyncClient(transport=guarded) as client:
+        with pytest.raises(McpTransportError) as error:
+            await client.get("http://127.0.0.1:9000/mcp")
+        assert error.value.code == "payload_too_large"
+    assert len(inner.requests) == 1
+
+
+# 真实 SDK 回归：同类 Content-Type 的合法 tools/list 大响应必须在解析前被拒绝。
+@pytest.mark.asyncio
+async def test_sdk_cannot_bypass_json_limit_with_parameterized_content_type() -> None:
+    async def parameterized_json(request: Request) -> Response:
+        incoming = json.loads((await request.body()) or b"{}")
+        body: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": incoming.get("id"),
+            "result": {
+                "tools": [
+                    {
+                        "name": "read_strategy_definition",
+                        "description": "x",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        },
+                    }
+                ],
+                "resultType": "complete",
+                "ttlMs": 0,
+                "cacheScope": "private",
+                "_meta": {"padding": "x" * 100_000},
+            },
+        }
+        return Response(
+            json.dumps(body),
+            headers={"content-type": 'application/json; profile="text/event-stream"'},
+        )
+
+    app = Starlette(routes=[Route("/mcp", parameterized_json, methods=["POST", "GET"])])
+    async with serve_loopback(app) as (_, port):
+        endpoint = _endpoint(port=port, max_json_body_bytes=128, max_sse_event_bytes=128)
+        transport = BoundedMcpTransport(
+            inner=httpx2.AsyncHTTPTransport(),
+            endpoint=endpoint,
+        )
+        http_client = build_http_client(endpoint, _credential(), transport=transport)
+        mcp_transport = streamable_http_client(
+            endpoint.url,
+            http_client=http_client,
+            max_sse_event_size=endpoint.max_sse_event_bytes,
+        )
+        client = Client(mcp_transport, mode="2026-07-28")
+        with pytest.raises((McpTransportError, BaseExceptionGroup)):
+            async with client:
+                await client.list_tools()
+        await http_client.aclose()
+        assert transport.request_count == 1
+
+
+# 参数化内容类型的合法小响应不能被误判为 SSE 或错误拒绝。
+@pytest.mark.asyncio
+async def test_parameterized_json_small_response_is_still_accepted_by_sdk() -> None:
+    async def small_json(request: Request) -> Response:
+        incoming = json.loads((await request.body()) or b"{}")
+        body: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": incoming.get("id"),
+            "result": {
+                "tools": [
+                    {
+                        "name": "read_strategy_definition",
+                        "description": "x",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        },
+                    }
+                ],
+                "resultType": "complete",
+                "ttlMs": 0,
+                "cacheScope": "private",
+            },
+        }
+        return Response(
+            json.dumps(body),
+            headers={"content-type": 'application/json; profile="text/event-stream"'},
+        )
+
+    app = Starlette(routes=[Route("/mcp", small_json, methods=["POST", "GET"])])
+    async with serve_loopback(app) as (_, port):
+        endpoint = _endpoint(port=port, max_json_body_bytes=4_096, max_sse_event_bytes=128)
+        transport = BoundedMcpTransport(
+            inner=httpx2.AsyncHTTPTransport(),
+            endpoint=endpoint,
+        )
+        http_client = build_http_client(endpoint, _credential(), transport=transport)
+        mcp_transport = streamable_http_client(
+            endpoint.url,
+            http_client=http_client,
+            max_sse_event_size=endpoint.max_sse_event_bytes,
+        )
+        client = Client(mcp_transport, mode="2026-07-28")
+        async with client:
+            result = await client.list_tools()
+        await http_client.aclose()
+        assert [tool.name for tool in result.tools] == ["read_strategy_definition"]
+        assert transport.request_count == 1

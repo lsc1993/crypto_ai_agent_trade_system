@@ -59,8 +59,11 @@ class BoundedMcpTransport(httpx2.AsyncBaseTransport):
         response: httpx2.Response,
         request: httpx2.Request,
     ) -> httpx2.Response:
-        content_type = response.headers.get("content-type", "").lower()
-        if "text/event-stream" in content_type:
+        # 只按媒体类型判定 SSE，不能对完整 Content-Type 做子串匹配：
+        # application/json; profile="text/event-stream" 仍必须走 JSON 限长。
+        content_type = response.headers.get("content-type", "")
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        if media_type == "text/event-stream":
             return response
         declared = response.headers.get("content-length")
         if declared is not None:
