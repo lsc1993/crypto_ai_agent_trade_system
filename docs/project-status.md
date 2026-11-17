@@ -51,6 +51,8 @@
 
 ## 本次整理的行为
 
+2026-11-17 按用户要求补充 T09 真实 PostgreSQL 独立验证：已准备隔离测试实例并通过受限角色预检，既有 C5/片段/进程恢复回归 33 项通过，新增网关与真实 SQL 账本集成回归 14 项通过；完整后端入口 1366 项通过（0 失败、0 跳过），详见 [T09 SQL 验证记录](superpowers/reviews/manual-agent/T09-sql-verification.md)。本次只新增测试与验证说明，不修改生产实现，不自动调整 `implemented / awaiting_review`，不进入 T10/T11；此前测试库缺失的记录保留为历史证据。
+
 2026-11-17 T09 受控工具守卫与内部研究工具模块实现（待原审查助手审查）：新增 `agent/interactive/tools/` 的 `RegisteredTool`/`ToolRequest`/`ToolResult`/`ToolObservation`、不可变 `ToolRegistry`、串行 `ToolGateway` 与六个只读研究工具（读取冻结行情、批准新闻摘要、技术事实、所选策略评估、研究知识检索、策略定义）。每次调用核对运行修订/取消/策略与工具目录版本，校验受限参数 Schema 与当前币种/周期范围，再在 C5 账本预留 TOOL 步骤并提交发送；结果经输出 Schema、8 KiB 摘要、来源/未来时间校验后成功/失败/未知结算，拒绝和失败保留稳定原因，重复逻辑步骤不二次调用处理器。同步把架构门禁扩展到 `agent_runs`/`research`/`trade_planning` 的适用隔离，并保持 `governance/` 无工具路由；未新增依赖或迁移。首轮审查 1 P1 + 4 P2 已修复；修复后聚焦 108 项、交互式模块 87 项、阶段回归 307 项、quick 后端 1127 项通过；本机 Docker/PostgreSQL 不可用，未执行数据库、后端 full、HTTP/前端或真实模型/MCP 验证，不能宣称生产工具循环或完整验收已交付。审查请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`；首轮受审 tip `2674f16`，修复 tip `063e8a3`；正式审查状态须由用户传回原审查助手复核结论，不由开发端预填。
 
 2026-11-07 T00 治理内核命名迁移：后端 `app/harness/` 迁至 `app/governance/`，`HarnessRuntime`/`HarnessPolicy`/`HarnessCapability`/`HarnessRunKind`/`HarnessRunRequest`/`HarnessPolicyViolation`/`HarnessWorkflow` 及两个 `Harnessed*` 服务分别改为 `Governance*`/`Governed*` 命名；测试迁至 `tests/governance/`，导入、装配、AST 安全门禁与当前规范同步更新。`HarnessAudit*` 存储类型、表/审计事件值、`harness_*` 错误码、日志事件名及拒绝日志 `error_type` 保持历史值，以兼容既有观测与审计读取。复审阶段已在专用测试库通过 full（后端 1017 passed），并完成旧报告/审计读取 SQL 回归 34 passed；开发状态保持 `implemented`，等待原审查助手复审，不自行标记 `verified`。
