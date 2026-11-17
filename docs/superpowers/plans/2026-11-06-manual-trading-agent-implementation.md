@@ -267,7 +267,7 @@
 - [x] **Step 4：同命令全绿，再运行 architecture。** 内部行情、策略、RAG 的实际调用链及失败审计可关联；工具描述中的恶意指令不改变授权；无下单/私有账户能力。
   首轮审查 1 P1 + 4 P2 已修复；修复后工具聚焦 108 passed（45 工具 + 63 安全）、交互式模块 87 passed、阶段回归 307 passed、quick 后端 1127 passed；`scripts.check_architecture` 为 `files_scanned=82`、`findings=[]`。真实模型/MCP/HTTP 未接入，不能将端口替身当作生产发送证明。
 - [x] **Step 5：提交 `feat: guard registered agent tool calls`。** FR-02/FR-03，AC-01/AC-03/AC-06/AC-29，HN-01/HN-05/HN-09/HN-12。
-  实现 tip 见审查请求；本任务未新增依赖或迁移，未接入模型图/MCP/HTTP/前端或生产装配。
+  首轮实现 `2674f16`，正式审查 R1–R5 修复 `063e8a3`；SQL 验证增量 `a9d19df`。2026-11-17 原审查助手正式通过（`reviewed_tip=063e8a3`），当前 `verified`/`approved`；本任务未新增依赖或迁移，未接入模型图/MCP/HTTP/前端或生产装配。
 
 ### T10：官方 MCP SDK、受控 HTTP 和本地只读服务（D3）
 

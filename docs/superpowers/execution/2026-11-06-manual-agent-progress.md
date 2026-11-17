@@ -2,8 +2,8 @@
 
 - 记录日期：2026-11-17
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；首轮正式审查提出 1 P1 + 4 P2，修复 tip `063e8a3` 后聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed，但本机无 Docker/专用 PostgreSQL，后端 full 被测试库前置阻塞，自测状态为 `implemented`，`review_status=awaiting_review`。
-- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 首轮审查的 1 P1 + 4 P2 已修复并再次交审，正式状态只由用户传回的结论更新。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；首轮正式审查提出 1 P1 + 4 P2，修复 tip `063e8a3` 后开发聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；审查阶段独立 PostgreSQL 验证 C5/片段/恢复 33、SQL 网关 14、后端 full 1366 passed。2026-11-17 用户传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前为 `verified`/`approved`。
+- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 首轮审查的 1 P1 + 4 P2 已修复，用户于 2026-11-17 传回正式通过结论（`reviewed_tip=063e8a3`），当前为 `approved`。
 
 ## 当前工作区
 
@@ -18,13 +18,14 @@
 | tree | `1fca46491d2e39ccb4649357c0ce40b32d851258` |
 | 修复范围 | `81018be..063e8a3` 5 个文件，+310/-31（1 P1 + 4 P2） |
 | 累计代码范围 | `36cda45..063e8a3` 21 个文件，+4668/-40（含首轮代码、docs 包与修复） |
-| self_test | `implemented`（修复后聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；后端 full 被专用测试库缺失阻塞） |
-| review_status | `awaiting_review`（首轮 5 项发现已修复，待原审查助手复核；不得自行填写 approved） |
-| reviewed_tip | 未产生；首轮审查 tip 为 `2674f16`，等待复核结论 |
+| self_test | `verified`（开发聚焦 108、交互式 87、阶段 307、quick 1127；独立 PostgreSQL 33+14、后端 full 1366 passed） |
+| review_status | `approved`（2026-11-17 用户传回原审查助手正式结论） |
+| reviewed_tip | `063e8a3a8f099540e89dce890b76748cd7fcb02c`（首轮 R1–R5 修复版本） |
+| SQL 验证 tip | `a9d19dfab7991d319c5dcc35e0312ef39e6f5980`（`test: record T09 postgres gateway verification`） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T09-review-request.md` |
-| 文档提交 | 首轮审查包 `81018be`；本次修复复审包/进度提交号见最终交付回复 |
-| quick 证据 | `.tmp/quality/t09-review-fix-quick-backend.json`（`verification=passed`，1127 passed / 0 failed / 0 skipped） |
-| full 证据（阻塞） | `.tmp/quality/t09-review-fix-full-blocked.json`（`test-database=blocked(environment_not_ready)`，`backend-tests=blocked`，`verification=blocked`） |
+| 文档提交 | 首轮审查包 `81018be`；修复复审包 `3c458ba`；SQL 验证测试提交 `a9d19df`；审批文档提交号见最终交付回复 |
+| quick 证据 | `.tmp/quality/t09-review-fix-quick-backend.json`（开发环境 `verification=passed`，1127 passed） |
+| SQL/full 证据 | `docs/superpowers/reviews/manual-agent/T09-sql-verification.md`、`.tmp/quality/t09-sql-full-20261117.json`（独立 PostgreSQL 环境，full 1366 passed） |
 
 ## T00：治理内核与规范迁移（D0）
 
@@ -668,8 +669,8 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 任务 | T09；C6 `RegisteredTool`/`ToolRequest`/`ToolResult`/`ToolObservation`、不可变目录、逐次 `ToolGateway` 与六个只读研究工具 |
 | FR/AC/HN | FR-02/FR-03；AC-01/AC-03/AC-06/AC-29；HN-01/HN-05/HN-09/HN-12。工具还消费 T08 证据/上下文与 T01/T02 策略/知识端口，但不实现 T10 MCP、T11 模型图、T12/T13 规划或 T14 HTTP/装配 |
 | 时间 | 2026-11-17 |
-| 任务状态 | `implemented`（首轮 1 P1 + 4 P2 已修复；聚焦/阶段/quick/静态门禁完成；后端 full 因本机无专用 PostgreSQL 阻塞，不能标 `verified`） |
-| review_status | `awaiting_review`（首轮 5 项发现已修复，待原审查助手复核；不得自行填写 approved） |
+| 任务状态 | `verified`（首轮 1 P1 + 4 P2 已修复；开发聚焦/阶段/quick 与独立 SQL/full 均完成） |
+| review_status | `approved`（2026-11-17 用户传回原审查助手正式通过结论；`reviewed_tip=063e8a3`） |
 | 隔离工作区 | `D:\t09`（`t09-tool-gateway`，未推送/合并/部署） |
 | base | `36cda455670713f3ffaee18655c4d59113a90b22`（`main`） |
 | 首轮受审 tip | `2674f1692d09217daea008a6999d49b291383914`（`feat: guard registered agent tool calls`） |
@@ -677,6 +678,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | implementation tree | `1fca46491d2e39ccb4649357c0ce40b32d851258` |
 | 修复范围 | `81018be..063e8a3`，5 个文件，+310/-31 |
 | 累计代码范围 | `36cda45..063e8a3`，21 个文件，+4668/-40 |
+| SQL 验证增量 | `a9d19df`：新增 `tests/persistence/test_tool_gateway.py` 与 `T09-sql-verification.md`；独立 full 1366 passed |
 | 改动 | 新增 `agent/interactive/tools/contracts.py`、`registry.py`、`gateway.py`、`research_tools.py` 与两组测试；扩展架构门禁到 `agent_runs`/`research`/`trade_planning` 的适用隔离；新增工具源码只读/无执行安全测试；同步根/后端规范、维护/运行边界与项目状态 |
 | 公共接口 | `RegisteredTool`/`ToolRegistry`/`ToolCatalog`、`ToolRequest`/`ToolResult`/`ToolObservation`、`ToolGateway.call`、`RESEARCH_TOOL_NAMES`、`ResearchToolService.handlers`、`ApprovedNewsReader`/`ApprovedNewsSummary`；`TOOL_ACTION_SEQUENCE_BASE=2_000_000`、8 KiB 摘要上限、六个工具固定版本 |
 | 依赖/迁移 | 无新增依赖；无新增迁移；迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
@@ -705,6 +707,13 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 
 修复前失败证据：`t09-review-red-1`（3 failed / 28 passed）、`t09-review-red-2`（5 failed / 28 passed）、`t09-review-red-3`（1 failed / 11 passed）。修复后计数见下表。
 
+### T09 正式审查通过
+
+- 2026-11-17 用户传回原审查助手正式通过结论：首轮 **1 P1 + 4 P2 全部关闭**，修复版本 `reviewed_tip=063e8a3`，未提出新的阻断项。
+- 审查阶段新增真实 PostgreSQL 独立验证：C5/片段/进程恢复 33 passed、网关与真实 SQL 账本集成 14 passed、后端 full 1366 collected / 1366 passed / 0 failed / 0 skipped；记录见 `docs/superpowers/reviews/manual-agent/T09-sql-verification.md`。
+- 新增 SQL 测试只证明网关与既有账本/仓储的集成边界，不修改生产实现；超时为合成分支，取消为协程取消，不冒充操作系统进程终止或 T10/T11 能力。
+- T09 当前 `verified`/`approved`；按用户指令提交并 fast-forward 合并到 `main`。正式审查通过不改变自动交易限制、默认审核或后续审查门槛。
+
 ### T09 测试证据
 
 | 检查 | 目录 | 命令 | 结果 |
@@ -715,7 +724,8 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 交互式模块（修复后） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive -q --basetemp=../.tmp/pytest/t09-review-green-6` | 87 passed，退出 0 |
 | D3 阶段回归（非数据库，修复后） | `D:\t09\backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/research tests/security tests/governance -q --basetemp=../.tmp/pytest/t09-review-fix-stage-1` | 307 passed / 0 failed / 0 skipped，退出 0 |
 | 后端 quick（修复后） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t09-review-fix-quick-backend.json` | 退出 0；`verification=passed`；1127 collected / 1127 passed / 0 failed / 0 skipped / 0 collection errors；证据 `.tmp/quality/t09-review-fix-quick-backend.json` |
-| 后端 full（修复后，阻塞，不计为通过） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t09-review-fix-full-blocked.json` | 退出 2；`verification=blocked`；`test-database=blocked(environment_not_ready)`；`backend-tests=blocked(prerequisite_not_passed)`；未执行数据库/后端 full；证据 `.tmp/quality/t09-review-fix-full-blocked.json` |
+| 开发机 full（阻塞，历史证据） | `D:\t09` | `uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t09-review-fix-full-blocked.json` | 退出 2；开发机无专用测试库，未执行数据库/后端 full；保留为环境阻塞证据 |
+| 独立 PostgreSQL 验证（审查阶段） | `D:\t09\backend` + 临时 PostgreSQL 17 | 预检后分别运行 C5/片段/恢复 33 项、`tests/persistence/test_tool_gateway.py` 14 项；根目录 full | 全部通过；full 1366 passed / 0 failed / 0 skipped；证据 `docs/superpowers/reviews/manual-agent/T09-sql-verification.md`、`.tmp/quality/t09-sql-full-20261117.json` |
 | Ruff / 格式 | `D:\t09\backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | 全部通过，退出 0；384 files already formatted |
 | Pyright | `D:\t09\backend` | `uv run --locked --no-sync python -m pyright` | 0 errors / 0 warnings，退出 0 |
 | 架构门禁 | `D:\t09\backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=82`，`findings=[]`，退出 0 |
@@ -724,7 +734,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 ### T09 环境说明
 
 - 隔离工作区 `D:\t09` 从 `main` 的 `36cda45` 创建；主工作区保持干净。未推送、合并、部署或迁移业务库。
-- 使用独立 `.venv`（锁定依赖）；本机没有运行中的 Docker/PostgreSQL，无法执行 `test-database`、SQL 持久化测试和后端 full。全量扫描/静态/非数据库测试仍通过，但不得将 quick 或聚焦结果称为完整验收。
+- 使用独立 `.venv`（锁定依赖）；开发执行机没有运行中的 Docker/PostgreSQL，因此开发侧只能完成非数据库检查；审查阶段另用临时 PostgreSQL 17 完成 C5/SQL/full 独立验证，记录见 `T09-sql-verification.md`。开发侧 quick/聚焦不替代该独立验收。
 - 前端未改动；未执行前端 lint/typecheck/Vitest/build、浏览器 e2e 或 HTTP e2e。未调用真实模型、MCP、私有账户或交易执行；工具/测试数据均为合成值。
 
 ### T09 重点审查位置与已知风险
@@ -736,7 +746,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 5. **策略版本**：网关默认 `policy_version="interactive_planning_v1"`，与 T07 当前默认一致；基础工具版本中的点/横线已编码为模型安全版本，T14 装配时仍须显式传入生产值。
 6. **目录指纹**：模型可见版本嵌入了完整目录条目哈希，`ContextBuilder` 的输入 Schema 摘要测试已覆盖；T11/T14 必须使用同一个 `ToolRegistry` 实例/指纹，不能另建目录。
 7. **工具输出安全投影**：六个处理器只读取公开/用户已选策略数据；测试断言无金额/仓位/杠杆/凭证。但 `read_strategy_definition` 会返回用户策略方法与参数 Schema 的有界摘要，是否满足产品最小化要求需审查。
-8. **未验证**：SQL `agent_steps`/`agent_attempts` 真实预留/结算、失败触发器、并发/恢复、T10 MCP/TCP、T11 模型图、T14 HTTP/生产 lifespan、前端、业务库迁移、真实模型质量/抗注入均未执行。
+8. **验证边界**：SQL `agent_steps`/`agent_attempts` 真实预留/结算、失败触发器、并发/恢复已由审查阶段独立 PostgreSQL 验证覆盖；T10 MCP/TCP、T11 模型图、T14 HTTP/生产 lifespan、前端、业务库迁移、真实模型质量/抗注入仍未执行。
 
 ## 后续接续规则
 
@@ -749,5 +759,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 7. T06 首轮正式审查对 `1ec0a72` 判定不通过（F1），修复 tip 为 `dea9848`，F1 修复范围 `1ec0a72..dea9848`（4 个文件、+286/-5）；修复后聚焦 51、阶段 380、后端 full 1211 passed。用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`，报告 `T06-rereview-dea9848.md`），当前为 `verified`/`approved`；代码/批准文档已 fast-forward 合并到 `main`（合并 tip `2b4cd78`）并推送。T07/T13、HTTP/前端、真实传输、业务库迁移和部署仍须独立验收。
 8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；已按用户指令 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送，本 docs 提交记录合并/推送结果。
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
-10. T09 首轮审查 1 P1 + 4 P2 已修复；首轮受审 tip `2674f16`，修复 tip `063e8a3`（`81018be..063e8a3`，5 个文件 +310/-31），修复后聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；后端 full 因无专用 PostgreSQL 阻塞。当前 `implemented`/`awaiting_review`，复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`；未取得原审查助手复核结论，不进入 T10/T11。
+10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令提交并合并到 `main`，不自动进入 T10/T11。
 11. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。

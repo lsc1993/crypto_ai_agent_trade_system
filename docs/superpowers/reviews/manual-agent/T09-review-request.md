@@ -3,8 +3,8 @@
 - 任务/审查单元：**T09**（D3：冻结上下文、工具守卫、真实 MCP、模型驱动 LangGraph 的第二段）。
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本/推理实现未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明与当前仓库版本。
-- 自测状态：**`implemented`**（修复后模块、聚焦/阶段/quick 后端和静态/架构门禁完成；后端 full 因本机无专用 PostgreSQL 阻塞，不能标 `verified`）。
-- 正式审查状态：**`awaiting_review`**（首轮正式审查提出 1 项 P1 + 4 项 P2；当前为修复后再次交审，开发端不预填 `approved`）。
+- 自测状态：**`verified`**（开发聚焦/阶段/quick 通过；审查阶段独立 PostgreSQL 验证 33 + 14 项通过，后端 full 1366 passed；SQL/full 证据来自独立验证记录，本机未重跑）。
+- 正式审查状态：**`approved`**（2026-11-17 用户传回原审查助手正式通过结论；`reviewed_tip=063e8a3`；首轮 R1–R5 关闭）。
 - 日期：2026-11-17。
 
 ## 1. 工作区、分支与提交范围
@@ -20,9 +20,12 @@
 | implementation tree | `1fca46491d2e39ccb4649357c0ce40b32d851258` |
 | 修复范围 | `81018be..063e8a3`，5 个文件，+310 / -31（P1 + 4 项 P2 修复与回归） |
 | 累计代码范围 | `36cda45..063e8a3`，21 个文件，+4668 / -40（含首轮代码、docs 包和本次修复） |
-| 工作区未提交内容 | 本次复审请求、进度及同步文档更新；修复代码/测试已提交，未夹带其他任务改动、`.env`、凭证或业务库修改 |
-| docs 提交 | 首轮审查包 `81018be`；本次修复复审包在 implementation tip 之后单独提交，提交号见最终交付回复 |
-| 复审状态 | 原 5 项发现待原审查助手复核；开发端不自行标记通过 |
+| 工作区未提交内容 | 审批状态文档更新；代码、测试和 SQL 验证记录已提交，未夹带其他任务改动、`.env`、凭证或业务库修改 |
+| docs 提交 | 首轮审查包 `81018be`；修复复审包 `3c458ba`；SQL 验证测试提交 `a9d19df`；审批文档提交号见最终交付回复 |
+| review_status | `approved`（用户于 2026-11-17 传回原审查助手正式结论） |
+| reviewed_tip | `063e8a3a8f099540e89dce890b76748cd7fcb02c`（首轮 R1–R5 修复版本） |
+| SQL 验证 tip | `a9d19dfab7991d319c5dcc35e0312ef39e6f5980`（`test: record T09 postgres gateway verification`） |
+| 最终审查状态 | R1–R5 关闭；新增 SQL 集成测试与独立 full 1366 passed 记录见 `T09-sql-verification.md` |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型、MCP、私有账户或交易接口。
 
@@ -148,7 +151,7 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 - **无新增迁移**；未修改旧迁移、业务库或历史报告/审计。
 - 迁移 head 仍为 `0027_agent_segments`；`alembic heads` 已核验。
-- T09 的真实 TOOL 步骤/尝试依赖既有 `agent_steps`/`agent_attempts`/meter 表；本轮测试使用预算替身，未在专用 PostgreSQL 上重跑真实预留/结算/恢复。
+- T09 的真实 TOOL 步骤/尝试依赖既有 `agent_steps`/`agent_attempts`/meter 表；开发聚焦使用预算替身，审查阶段另由 `a9d19df` 新增 `backend/tests/persistence/test_tool_gateway.py` 在独立 PostgreSQL 上验证真实预留/结算/恢复，记录见 `T09-sql-verification.md`。
 
 ## 5. 验证记录
 
@@ -156,7 +159,7 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 - 执行目录：`D:\t09`（根）与 `D:\t09\backend`。
 - 后端锁定环境：`uv sync --project backend --locked`，Python 3.12；独立 `.venv`。
-- 本机 Docker/PostgreSQL 不可用：`TEST_DATABASE_URL` 未设置，`docker` 守护进程未运行；`test-database` 预检 blocked，后端 full 未执行。未指向、迁移或修改任何业务库。
+- 开发执行机 Docker/PostgreSQL 不可用：`TEST_DATABASE_URL` 未设置，`docker` 守护进程未运行；开发侧 `test-database`/full 为阻塞证据。审查阶段另用临时 PostgreSQL 17 完成独立验证；未指向、迁移或修改任何业务库。
 - 验证进程未修改 `.env`、凭证、生产配置或业务数据；未调用真实模型、MCP、私有账户或交易执行。
 - 测试数据：合成任务/策略/知识/公开行情/新闻摘要/工具结果；财务哨兵仅用于断言不泄漏。
 - `.tmp/quality/` 证据是本地未提交产物，不随分支传递；上表命令可在有专用测试库环境重跑。
@@ -202,8 +205,8 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 ### 6.1 未验证/未执行
 
-- 专用 PostgreSQL：`test-database`、真实 `agent_steps`/`agent_attempts` 预留/发送/结算、meter 释放、失败触发器、并发/恢复和数据库 full。
-- 后端 full、前端 lint/typecheck/Vitest/build、Playwright/HTTP e2e、生产 lifespan 装配。
+- 专用 PostgreSQL：已由审查阶段独立验证覆盖（C5/片段/恢复 33 passed、SQL 网关 14 passed、后端 full 1366 passed）；本记录不冒充当前开发机重跑，证据见 `T09-sql-verification.md`。
+- 开发机后端 full 因测试库缺失仍为历史阻塞；前端 lint/typecheck/Vitest/build、Playwright/HTTP e2e、生产 lifespan 装配未验证。
 - T10 MCP 官方 SDK、真实 TCP/HTTP、64 KiB 原始结果、协议协商和关闭回收。
 - T11 模型驱动 LangGraph、原生 Tool Calling、真实请求/观察回灌、等待/恢复。
 - 真实模型质量、抗注入、真实新闻 HTTP、真实策略/知识质量、业务库迁移和部署回退。
@@ -220,10 +223,9 @@ T09 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 6. **安全门禁**：新增 `ARCH007`/`ARCH008` 是否覆盖 `agent_runs`/`research`/`trade_planning` 的适用边界而不误伤 `research/backtests` 合法模拟依赖；工具源码字符串断言是否会漏过动态导入/反射（已知不是任意代码安全证明）。
 7. **工具处理器**：`read_strategy_definition` 的方法/参数摘要是否满足模型最小化；`read_approved_news_factors` 默认不可用是否会被误认为“无新闻”；知识片段注入文本是否只在数据角色展示。
 8. **策略版本默认值**：`policy_version="interactive_planning_v1"` 是否应在 T14 显式注入；不同策略版本是否会被错误拒绝。
-9. **R1–R5 复核**：请重点确认修复是否关闭首轮发现，尤其是“发送时刻/结果校验时刻”分离、缓存到期复用、四个访问路径的深隔离、最终摘要限长和模型版本编码；新增回归位于 `test_tool_gateway.py` 与 `test_research_tools.py`。
+9. **R1–R5 复核**：首轮发现已由原审查助手复核关闭；保留修复回归作为后续变更门槛。
 
 ## 7. 自测状态与正式审查状态
 
-- **自测状态：`implemented`**。首轮 1 P1 + 4 P2 已逐项修复并补回归；修复后聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed，Ruff/格式/Pyright/架构/迁移链完成；后端 full 因本机无专用 PostgreSQL 阻塞，未完成必需全量验证，因此不标 `verified`。
-- **正式审查状态：`awaiting_review`**。等待用户把本复审请求和 implementation tip `063e8a3` 交回原审查助手；首轮 `2674f16` 的 5 项发现待复核，开发端不自行填写 `approved`，也不进入 T10/T11。
-- 若复审仍有意见，开发端先核对/复现，再逐条修复并补回归，记录新 tip 与验证结果后再次交审。
+- **自测状态：`verified`**。首轮 1 P1 + 4 P2 已逐项修复并补回归；开发侧重跑聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；审查阶段独立 PostgreSQL 验证记录另列 C5/片段/恢复 33 passed、SQL 网关 14 passed、后端 full 1366 passed。Ruff/格式/Pyright/架构/迁移链完成。SQL/full 为本机不可用环境下的独立验证证据，不冒充当前主机重跑。
+- **正式审查状态：`approved`**。用户于 2026-11-17 传回原审查助手正式通过结论；首轮 `2674f16` 的 5 项发现关闭，修复版本 `reviewed_tip=063e8a3`。SQL 集成测试与独立 full 记录提交为 `a9d19df`，审批文档另行提交。
