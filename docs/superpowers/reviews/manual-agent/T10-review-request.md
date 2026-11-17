@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本、推理实现和供应商侧版本未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明与当前仓库版本。
 - 自测状态：**`verified`**（实现、聚焦、阶段、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
-- 正式审查状态：**`awaiting_review`**（未预填通过；等待用户转交原审查助手）。
+- 正式审查状态：**`awaiting_review`**（首轮正式审查 `changes_requested`，审查对象 `690d726`；R1/R2 已修复，等待复审）。
 - 日期：2026-11-17。
 
 ## 1. 工作区、分支与提交范围
@@ -15,15 +15,17 @@
 | 隔离工作区 | `D:/project_git/t10`（从 `main` 的 `b80071c` 创建） |
 | 分支 | `t10-mcp-transport`（未推送、未合并、未部署） |
 | base | `b80071c`（`main`，`docs: record T09 merge into main`） |
-| T10 implementation tip | `690d726892ea6deaf14c77a705ca06539fb7cd0a`（`fix: harden MCP result handling and protocol pinning`；首轮实现 `a9d3b24`） |
-| T10 implementation tree | `6221e3f0d03721883a6dc713d49143ddfc94d62a` |
+| T10 implementation tip | `b5509ac876462820a0850d424d19f4c5fe23b557`（`fix: reject non-ascii MCP service credentials`；首轮实现 `a9d3b24`，首轮加固 `690d726`） |
+| T10 implementation tree | `c2f50474aac062311c8dba408396960d96dfc769` |
 | 辅助测试提交 | `619fe2c429cb40de401154dc2aa82af48cf5395f`（`test: anchor interaction lifetime fixture to repository clock`；1 个文件 +2/-1，非 T10 生产代码） |
-| T10 代码范围 | `b80071c..690d726`，22 个文件，+2789/-14（含新增代码、测试、依赖锁定与同步文档） |
+| T10 代码范围 | `b80071c..b5509ac`，24 个文件，+3251/-17（含新增代码、测试、依赖锁定、同步文档与 R1/R2 回归） |
 | 辅助修复范围 | `a9d3b24..619fe2c`，1 个文件，+2/-1 |
-| T10 加固范围 | `619fe2c..690d726`，2 个文件，+50/-22（结果处理/协议钉死） |
+| 首轮加固范围 | `619fe2c..690d726`，2 个文件，+50/-22（结果处理/协议钉死） |
+| R1 修复 | `6df36e4`（`fix: bound parameterized JSON MCP responses`；2 个文件，+129/-2） |
+| R2 修复 | `b5509ac`（`fix: reject non-ascii MCP service credentials`；2 个文件，+45/-1） |
 | 审查请求 docs 提交 | 生成后另行提交；不把自身提交号写入 `implementation tip` |
-| review_status | `awaiting_review` |
-| reviewed_tip | —（尚未收到正式结论） |
+| review_status | `awaiting_review`（首轮 `changes_requested`） |
+| reviewed_tip | `690d726892ea6deaf14c77a705ca06539fb7cd0a`（首轮正式审查不通过版本） |
 
 本轮没有修改 `.env`、生产配置、业务数据库、模拟盘资金/风控配置或交易执行链路；未调用真实模型、外部 MCP、私有账户或交易接口。
 
@@ -34,15 +36,15 @@
 | 文件 | SHA-256 |
 | --- | --- |
 | `backend/src/app/infrastructure/mcp/__init__.py` | `beb6ee614d03324a7c13bc45ab1b9bf5eb38904e768b655e4379d44dd5b31da2` |
-| `backend/src/app/infrastructure/mcp/registry.py` | `d9a010ca79b041287c8c8f25819d80e6051ac72ec10567f57541e7cf932165c8` |
-| `backend/src/app/infrastructure/mcp/transport.py` | `5e75c11117278895eccefe939b5df3c17d4d29282e0ddf4c1313d464a50b8006` |
+| `backend/src/app/infrastructure/mcp/registry.py` | `5df8c4fdca0f2c43d731c07a97b92012c2ebd14c4b38f1d3b1f34ea4c7e65199` |
+| `backend/src/app/infrastructure/mcp/transport.py` | `6ab16fe16805715f4b7baa0d58043801af2e19975a00eb0900a8cb5ee9319273` |
 | `backend/src/app/infrastructure/mcp/client.py` | `befaa7555fcc8ce531ebd0f76fb914535b88d8a5c22326e55a8880c0ce5bc505` |
 | `backend/src/app/infrastructure/mcp/server.py` | `96778cfc7b36ef1390c8e36ec3920f26bd48fc71e440bb477e20c279d6811e66` |
 | `backend/src/app/agent/interactive/tools/research_tools.py` | `f5322cb9f05391133de33ee1867702b6311e3a58d692fe1ae7a03a926251243a` |
 | `backend/tests/mcp/support.py` | `a79b4e3090ebd4e7135243ffdc4ec3679849a17b318052b5a50901a1ba05c345` |
 | `backend/tests/mcp/test_compatibility.py` | `1c8b7d1b78b6c1dcd49f5f95c8c3990d4bb245ec15a05206f53d38de8a9f6634` |
-| `backend/tests/mcp/test_guarded_transport.py` | `03626c306758e4a2700634430313405e3b798aa1b599377edfbd542e82bac4a1` |
-| `backend/tests/mcp/test_local_http.py` | `0e2d0e4606ad08457a0e4d803ed1db1abfb4798d9cd74b3399be2eed717de92d` |
+| `backend/tests/mcp/test_guarded_transport.py` | `09452b9ecebde5168e9cc86da3576aee124628d5a4473aee5403c3062f4703cf` |
+| `backend/tests/mcp/test_local_http.py` | `2386d5787ac5a34ec365f65dff39a4952265df142e0e4359521ebe9a0dd320e4` |
 | `backend/tests/tooling/test_mcp_lifespan.py` | `fc8b219664679bdf1374d0cfca3fd41b17e16717495b5bcc10aefb2bd9ac49dc` |
 | `backend/tests/security/test_agent_dependency_boundary.py` | `cdd742da07f8d42234fdf1dc370b23d1a4dd0c603db1de4f784d570c4034785a` |
 | `backend/tests/persistence/test_agent_interactions.py` | `f2eb67bbdf8147b0ef01229f28b059df056f7b4ca83d256d7e557bc1c7ed4fed`（辅助修复文件） |
@@ -123,6 +125,17 @@ T10 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 10. **未改 T09 契约**：只在 `research_tools.py` 增加公开工厂，六个工具描述/版本/指纹保持不变；T09 回归继续通过。
 11. **协议钉死与异常分级**：`McpToolClient` 在创建 transport 前拒绝任何非 `2026-07-28` 的登记（`last_request_count==0`），协商后再次核对；载荷解析失败映射 `mcp_invalid_result`，未识别异常不再统一降级，而是交给 T09 网关按 `UNKNOWN` 结算；HTTP/SDK 认证/连接错误仍映射 `mcp_unavailable`。
 
+### 3.3 首轮正式审查 R1/R2 修复
+
+首轮正式审查对象 `690d726`（tree `6221e3f`）结论为 `changes_requested`，发现 2 项必须修复；修复前先补失败回归（4 failed），修复后聚焦 32、阶段 183 通过。
+
+| 发现 | 根因与复现 | 修复与回归 |
+| --- | --- | --- |
+| R1/P1：带参数的 JSON Content-Type 绕过响应上限 | `transport.py` 对完整 Content-Type 做 `"text/event-stream" in value` 判断；`application/json; profile="text/event-stream"` 被误判为 SSE，SDK 按 `application/json` 前缀完整读取 100126 字节，128 字节上限失效 | 先解析媒体类型（分号前、去空白、小写），仅精确 `text/event-stream` 走 SSE；其余走增量 JSON 限长。新增直接 transport 回归和真实 loopback TCP + 官方 SDK 的大/小参数化 JSON 回归；小响应成功，大响应在解析前被 `payload_too_large` 拒绝。 |
+| R2/P2：非 ASCII Authorization 头触发 500 | `hmac.compare_digest` 对含非 ASCII 字符的字符串抛 `TypeError`；原始 `Authorization: Bearer 0xFF` 经 Starlette latin-1 解码后进入鉴权中间件，异常路径返回 500 | `is_authorized` 先将候选按 latin-1 还原为 bytes，非 latin-1 字符直接返回 False，再与 ASCII 期望值做常量时间比较。新增 `is_authorized` 单元回归和原始 socket 非 ASCII 头回归，断言 401 且策略读取器零调用。 |
+
+首轮审查独立执行 `tests/mcp + test_mcp_lifespan + tests/security + tests/agent/interactive` 为 178 passed，未覆盖上述参数化 Content-Type 和原始高位头场景；本次回归已补齐。辅助测试提交 `619fe2c` 经审查接受，保持不变。
+
 ## 4. 公共接口、依赖与迁移影响
 
 ### 4.1 新增/修改公共接口
@@ -162,12 +175,12 @@ T10 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 | 检查 | 目录 | 完整命令 | 退出码 | 实际结果 | 证据 |
 | --- | --- | --- | --- | --- | --- |
 | 首轮预期红（缺依赖/模块） | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py -q` | 2 | 4 个 collection error（`httpx2`/新模块不存在），符合测试先行预期 | 终端记录 |
-| MCP 聚焦（最终） | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py -q --basetemp=../.tmp/pytest/t10-focus-final3` | 0 | **27 passed / 0 failed / 0 skipped** | `.tmp/pytest/t10-focus-final3` |
-| MCP/安全/交互式阶段（最终） | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py tests/security tests/agent/interactive -q --basetemp=../.tmp/pytest/t10-focus-final3` | 0 | **178 passed / 0 failed / 0 skipped** | `.tmp/pytest/t10-focus-final3` |
-| 后端 quick（最终） | `D:/project_git/t10` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t10-quick-backend-final3.json` | 0 | `verification=passed`；1155 collected / 1155 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t10-quick-backend-final3.json` |
+| MCP 聚焦（最终） | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py -q --basetemp=../.tmp/pytest/t10-review-focus` | 0 | **32 passed / 0 failed / 0 skipped** | `.tmp/pytest/t10-review-focus` |
+| MCP/安全/交互式阶段（最终） | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/mcp tests/tooling/test_mcp_lifespan.py tests/security tests/agent/interactive -q --basetemp=../.tmp/pytest/t10-review-focus` | 0 | **183 passed / 0 failed / 0 skipped** | `.tmp/pytest/t10-review-focus` |
+| 后端 quick（最终） | `D:/project_git/t10` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t10-review-quick.json` | 0 | `verification=passed`；1160 collected / 1160 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t10-review-quick.json` |
 | 后端 full 首次（专用 PostgreSQL） | `D:/project_git/t10` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t10-full-backend-1.json` | 1 | 1393 collected / 1390 passed / 3 failed；失败均为 `tests/persistence/test_agent_interactions.py` 的 T06 固定时钟夹具问题（非 T10 生产代码） | `.tmp/quality/t10-full-backend-1.json` |
 | T06 夹具辅助回归（修复后） | `D:/project_git/t10/backend` | `uv run --locked --no-sync pytest tests/persistence/test_agent_interactions.py -q --basetemp=../.tmp/pytest/t10-interactions-fix` | 0 | 15 passed / 0 failed | `.tmp/pytest/t10-interactions-fix` |
-| 后端 full（最终，专用 PostgreSQL） | `D:/project_git/t10` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t10-full-backend-final3.json` | 0 | `verification=passed`；1394 collected / 1394 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t10-full-backend-final3.json` |
+| 后端 full（最终，专用 PostgreSQL） | `D:/project_git/t10` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t10-review-full.json` | 0 | `verification=passed`；1399 collected / 1399 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t10-review-full.json` |
 | Ruff / 格式 | `D:/project_git/t10/backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | 0 | All checks passed；395 files already formatted | 终端记录 |
 | Pyright | `D:/project_git/t10/backend` | `uv run --locked --no-sync python -m pyright` | 0 | 0 errors / 0 warnings | 终端记录 |
 | 架构门禁 | `D:/project_git/t10/backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | 0 | `status=passed`，`files_scanned=82`，`findings=[]` | 终端记录 |
@@ -178,8 +191,8 @@ T10 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 - **SDK 兼容**：`test_compatibility.py` 断言 `mcp==2.3.0`、`mcp-types==2.3.0`、`httpx2` 2.x、`2026-07-28` 属于 SDK modern protocol 集合；锁定文件检查既有框架版本未变。
 - **真实 loopback TCP**：`test_local_http.py` 使用 uvicorn 临时端口；正常路径断言工具实际执行、策略目录读取一次、结果引用绑定当前策略、摘要含方法文本、传输请求数 3。
-- **认证/漂移/失败**：错误凭据 401 → 降级 `mcp_unavailable`；Schema 指纹错误 → `mcp_tool_catalog_mismatch` 且不读取策略；协议 2025-11-25 → `mcp_protocol_mismatch` 且 `last_request_count==0`（发送前拒绝）；未登记 Host → 421；重定向 → `mcp_redirect_rejected` 且目标零调用。
-- **载荷边界**：默认 JSON 64 KiB 精确通过/多 1 字节拒绝；SSE 单事件超过登记值由 SDK 拒绝；3xx/未登记目标/64 请求上限直接测试。
+- **认证/漂移/失败**：错误凭据 401 → 降级 `mcp_unavailable`；原始非 ASCII `Authorization` 头 → 401 且不读取策略；Schema 指纹错误 → `mcp_tool_catalog_mismatch` 且不读取策略；协议 2025-11-25 → `mcp_protocol_mismatch` 且 `last_request_count==0`（发送前拒绝）；未登记 Host → 421；重定向 → `mcp_redirect_rejected` 且目标零调用。
+- **载荷边界**：默认 JSON 64 KiB 精确通过/多 1 字节拒绝；`application/json; profile="text/event-stream"` 仍按 JSON 限长，真实 SDK 大响应在解析前被拒绝；SSE 单事件超过登记值由 SDK 拒绝；3xx/未登记目标/64 请求上限直接测试。
 - **生命周期**：`test_mcp_lifespan.py` 断言 manager 只能启动一次、uvicorn 启停无残留任务、未认证请求 401。
 
 ### 5.4 证明边界
@@ -217,6 +230,6 @@ T10 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 ## 7. 自测状态与正式审查状态
 
-- **自测状态：`verified`**。实现与测试已落地；首轮实现 `a9d3b24`、结果/协议加固 `690d726`、辅助测试修复 `619fe2c`；最终 MCP 聚焦 27、MCP/安全/交互式阶段 178、quick 后端 1155、full 后端 1394（专用 PostgreSQL 17）均通过；Ruff/格式/Pyright/架构/迁移链完成。full 首次 3 个失败已定位为 T06 测试夹具固定时钟问题，并以单独测试提交 `619fe2c` 修复；不是 T10 生产逻辑失败。
-- **正式审查状态：`awaiting_review`**。尚未收到原审查助手对 T10 当前版本的正式结论；`reviewed_tip` 为空。开发自测、本审查请求和后续子 Agent/本地检查均不能替代该正式结论。
+- **自测状态：`verified`**。实现与测试已落地；首轮实现 `a9d3b24`、首轮加固 `690d726`、R1/R2 修复 `6df36e4`/`b5509ac`、辅助测试修复 `619fe2c`；最终 MCP 聚焦 32、MCP/安全/交互式阶段 183、quick 后端 1160、full 后端 1399（专用 PostgreSQL 17）均通过；Ruff/格式/Pyright/架构/迁移链完成。full 首次 3 个失败已定位为 T06 测试夹具固定时钟问题，并以单独测试提交 `619fe2c` 修复；不是 T10 生产逻辑失败。
+- **正式审查状态：`awaiting_review`**。首轮正式审查对象 `690d726` 的结论为 `changes_requested`（`reviewed_tip=690d726`）；R1/R2 已修复到当前 tip `b5509ac`，等待原审查助手复审。开发自测、本审查请求和后续子 Agent/本地检查均不能替代该正式结论。
 - 本轮不自动进入 T11，不推送、不合并、不部署；等待用户转交审查意见或修复要求。
