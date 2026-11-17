@@ -69,10 +69,16 @@ class McpServiceCredential(AgentModel):
         return f"Bearer {self.token.get_secret_value()}"
 
     # 使用常量时间比较，避免服务端泄露令牌长度或前缀差异。
+    # ASGI 头由 Starlette 按 latin-1 解码；候选含高位字节时先还原为 bytes，
+    # 非 latin-1 字符直接视为失败，不能把 hmac 的 TypeError 暴露为 500。
     def is_authorized(self, header: str | None) -> bool:
         if header is None:
             return False
-        return hmac.compare_digest(header, self.authorization_header())
+        try:
+            candidate = header.encode("latin-1")
+        except UnicodeEncodeError:
+            return False
+        return hmac.compare_digest(candidate, self.authorization_header().encode("ascii"))
 
 
 # 单个工具登记项：名称稳定，Schema 指纹与服务端 tools/list 投影必须一致。

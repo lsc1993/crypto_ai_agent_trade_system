@@ -3,6 +3,7 @@
 # 使用合成策略和工作台标识；不连接外部 MCP、不调用模型、不读写账户或业务库。
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -592,3 +593,40 @@ def test_client_rejects_unregistered_tool_names() -> None:
     )
     with pytest.raises(McpRegistryError):
         McpToolClient(registry=registry, tool=tool)
+
+
+# 非 ASCII 候选头必须常量时间比较为失败，而不是让 hmac 抛 TypeError。
+def test_non_ascii_authorization_header_is_rejected_not_raised() -> None:
+    credential = McpServiceCredential.from_token("t" * 48)
+    assert credential.is_authorized("Bearer ÿ") is False
+    assert credential.is_authorized("Bearer 测试") is False
+    assert credential.is_authorized(credential.authorization_header()) is True
+
+
+# 原始 HTTP 头可携带 0x80-0xFF；服务必须返回 401，且不进入策略读取。
+@pytest.mark.asyncio
+async def test_raw_non_ascii_authorization_header_returns_401() -> None:
+    port = reserve_loopback_port()
+    catalog = SpyCatalog(_strategy())
+    runtime = build_research_mcp(catalog, port=port)
+    async with serve_loopback(runtime.app, port=port):
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(
+                b"POST /internal/agent-mcp/mcp HTTP/1.1\r\n"
+                + b"Host: 127.0.0.1:"
+                + str(port).encode()
+                + b"\r\n"
+                + b"Authorization: Bearer \xff\r\n"
+                + b"Content-Type: application/json\r\n"
+                + b"Content-Length: 2\r\n"
+                + b"Connection: close\r\n\r\n{}"
+            )
+            await writer.drain()
+            status_line = await reader.readline()
+            _ = await reader.read(256)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    assert b"401" in status_line
+    assert catalog.calls == []
