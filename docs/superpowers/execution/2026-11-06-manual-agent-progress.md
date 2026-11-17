@@ -760,7 +760,8 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | 任务状态 | `verified`（实现、聚焦、阶段、quick、独立 PostgreSQL full、静态检查均完成；不等于正式审查通过） |
 | review_status | `approved`（2026-11-17 用户传回原审查助手正式结论） |
 | reviewed_tip | `b5509ac876462820a0850d424d19f4c5fe23b557`（复审通过版本） |
-| 隔离工作区 | `D:/project_git/t10`（`t10-mcp-transport`，未推送/合并/部署） |
+| 隔离工作区 | `D:/project_git/t10`（`t10-mcp-transport`） |
+| 合并 tip | `53913d4`（fast-forward 到 `main`；本 docs 提交记录结果） |
 | base | `b80071c`（`main`，`docs: record T09 merge into main`） |
 | implementation tip | `b5509ac876462820a0850d424d19f4c5fe23b557`（`fix: reject non-ascii MCP service credentials`；首轮实现 `a9d3b24`，首轮加固 `690d726`） |
 | implementation tree | `c2f50474aac062311c8dba408396960d96dfc769` |
@@ -840,5 +841,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 8. T07 已实现片段租约、`interactive_planning` 四阶段审计、统一提交/恢复与 `0027_agent_segments`；首轮审查 R1/P1 不通过，R1 修复 tip `ec3e8e5`（`f5091f5..ec3e8e5`，2 个文件 +70/-5），修复后聚焦 44、阶段 419、后端 full 1245 passed。2026-11-12 原审查助手复审通过（`reviewed_tip=ec3e8e5`，报告 `T07-review.md` 最新结论），当前为 `verified`/`approved`；已按用户指令 fast-forward 合并到 `main`（合并 tip `953cd90`）并推送，本 docs 提交记录合并/推送结果。
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
-11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。本轮不自动进入 T11，等待用户指定下一审查单元。
+11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
 12. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。

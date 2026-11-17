@@ -23,7 +23,8 @@
 | 首轮加固范围 | `619fe2c..690d726`，2 个文件，+50/-22（结果处理/协议钉死） |
 | R1 修复 | `6df36e4`（`fix: bound parameterized JSON MCP responses`；2 个文件，+129/-2） |
 | R2 修复 | `b5509ac`（`fix: reject non-ascii MCP service credentials`；2 个文件，+45/-1） |
-| 审查请求 docs 提交 | 生成后另行提交；不把自身提交号写入 `implementation tip` |
+| 审查请求 docs 提交 | `1b277b7`、`53913d4`（复审通过记录）；不把自身提交号写入 `implementation tip` |
+| 合并 tip | `53913d4`（fast-forward 到 `main`） |
 | review_status | `approved`（2026-11-17 用户传回原审查助手正式结论） |
 | reviewed_tip | `b5509ac876462820a0850d424d19f4c5fe23b557`（复审通过版本；首轮不通过版本 `690d726`） |
 
