@@ -9,11 +9,12 @@
 
 | 项目 | 记录 |
 | --- | --- |
-| 主工作区 | `D:/project_git/crypto_ai_agent_trade_system`（`main` tip `c45640e`，工作区干净；T10 已合并） |
-| 隔离工作区 | `D:/project_git/t11`（分支 `t11-model-graph`，从 `main` 的 `c45640e` 创建；未推送、未合并、未部署） |
+| 主工作区 | `D:/project_git/crypto_ai_agent_trade_system`（`main` 已 fast-forward 合并 T11，合并 tip `6a9ed12`；本 docs 提交记录结果） |
+| 隔离工作区 | `D:/project_git/t11`（分支 `t11-model-graph`，从 `main` 的 `c45640e` 创建；已 fast-forward 合并到 `main`，未推送/部署） |
 | base | `c45640e51b6473f42126ac3dea9ae76536124fef`（`main`，`docs: record T10 merge into main`） |
 | implementation tip | `7c1f33660f91e0df8c170533ee8f17f222836249`（`fix: close remaining T11 activity and response bounds`；前序修复 `e0bc26e`，首轮受审 `d1e3560` / tree `5c78429`） |
 | implementation tree | `dacff63ed8deee4e707c4a32826c82a90cb3e987` |
+| 合并 tip | `6a9ed12a1742f21c8dd3c8dc2bfda11c89716ff7`（`docs: record T11 approval`；fast-forward 到 `main`，本 docs 提交记录结果） |
 | 累计代码/文档范围 | `c45640e..7c1f336`，19 个文件，+4098/-26（含 T11 代码、测试、规范/计划/状态同步） |
 | self_test | `verified`（新增 36；交互式/安全/治理 242；SQL/恢复 250；T07 恢复 15；quick 后端 1196；D3 full 1435 passed） |
 | review_status | `approved`（2026-11-17 原审查助手复审通过） |
@@ -942,7 +943,7 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 
 - 2026-11-17 用户传回原审查助手正式通过结论：首轮 3 项及二次复审 R1/R2 剩余问题全部关闭，`reviewed_tip=7c1f336`（tree `dacff63`）；复审未提出新的阻断项。
 - 二次复审确认 R3 已关闭；R1 的 `mark_sent` 等待期活动准入和 R2 的压缩响应解码前拒绝已由修复提交关闭；T07 提交边界未改变。
-- 当前 T11 为 `verified`/`approved`。按用户指令整理并 fast-forward 合并到 `main`；合并 tip 与 main 上的 docs 记录见最终交付回复，不自动进入 T12。
+- 当前 T11 为 `verified`/`approved`。按用户指令整理并 fast-forward 合并到 `main`，合并 tip `6a9ed12`；本 docs 提交记录结果，不自动进入 T12。
 
 ## 后续接续规则
 
@@ -957,5 +958,5 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
-12. T11 首轮 `changes_requested`（3 项）及二次复审 `changes_requested`（R1/R2）均已关闭；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。2026-11-17 原审查助手复审通过（`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`。按用户指令整理并 fast-forward 合并到 `main`（合并 tip 见最终回复），不自动进入 T12。
+12. T11 首轮 `changes_requested`（3 项）及二次复审 `changes_requested`（R1/R2）均已关闭；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。2026-11-17 原审查助手复审通过（`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`。按用户指令整理并 fast-forward 合并到 `main`（合并 tip `6a9ed12`），本 docs 提交记录结果；不自动进入 T12。
 13. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
