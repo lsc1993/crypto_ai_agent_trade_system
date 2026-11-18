@@ -28,7 +28,14 @@ from app.infrastructure.persistence.models.planning_inputs import (
 from app.infrastructure.persistence.planning_input_repository import (
     SqlAlchemyPlanningInputRepository,
 )
-from app.shared.agent_types import ProductKey, VersionRef
+from app.research.strategies.contracts import (
+    PriceCandidate,
+    PriceRounding,
+    StrategyCandidateState,
+    StrategyDirection,
+)
+from app.shared.agent_types import ArtifactRef, ProductKey, VersionRef
+from app.trade_planning.contracts import OrderOperation, PlanningQuote, PlanningRequest
 from app.trade_planning.input_repository import PublicRuleReader
 from app.trade_planning.input_service import PlanningInputService
 from app.trade_planning.inputs import (
@@ -45,6 +52,7 @@ from app.trade_planning.inputs import (
     PlanningRuleUnavailableError,
     VenueRuleSnapshot,
 )
+from app.trade_planning.sizing import calculate_size
 
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 
@@ -1128,3 +1136,66 @@ async def _generation(service: PlanningInputService, workspace_id: UUID) -> int:
     pool = await service.get_pool(workspace_id)
     assert pool is not None
     return pool.generation
+
+
+# R1 回归：T03 的 profile/policy 分别写入并刷新规则后，resolve_refs 返回的当前
+# 池代次可以晚于两个版本的创建代次；T12 必须原样接受该引用，不能要求三者相等。
+@pytest.mark.asyncio
+async def test_t12_accepts_t03_resolved_refs_after_generation_advances(
+    migrated_database: Database,
+) -> None:
+    clock = MutableClock()
+    service, repository, workspace_id, profile, policy, rules = await _prepare_complete_refs(
+        migrated_database, clock
+    )
+    refs = await service.resolve_refs(workspace_id)
+    assert refs is not None
+    assert profile.pool_generation == 1
+    assert policy.pool_generation == 2
+    assert refs.pool_generation == 3
+    assert profile.costs_ref is not None
+    costs = await repository.get_costs(workspace_id, profile.costs_ref)
+    assert costs is not None
+
+    strategy_ref = VersionRef(version_id=uuid4(), sha256="a" * 64)
+    candidate = PriceCandidate.build(
+        strategy_ref=strategy_ref,
+        parameters_sha256="b" * 64,
+        evaluator_id="technical_breakout_v1",
+        evaluator_version="1.0.0",
+        evidence_sha256="c" * 64,
+        evidence_as_of=clock.value,
+        direction=StrategyDirection.LONG,
+        entry_lower=Decimal("600"),
+        trigger=Decimal("600"),
+        entry_upper=Decimal("600"),
+        stop_loss=Decimal("590"),
+        target=Decimal("620"),
+        valid_until=clock.value + timedelta(minutes=20),
+        state=StrategyCandidateState.TRIGGERED,
+        price_rounding=PriceRounding.STRICT,
+    )
+    quote = PlanningQuote(
+        artifact=ArtifactRef(artifact_id=uuid4(), sha256="d" * 64),
+        price=Decimal("600"),
+        observed_at=clock.value,
+        expires_at=clock.value + timedelta(seconds=50),
+        source="合成公开报价",
+    )
+    request = PlanningRequest(
+        candidate=candidate,
+        strategy_ref=strategy_ref,
+        refs=refs,
+        profile=profile,
+        policy=policy,
+        rules=rules,
+        costs=costs,
+        quote=quote,
+        evaluated_at=clock.value,
+        order_operation=OrderOperation.LIMIT,
+    )
+
+    assert request.refs == refs
+    assert request.profile.pool_generation == 1
+    assert request.policy.pool_generation == 2
+    assert calculate_size(request).material_hash == request.material_sha256()

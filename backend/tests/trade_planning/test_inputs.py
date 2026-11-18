@@ -515,3 +515,52 @@ def test_planning_refs_requires_all_versions_and_generation() -> None:
             pool_id=refs.pool_id,
             pool_generation=-1,
         )
+
+
+# R5：省略预览绑定字段时不得在冻结结果/归档载荷中物化显式 null；显式 null 则
+# 必须作为用户输入保留。两者不能因 Pydantic 默认值而混同。
+def test_margin_preview_binding_fields_preserve_omitted_vs_explicit_null() -> None:
+    fields = (
+        "applicable_entry_price",
+        "applicable_quantity",
+        "applicable_product",
+        "applicable_direction",
+    )
+    omitted_draft = _margin_draft()
+    omitted_evidence = MarginEvidence.build(
+        draft=omitted_draft,
+        declared_at=NOW,
+        expires_at=NOW + timedelta(minutes=10),
+    )
+    for field in fields:
+        assert field not in omitted_evidence.model_fields_set
+
+    omitted_profile = _profile_snapshot(
+        _profile_draft().model_copy(update={"margin_evidence": omitted_draft})
+    )
+    omitted_margin = omitted_profile.versioned_payload()["margin_evidence"]
+    assert isinstance(omitted_margin, dict)
+    for field in fields:
+        assert field not in omitted_margin
+
+    explicit_payload = _margin_draft().model_dump(mode="python", by_alias=False)
+    for field in fields:
+        explicit_payload[field] = None
+    explicit_draft = MarginEvidenceDraft.model_validate(explicit_payload)
+    explicit_evidence = MarginEvidence.build(
+        draft=explicit_draft,
+        declared_at=NOW,
+        expires_at=NOW + timedelta(minutes=10),
+    )
+    for field in fields:
+        assert field in explicit_evidence.model_fields_set
+        assert getattr(explicit_evidence, field) is None
+
+    explicit_profile = _profile_snapshot(
+        _profile_draft().model_copy(update={"margin_evidence": explicit_draft})
+    )
+    explicit_margin = explicit_profile.versioned_payload()["margin_evidence"]
+    assert isinstance(explicit_margin, dict)
+    for field in fields:
+        assert field in explicit_margin
+        assert explicit_margin[field] is None

@@ -278,11 +278,13 @@ class PlanningRequest(AgentModel):
             raise ValueError("规划资料关联的成本版本不一致")
         if self.refs.pool_id != self.profile.pool_id or self.refs.pool_id != self.policy.pool_id:
             raise ValueError("规划引用与资料不属于同一资金池")
+        # profile/policy 是分别写入的不可变版本，共享池代次会在二者之间/规则刷新时
+        # 前进；refs 表示当前池代次，只要求不早于两个版本，不能要求三者完全相等。
         if (
-            self.refs.pool_generation != self.profile.pool_generation
-            or self.refs.pool_generation != self.policy.pool_generation
+            self.profile.pool_generation > self.refs.pool_generation
+            or self.policy.pool_generation > self.refs.pool_generation
         ):
-            raise ValueError("规划引用与资料的资金池代次不一致")
+            raise ValueError("规划资料的创建代次不能晚于当前资金池代次")
         if self.rules.product != self.profile.product:
             raise ValueError("市场规则产品与规划资料产品不一致")
         if self.candidate.strategy_ref != self.strategy_ref:

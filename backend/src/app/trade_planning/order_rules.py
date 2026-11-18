@@ -257,7 +257,11 @@ def _resolve_exit_price(
     # 止损向外会增加风险，两者都不会让不合格计划变得更容易通过。
     down = direction is StrategyDirection.LONG
     adjusted = _tick_round(price, tick, direction="down" if down else "up")
-    if abs(adjusted - price) > tick:
+    # 调整量比较也必须使用显式高精度上下文；减法/绝对值仍会受调用方默认精度影响。
+    with localcontext() as context:
+        context.prec = CALCULATION_PRECISION
+        adjustment = abs(adjusted - price)
+    if adjustment > tick:
         raise PlanningCalculationError(
             "价格取整超过一个 tick 的声明容差",
             code=PlanningReason.PRICE_TOLERANCE_EXCEEDED.value,

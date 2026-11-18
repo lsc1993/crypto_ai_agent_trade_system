@@ -224,6 +224,9 @@ def build_request(
     order_operation: OrderOperation = OrderOperation.LIMIT,
     evaluated_at: datetime = NOW,
     declared_at: datetime = DECLARED_AT,
+    profile_generation: int = 1,
+    policy_generation: int = 1,
+    refs_generation: int = 1,
     cost_overrides: Mapping[str, object] | None = None,
     margin_overrides: Mapping[str, object] | None = None,
     profile_overrides: Mapping[str, object] | None = None,
@@ -264,7 +267,7 @@ def build_request(
     profile = PlanningProfileSnapshot.build(
         version_id=PROFILE_VERSION_ID,
         pool_id=POOL_ID,
-        pool_generation=1,
+        pool_generation=profile_generation,
         draft=PlanningProfileDraft.model_validate(profile_payload),
         margin_evidence=margin,
         costs_ref=cost.ref,
@@ -277,7 +280,7 @@ def build_request(
     policy = PlanningRiskPolicy.build(
         version_id=POLICY_VERSION_ID,
         pool_id=POOL_ID,
-        pool_generation=1,
+        pool_generation=policy_generation,
         draft=PlanningRiskPolicyDraft.model_validate(policy_payload),
         declared_at=declared_at,
     )
@@ -310,7 +313,7 @@ def build_request(
         venue_rules=rules.ref,
         costs=cost.ref,
         pool_id=POOL_ID,
-        pool_generation=1,
+        pool_generation=refs_generation,
     )
     return PlanningRequest(
         candidate=candidate,

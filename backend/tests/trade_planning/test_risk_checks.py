@@ -19,6 +19,13 @@ from app.trade_planning.sizing import calculate_size
 from tests.trade_planning.planning_fixtures import NOW, build_request
 
 
+# 构造 ETH 产品键，用于保证金预览产品错配回归。
+def _eth_product():
+    from tests.trade_planning.planning_fixtures import product
+
+    return product("ETHUSDT")
+
+
 # 按检查名建立索引；重复检查名会让调用方无法稳定读取，因此另做唯一性断言。
 def _checks_by_name(
     request: PlanningRequest,
@@ -317,3 +324,38 @@ def test_reported_final_settlement_ratio_case() -> None:
     assert size.target_net_reward == Decimal("0.000000000000000001")
     assert size.net_reward_risk_ratio == Decimal("0.5")
     assert checks["reward_risk_ratio_met"].status is CheckStatus.FAIL
+
+
+# R2：预览方向缺失或产品错配时，强平参考没有证明适用于本计划；即使数值看似
+# 安全/危险，liquidation_distance_safe 也必须 unknown。
+def test_liquidation_is_unknown_until_preview_is_applicable() -> None:
+    for reference in ("96", "60"):
+        request = build_request(
+            margin_overrides={
+                "applicable_direction": None,
+                "liquidation_price_reference": reference,
+            }
+        )
+        _, checks = _checks_by_name(request)
+        assert checks["margin_preview_matches"].status is CheckStatus.UNKNOWN
+        assert checks["liquidation_distance_safe"].status is CheckStatus.UNKNOWN
+
+    wrong_product = build_request(margin_overrides={"applicable_product": _eth_product()})
+    _, product_checks = _checks_by_name(wrong_product)
+    assert product_checks["margin_preview_matches"].status is CheckStatus.FAIL
+    assert product_checks["liquidation_distance_safe"].status is CheckStatus.UNKNOWN
+
+
+# R4：账户模式待补不能掩盖已声明的非零仓位/挂单冲突。
+def test_known_exposure_conflict_is_visible_when_mode_is_missing() -> None:
+    request = build_request(
+        profile_overrides={
+            "position_mode": None,
+            "existing_position_notional": "10",
+        }
+    )
+    _, checks = _checks_by_name(request)
+
+    assert checks["product_supported"].status is CheckStatus.UNKNOWN
+    assert checks["existing_exposure_supported"].status is CheckStatus.FAIL
+    assert checks["existing_exposure_supported"].reason_code == "existing_position_unsupported"

@@ -345,3 +345,27 @@ def test_sizing_is_independent_of_caller_decimal_precision() -> None:
         low_precision = calculate_size(request)
 
     assert low_precision == baseline
+
+
+# R1：profile/policy 分别写入后共享池代次会前进；refs 允许晚于两个版本的创建代次，
+# 但不能早于它们（未来资料）。
+def test_current_pool_generation_can_advance_after_profile_and_policy() -> None:
+    request = build_request(
+        profile_generation=1,
+        policy_generation=2,
+        refs_generation=3,
+    )
+
+    assert request.profile.pool_generation == 1
+    assert request.policy.pool_generation == 2
+    assert request.refs.pool_generation == 3
+    assert calculate_size(request).material_hash == request.material_sha256()
+
+
+def test_profile_generation_newer_than_current_pool_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        build_request(
+            profile_generation=2,
+            policy_generation=1,
+            refs_generation=1,
+        )

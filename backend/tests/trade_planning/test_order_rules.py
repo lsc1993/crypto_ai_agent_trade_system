@@ -285,3 +285,37 @@ def test_reported_market_boundary_is_precision_independent() -> None:
         with pytest.raises(PlanningCalculationError) as error:
             resolve_prices(illegal_request)
     assert error.value.code == PlanningReason.MARKET_PRICE_BOUND_INCONSISTENT.value
+
+
+# R3：保守一格调整量的减法/绝对值也必须使用高精度；报告中的止损距上一 tick
+# 小于一个 tick，在低精度调用方上下文中不能误报 price_tolerance_exceeded。
+def test_conservative_tolerance_is_independent_of_caller_decimal_precision() -> None:
+    price = Decimal("99.999999099999999180")
+    tick = Decimal("0.123456789012345678")
+    request = build_request(
+        order_operation=OrderOperation.MARKET,
+        quote_overrides={"price": price, "max_adverse_price": price},
+        cost_overrides={"slippage_upper_bound": "0", "spread_upper_bound": "0"},
+        rules_overrides={
+            "price_tick": tick,
+            "min_price": "1",
+            "max_price": "1000000",
+            "quantity_step": "0.001",
+            "min_quantity": "0.001",
+            "min_notional": "100",
+        },
+        candidate_overrides={
+            "entry_lower": price,
+            "trigger": price,
+            "entry_upper": price,
+            "stop_loss": Decimal("93.950616438395060957"),
+            "target": Decimal("111.111110111111110200"),
+        },
+        price_rounding=PriceRounding.CONSERVATIVE_ONE_TICK,
+    )
+    with localcontext() as context:
+        context.prec = 6
+        prices = resolve_prices(request)
+
+    assert prices.stop == Decimal("93.827159649382715280")
+    assert prices.target == Decimal("111.111110111111110200")

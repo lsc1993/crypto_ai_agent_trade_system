@@ -291,7 +291,9 @@ class MarginEvidence(MarginEvidenceFields):
         expires_at: datetime,
     ) -> MarginEvidence:
         content = draft.model_dump(mode="json", by_alias=False)
-        _strip_unset_margin_preview(content, draft)
+        # 兼容历史上可能传入扁平保证金正文的路径：包装成 profile 形状后统一按
+        # fields_set 删除未提供的绑定字段，避免把缺省值冻结成显式 null。
+        _strip_unset_margin_preview({"margin_evidence": content}, draft)
         content.update(
             {
                 "declared_at": _utc_json(declared_at),
@@ -655,13 +657,17 @@ def _strip_unset_margin_preview(
 ) -> None:
     if evidence is None:
         return
-    nested = payload.get("margin_evidence")
-    if not isinstance(nested, dict):
-        return
-    nested_payload = cast(dict[str, object], nested)
+    if "margin_evidence" in payload:
+        nested = payload.get("margin_evidence")
+        if not isinstance(nested, dict):
+            return
+        target = cast(dict[str, object], nested)
+    else:
+        # 调用方也可能直接传保证金正文；只在确实是保证金字段容器时处理。
+        target = cast(dict[str, object], payload)
     for field in _MARGIN_PREVIEW_FIELDS:
         if field not in evidence.model_fields_set:
-            nested_payload.pop(field, None)
+            target.pop(field, None)
 
 
 # 保证金证据归档载荷也按 fields_set 截取；显式绑定字段仍完整写入。

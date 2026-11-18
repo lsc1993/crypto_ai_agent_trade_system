@@ -264,11 +264,54 @@ def _guard_checks(request: PlanningRequest) -> tuple[ValidationCheck, Validation
 def _product_checks(request: PlanningRequest) -> tuple[ValidationCheck, ValidationCheck]:
     catalog = PlanningProductCatalog()
     zero = Decimal("0")
+    position_values = (
+        request.profile.existing_position_notional,
+        request.profile.existing_position_margin,
+        request.profile.existing_position_risk,
+    )
+    order_values = (
+        request.profile.open_order_notional,
+        request.profile.open_order_margin,
+        request.profile.open_order_risk,
+    )
+
+    # 已知非零占用是明确冲突，即使账户模式仍待补也必须报告；模式缺失不能掩盖
+    # 首期“不支持已有仓位/挂单”的阻断。
+    if any(value is not None and value > 0 for value in position_values):
+        exposure_status = CheckStatus.FAIL
+        exposure_reason: PlanningReason | None = PlanningReason.EXISTING_POSITION_UNSUPPORTED
+    elif any(value is not None and value > 0 for value in order_values):
+        exposure_status = CheckStatus.FAIL
+        exposure_reason = PlanningReason.OPEN_ORDERS_UNSUPPORTED
+    elif any(value is None for value in (*position_values, *order_values)):
+        exposure_status = CheckStatus.UNKNOWN
+        exposure_reason = PlanningReason.EXPOSURE_UNKNOWN
+    elif request.profile.margin_mode is None or request.profile.position_mode is None:
+        exposure_status = CheckStatus.UNKNOWN
+        exposure_reason = PlanningReason.PROFILE_INCOMPLETE
+    else:
+        exposure_decision = catalog.evaluate(
+            product=request.profile.product,
+            margin_mode=request.profile.margin_mode,
+            position_mode=request.profile.position_mode,
+            existing_position_notional=zero,
+            existing_position_margin=zero,
+            existing_position_risk=zero,
+            open_order_notional=zero,
+            open_order_margin=zero,
+            open_order_risk=zero,
+            requested_order_types=(),
+        )
+        if exposure_decision.reason_code == "supported":
+            exposure_status = CheckStatus.PASS
+            exposure_reason = None
+        else:
+            exposure_status = CheckStatus.FAIL
+            exposure_reason = _support_reason(exposure_decision.reason_code)
+
     if request.profile.margin_mode is None or request.profile.position_mode is None:
         product_status = CheckStatus.UNKNOWN
         product_reason: PlanningReason | None = PlanningReason.PROFILE_INCOMPLETE
-        exposure_status = CheckStatus.UNKNOWN
-        exposure_reason: PlanningReason | None = PlanningReason.PROFILE_INCOMPLETE
     else:
         product_decision = catalog.evaluate(
             product=request.profile.product,
@@ -287,28 +330,6 @@ def _product_checks(request: PlanningRequest) -> tuple[ValidationCheck, Validati
         product_reason = (
             None if product_supported else _support_reason(product_decision.reason_code)
         )
-
-        exposure_decision = catalog.evaluate(
-            product=request.profile.product,
-            margin_mode=request.profile.margin_mode,
-            position_mode=request.profile.position_mode,
-            existing_position_notional=request.profile.existing_position_notional,
-            existing_position_margin=request.profile.existing_position_margin,
-            existing_position_risk=request.profile.existing_position_risk,
-            open_order_notional=request.profile.open_order_notional,
-            open_order_margin=request.profile.open_order_margin,
-            open_order_risk=request.profile.open_order_risk,
-            requested_order_types=(),
-        )
-        if exposure_decision.reason_code == "supported":
-            exposure_status = CheckStatus.PASS
-            exposure_reason = None
-        elif exposure_decision.reason_code == "existing_exposure_unknown":
-            exposure_status = CheckStatus.UNKNOWN
-            exposure_reason = PlanningReason.EXPOSURE_UNKNOWN
-        else:
-            exposure_status = CheckStatus.FAIL
-            exposure_reason = _support_reason(exposure_decision.reason_code)
     product = _check(
         request=request,
         name="product_supported",
@@ -838,15 +859,26 @@ def _risk_and_margin_checks(
         reason=preview_reason,
     )
 
-    liquidation_ok = (
-        None if size.stop_price is None else liquidation_distance_ok(request, size.stop_price)
-    )
-    if liquidation_ok is None:
+    # 只有已经证明适用于本计划的保证金预览才能提供强平参考；预览 unknown/fail 时
+    # 即使数值看似在安全一侧也不能给 pass。
+    if preview_status is not CheckStatus.PASS:
         liquidation_status = CheckStatus.UNKNOWN
-        liquidation_reason: PlanningReason | None = PlanningReason.MARGIN_EVIDENCE_INCOMPLETE
+        liquidation_reason: PlanningReason | None = (
+            preview_reason or PlanningReason.MARGIN_EVIDENCE_INCOMPLETE
+        )
+    elif size.stop_price is None:
+        liquidation_status = CheckStatus.UNKNOWN
+        liquidation_reason = PlanningReason.SIZING_MATERIAL_MISMATCH
     else:
-        liquidation_status = CheckStatus.PASS if liquidation_ok else CheckStatus.FAIL
-        liquidation_reason = None if liquidation_ok else PlanningReason.LIQUIDATION_DISTANCE_UNSAFE
+        liquidation_ok = liquidation_distance_ok(request, size.stop_price)
+        if liquidation_ok is None:
+            liquidation_status = CheckStatus.UNKNOWN
+            liquidation_reason = PlanningReason.MARGIN_EVIDENCE_INCOMPLETE
+        else:
+            liquidation_status = CheckStatus.PASS if liquidation_ok else CheckStatus.FAIL
+            liquidation_reason = (
+                None if liquidation_ok else PlanningReason.LIQUIDATION_DISTANCE_UNSAFE
+            )
     liquidation_check = _check(
         request=request,
         name="liquidation_distance_safe",
