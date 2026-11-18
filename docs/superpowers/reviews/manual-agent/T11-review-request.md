@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本、推理实现和供应商侧版本未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明、维护指南与运行边界以当前仓库提交为准。
 - 自测状态：**`verified`**（实现、聚焦、阶段、SQL/恢复、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
-- 正式审查状态：**`awaiting_review`**（首轮 `changes_requested` 3 项；二次复审 `changes_requested`，R3 已关闭，R1/R2 剩余问题已在 `7c1f336` 修复；等待原审查助手再次复审；未预填通过结论）。
+- 正式审查状态：**`approved`**（2026-11-17 用户传回原审查助手正式通过结论；`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`；首轮 3 项及二次复审 R1/R2 均已关闭）。
 - 日期：2026-11-17。
 
 ## 1. 工作区、分支与提交范围
@@ -18,13 +18,14 @@
 | implementation tip | `7c1f33660f91e0df8c170533ee8f17f222836249`（`fix: close remaining T11 activity and response bounds`；前序修复 `e0bc26e`，首轮受审 `d1e3560` / tree `5c78429`） |
 | implementation tree | `dacff63ed8deee4e707c4a32826c82a90cb3e987` |
 | 代码/文档范围 | `c45640e..7c1f336`，19 个文件，+4098/-26（T11 源码、测试、规范/计划/状态同步；不含本审查请求和进度 docs 提交） |
-| review_status | `awaiting_review`（首轮 3 项 + 二次复审 R1/R2 剩余问题已修复，待复审） |
-| reviewed_tip | 未填写（不得预填审查通过） |
+| review_status | `approved`（2026-11-17 原审查助手复审通过） |
+| reviewed_tip | `7c1f33660f91e0df8c170533ee8f17f222836249` |
+| reviewed_tree | `dacff63ed8deee4e707c4a32826c82a90cb3e987` |
 | docs 提交 | 本审查请求与进度更新在代码提交之后单独提交；具体 hash 见最终交付回复；不把 docs 自身提交号写入 `implementation tip` |
 
 主工作区未因本轮改动；未修改 `.env`、凭证、业务库、生产配置、模拟盘资金/风控或交易执行链路。未调用真实模型、真实 MCP、私有账户或交易接口。
 
-### 1.1 代码/测试文件指纹（implementation tree）
+### 1.1 文件指纹（reviewed code/test tip `7c1f336` 与批准 docs）
 
 | 文件 | SHA-256 |
 | --- | --- |
@@ -42,9 +43,9 @@
 | `backend/AGENTS.md` | `f3263a77b4cd39dfe60206aef58f9e1c55916b967b8607884ef5e4c73f350af2` |
 | `docs/ai-maintenance.md` | `bbfe804b681e98f8fcc10342b83a33c94dfbaef8274727734447d966af7bd569` |
 | `docs/operational-boundaries.md` | `fddb8380a7cfabc1792413640b2487a0d2bfd082b8a4b7dbe7aa85bda5488817` |
-| `docs/project-status.md` | `033a9c2e6d68e72922fc9a6fb96d532d4482295aaccdc497a0d8e8d540dd9def` |
-| `docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md` | `b65560b5101ea88a263169e766178c14c630791badc7516ec77f99f01fe02552` |
-| `docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md` | `788fd855d49886981a5a0d163dc257f2340b342ee095ab51b026541cf7885ce9` |
+| `docs/project-status.md` | `173473d6620e8d804a44f70d0733d4b07e28ddffd56dcac84dd221ab714d8d8d` |
+| `docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md` | `fe5a5eb4ff49998eff15f0f243d155aed473c440331262d1db45bbfe18cb69c9` |
+| `docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md` | `92cd10b366d2f06a6e3d1731a2b6d9aff08d5f384e9df0784342e15860889275` |
 
 ## 2. 任务范围与 FR/AC/HN 映射
 
@@ -238,5 +239,5 @@ T07 提交边界保持不变：本次差异未改 worker/审计协调器；活�
 ## 7. 自测与正式审查状态
 
 - 自测状态：**`verified`**。实现、聚焦/阶段/SQL/恢复/quick/full/静态检查均完成；本文件不把开发自测称为正式审查通过。
-- 正式审查状态：**`awaiting_review`**（首轮 3 项及二次复审 R1/R2 剩余问题均已修复；等待原审查助手再次复审；`reviewed_tip` 未填写）。
+- 正式审查状态：**`approved`**（2026-11-17 用户传回原审查助手正式通过结论；`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`；首轮 3 项及二次复审 R1/R2 均已关闭）。
 - 未进入 T12/T13/T14；未修改自动交易限制、默认审核、产品内计划审核或真实资金权限。开发模块审查与产品内交易计划审核分别管理。
