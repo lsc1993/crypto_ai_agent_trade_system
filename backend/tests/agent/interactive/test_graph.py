@@ -4,8 +4,11 @@
 # 以及工具批次在硬错误后不会继续执行后续调用。
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -18,6 +21,7 @@ from app.agent.interactive.graph import (
 )
 from app.agent.interactive.model_port import (
     AnalysisStagingError,
+    ModelDecision,
 )
 from app.agent.interactive.state import SegmentOutcomeKind
 from app.agent_runs.contracts import AgentRunError
@@ -40,6 +44,24 @@ class _Harness:
     stager: fixtures.FakeStager
 
 
+# 阻塞模型替身：用于证明 runner 在等待模型时被取消也会在 finally 记录活动时间。
+class _BlockingModel:
+    requested_model = "synthetic-blocking-model"
+    available = True
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    def estimate_request(self, context: fixtures.ModelContext) -> int:
+        return context.input_reservation
+
+    async def decide(self, context: fixtures.ModelContext) -> ModelDecision:
+        _ = context
+        self.started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("阻塞模型不会返回")
+
+
 # 运行一次完整片段；所有端口均由测试替身提供，clock 固定以保证交互期限可复现。
 async def _run(
     *,
@@ -51,6 +73,8 @@ async def _run(
     budget: fixtures.FakeBudget | None = None,
     contexts: fixtures.FakeContexts | None = None,
     evidence: fixtures.FakeEvidence | None = None,
+    model: fixtures.FakeModel | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> tuple[SegmentOutcome, _Harness]:
     execution_context = fixtures.context()
     snapshot = fixtures.snapshot(execution_context)
@@ -61,7 +85,7 @@ async def _run(
         evidence=evidence or fixtures.FakeEvidence(),
         contexts=contexts or fixtures.FakeContexts(fixtures.model_context(execution_context)),
         tools=tools or fixtures.FakeTools(),
-        model=fixtures.FakeModel(decisions),
+        model=model or fixtures.FakeModel(decisions),
         interactions=interactions or fixtures.FakeInteractions(),
         stager=stager or fixtures.FakeStager(),
     )
@@ -75,7 +99,7 @@ async def _run(
             model=harness.model,
             interactions=harness.interactions,
             artifacts=harness.stager,
-            clock=lambda: fixtures.NOW,
+            clock=clock or (lambda: fixtures.NOW),
         )
     )
     outcome = await runner.run(execution_context)
@@ -364,6 +388,99 @@ async def test_artifact_staging_error_is_degraded() -> None:
     assert outcome.kind is SegmentOutcomeKind.DEGRADED
     assert outcome.safe_reason == "artifact_invalid"
     assert interactions.drafts == []
+
+
+@pytest.mark.asyncio
+async def test_activity_budget_stops_following_calls_after_first_model_elapsed() -> None:
+    clock_value = [fixtures.NOW]
+
+    def clock() -> datetime:
+        return clock_value[0]
+
+    def advance_20_seconds() -> None:
+        clock_value[0] = fixtures.NOW + timedelta(seconds=20)
+
+    budget = fixtures.FakeBudget(initial_active_seconds=570)
+    model = fixtures.FakeModel(
+        [fixtures.tool_batch(fixtures.tool_request()), fixtures.final_analysis()],
+        on_decide=advance_20_seconds,
+    )
+    tools = fixtures.FakeTools()
+    outcome, _ = await _run(
+        decisions=[],
+        model=model,
+        clock=clock,
+        budget=budget,
+        tools=tools,
+    )
+
+    assert outcome.kind is SegmentOutcomeKind.DEGRADED
+    assert outcome.safe_reason == "budget_exhausted"
+    assert tools.calls == []
+    assert len(model.contexts) == 1
+    assert budget.activity == [20]
+
+
+@pytest.mark.asyncio
+async def test_activity_time_is_recorded_when_runner_raises() -> None:
+    clock_value = [fixtures.NOW]
+
+    def clock() -> datetime:
+        return clock_value[0]
+
+    def advance_20_seconds() -> None:
+        clock_value[0] = fixtures.NOW + timedelta(seconds=20)
+
+    budget = fixtures.FakeBudget()
+    model = fixtures.FakeModel(
+        [fixtures.tool_batch(fixtures.tool_request())],
+        on_decide=advance_20_seconds,
+    )
+    tools = fixtures.FakeTools(error_at=1, error=RuntimeError("synthetic tool failure"))
+    with pytest.raises(RuntimeError):
+        await _run(
+            decisions=[],
+            model=model,
+            clock=clock,
+            budget=budget,
+            tools=tools,
+        )
+
+    assert budget.activity == [20]
+
+
+@pytest.mark.asyncio
+async def test_activity_time_is_recorded_when_runner_is_cancelled() -> None:
+    execution_context = fixtures.context()
+    snapshot = fixtures.snapshot(execution_context)
+    clock_value = [fixtures.NOW]
+
+    def clock() -> datetime:
+        return clock_value[0]
+
+    budget = fixtures.FakeBudget()
+    model = _BlockingModel()
+    runner = build_interactive_graph(
+        GraphDependencies(
+            runs=fixtures.FakeRuns(snapshot),
+            budget=budget,
+            evidence=fixtures.FakeEvidence(),
+            contexts=fixtures.FakeContexts(fixtures.model_context(execution_context)),
+            tools=fixtures.FakeTools(),
+            model=model,
+            interactions=fixtures.FakeInteractions(),
+            artifacts=fixtures.FakeStager(),
+            clock=clock,
+        )
+    )
+    task = asyncio.create_task(runner.run(execution_context))
+    await model.started.wait()
+    clock_value[0] = fixtures.NOW + timedelta(seconds=20)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert budget.activity == [20]
 
 
 @pytest.mark.asyncio

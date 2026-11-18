@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -34,7 +35,7 @@ def _response(
     *,
     content: str | None = None,
     tool_calls: list[dict[str, object]] | None = None,
-    finish_reason: str = "stop",
+    finish_reason: str | None = "stop",
     model: str = "deepseek-v4-pro",
     usage: dict[str, int] | None = None,
     response_id: str = "chatcmpl-synthetic-1",
@@ -64,6 +65,22 @@ def _tool_call(
         "type": "function",
         "function": {"name": name, "arguments": arguments},
     }
+
+
+# 计数的异步字节流；用于证明越限后不再消费后续块并关闭响应。
+class _ChunkStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.yielded = 0
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            self.yielded += 1
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 # 捕获请求并返回固定响应；记录请求体以便断言工具 Schema 和消息配对。
@@ -345,15 +362,46 @@ async def test_missing_api_key_is_not_configured_and_does_not_send() -> None:
 
 
 @pytest.mark.asyncio
-async def test_oversized_response_is_rejected_before_json_parse() -> None:
+async def test_non_success_or_inconsistent_finish_reason_never_executes_tools() -> None:
     execution_context = fixtures.context()
     base = fixtures.model_context(execution_context)
+    filtered = _response(
+        tool_calls=[_tool_call()],
+        finish_reason="content_filter",
+        usage={"prompt_tokens": 30, "completion_tokens": 8},
+    )
+    recorder = _Recorder([filtered])
+    model = _adapter(recorder)
+    with pytest.raises(ModelCallError) as captured:
+        await model.decide(base)
+    assert captured.value.code == "model_finish_reason_unsupported"
+    assert captured.value.usage is not None
+
+    for body, expected in (
+        (_response(tool_calls=[_tool_call()], finish_reason="stop"), "model_invalid_response"),
+        (
+            _response(tool_calls=[_tool_call()], finish_reason=None),
+            "model_finish_reason_unsupported",
+        ),
+    ):
+        recorder = _Recorder([body])
+        model = _adapter(recorder)
+        with pytest.raises(ModelCallError) as captured:
+            await model.decide(base)
+        assert captured.value.code == expected
+
+
+@pytest.mark.asyncio
+async def test_oversized_stream_is_closed_before_consuming_later_chunks() -> None:
+    execution_context = fixtures.context()
+    base = fixtures.model_context(execution_context)
+    stream = _ChunkStream([b"{", b"x" * (MAX_MODEL_RESPONSE_BYTES + 1), b"}"])
 
     def handler(request: httpx.Request) -> httpx.Response:
         _ = request
         return httpx.Response(
             200,
-            content=b"{" + b"x" * (MAX_MODEL_RESPONSE_BYTES + 1) + b"}",
+            stream=stream,
             headers={"content-type": "application/json"},
         )
 
@@ -364,6 +412,8 @@ async def test_oversized_response_is_rejected_before_json_parse() -> None:
         await model.decide(base)
 
     assert captured.value.code == "model_response_too_large"
+    assert stream.yielded == 2
+    assert stream.closed is True
 
 
 @pytest.mark.asyncio

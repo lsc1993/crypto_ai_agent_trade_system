@@ -278,27 +278,34 @@ class DeepSeekToolCallingModel:
         assert self._api_key is not None
         secret_value = self._api_key.get_secret_value().strip()
         payload = self._payload(context)
+        content = bytearray()
         try:
-            response = await self._client.post(
+            # 流式读取：每块先检查累计大小，越限立即退出并关闭响应，不先完整缓冲。
+            async with self._client.stream(
+                "POST",
                 _DEEPSEEK_COMPLETIONS_URL,
                 headers={"Authorization": f"Bearer {secret_value}"},
                 json=payload,
                 timeout=self._timeout_seconds,
-            )
+            ) as response:
+                if response.is_redirect:
+                    raise ModelCallError("model_upstream_error")
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as error:
+                    raise ModelCallError("model_upstream_error") from error
+                async for chunk in response.aiter_bytes():
+                    if len(content) + len(chunk) > MAX_MODEL_RESPONSE_BYTES:
+                        raise ModelCallError("model_response_too_large")
+                    content.extend(chunk)
+        except ModelCallError:
+            raise
         except httpx.TimeoutException as error:
             raise ModelCallError("model_timeout") from error
         except httpx.HTTPError as error:
             raise ModelCallError("model_transport_error") from error
-        if response.is_redirect:
-            raise ModelCallError("model_upstream_error")
         try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as error:
-            raise ModelCallError("model_upstream_error") from error
-        if len(response.content) > MAX_MODEL_RESPONSE_BYTES:
-            raise ModelCallError("model_response_too_large")
-        try:
-            body = response.json()
+            body: object = json.loads(bytes(content))
         except (TypeError, ValueError) as error:
             raise ModelCallError("model_invalid_response") from error
         return self._parse_body(context, body)
@@ -341,9 +348,33 @@ class DeepSeekToolCallingModel:
                 provider_request_id=provider_id,
                 returned_model=returned_model,
             )
+        # 只接受明确的 stop/tool_calls；过滤、缺失或未知原因一律不执行工具批次。
+        if finish_value not in {"tool_calls", "stop"}:
+            raise ModelCallError(
+                "model_finish_reason_unsupported",
+                usage=usage,
+                provider_request_id=provider_id,
+                returned_model=returned_model,
+            )
         raw_calls = message_data.get("tool_calls")
-        if isinstance(raw_calls, list) and raw_calls:
+        raw_values: list[object] | None = None
+        if isinstance(raw_calls, list):
             raw_values = cast(list[object], raw_calls)
+        elif raw_calls is not None:
+            raise ModelCallError(
+                "model_invalid_response",
+                usage=usage,
+                provider_request_id=provider_id,
+                returned_model=returned_model,
+            )
+        if finish_value == "tool_calls":
+            if not raw_values:
+                raise ModelCallError(
+                    "model_invalid_response",
+                    usage=usage,
+                    provider_request_id=provider_id,
+                    returned_model=returned_model,
+                )
             if len(raw_values) > 4:
                 raise ModelCallError(
                     "model_tool_batch_too_large",
@@ -372,7 +403,8 @@ class DeepSeekToolCallingModel:
                 usage=usage,
                 provider_request_id=provider_id,
             )
-        if finish_value == "tool_calls":
+        # stop 必须没有工具调用；工具调用与非成功结束原因不能降级成可执行批次。
+        if raw_values:
             raise ModelCallError(
                 "model_invalid_response",
                 usage=usage,

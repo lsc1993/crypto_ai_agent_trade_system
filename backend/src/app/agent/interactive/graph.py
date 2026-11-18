@@ -52,7 +52,11 @@ from app.agent_runs.attempts import (
     AttemptResult,
     AttemptStatus,
 )
-from app.agent_runs.budget import BudgetLedger
+from app.agent_runs.budget import (
+    ACTIVITY_SAFETY_MARGIN_SECONDS,
+    BudgetLedger,
+    BudgetStatus,
+)
 from app.agent_runs.contracts import AgentRunError, RunSnapshot, RunStatus
 from app.agent_runs.decisions import (
     ApprovalKind,
@@ -193,6 +197,26 @@ def _safe_reason(value: str | None, fallback: str) -> str:
     return fallback
 
 
+# 本片段已耗时；使用注入的 UTC 时钟，避免客户端时间或事务陈旧时钟进入预算。
+def _elapsed_seconds(scope: _RunScope) -> int:
+    elapsed = (require_utc(scope.dependencies.clock()) - scope.started_at).total_seconds()
+    return max(0, int(elapsed))
+
+
+# 发送前的活动时间准入：账本已记录 + 本片段已耗时 + 安全收尾余量必须小于上限。
+# 这只收紧调用，不改变 T05 片段结束记录一次的账本语义。
+def _activity_exhausted(scope: _RunScope, status: BudgetStatus) -> bool:
+    return (
+        status.active_seconds + _elapsed_seconds(scope) + ACTIVITY_SAFETY_MARGIN_SECONDS
+        >= status.active_second_limit
+    )
+
+
+def _enforce_activity_budget(scope: _RunScope, status: BudgetStatus) -> None:
+    if _activity_exhausted(scope, status):
+        raise _GraphStop(SegmentOutcomeKind.DEGRADED, "budget_exhausted")
+
+
 # 构造终止状态更新；只携带计数、结果类型、安全原因、引用和 preparing 待办。
 def _terminal(
     scope: _RunScope,
@@ -331,6 +355,9 @@ async def _prepare(state: InteractiveGraphState) -> dict[str, object]:
             raise AgentRunError("run_state_conflict")
         scope.snapshot = snapshot
         scope.applied_seq = snapshot.applied_message_seq
+        status = await deps.budget.status(scope.context.fence)
+        if _activity_exhausted(scope, status):
+            return _terminal(scope, SegmentOutcomeKind.DEGRADED, "budget_exhausted")
         evidence = await deps.evidence.freeze(scope.context)
         scope.evidence = evidence
         base = await deps.contexts.build(
@@ -455,6 +482,32 @@ async def _tools(state: InteractiveGraphState) -> dict[str, object]:
     scope.live_messages.append(assistant_message)
     for index, request in enumerate(decision.calls):
         try:
+            _enforce_activity_budget(scope, await deps.budget.status(scope.context.fence))
+        except _GraphStop as stop:
+            for remaining in decision.calls[index:]:
+                scope.live_messages.append(
+                    not_executed_tool_message(remaining, "tool_call_not_completed")
+                )
+            return _terminal(scope, stop.kind, stop.reason)
+        except AgentRunError as error:
+            for remaining in decision.calls[index:]:
+                scope.live_messages.append(
+                    not_executed_tool_message(remaining, "tool_call_not_completed")
+                )
+            if error.code == "run_cancelling":
+                return _terminal(scope, SegmentOutcomeKind.CANCELLED, "user_cancelled")
+            if error.code in {"lease_lost", "run_state_conflict"}:
+                raise
+            if error.code == "budget_exhausted":
+                return _terminal(scope, SegmentOutcomeKind.DEGRADED, "budget_exhausted")
+            if error.code in {"storage_unavailable", "integrity_violation", "step_conflict"}:
+                raise
+            return _terminal(
+                scope,
+                SegmentOutcomeKind.DEGRADED,
+                _safe_reason(error.code, "tool_call_failed"),
+            )
+        try:
             observation = await deps.tools.call(scope.context, request)
         except AgentRunError as error:
             for remaining in decision.calls[index:]:
@@ -467,6 +520,8 @@ async def _tools(state: InteractiveGraphState) -> dict[str, object]:
                 raise
             if error.code == "budget_exhausted":
                 return _terminal(scope, SegmentOutcomeKind.DEGRADED, "budget_exhausted")
+            if error.code in {"storage_unavailable", "integrity_violation", "step_conflict"}:
+                raise
             return _terminal(
                 scope,
                 SegmentOutcomeKind.DEGRADED,
@@ -691,6 +746,7 @@ async def _call_model(scope: _RunScope, model_context: ModelContext) -> ModelDec
         + model_context.manifest.prompt_version.encode("utf-8")
     ).hexdigest()
     status = await deps.budget.status(fence)
+    _enforce_activity_budget(scope, status)
     sequence = MODEL_ACTION_SEQUENCE_BASE + status.model_calls
     step = None
     for attempt_index in range(2):
@@ -719,6 +775,11 @@ async def _call_model(scope: _RunScope, model_context: ModelContext) -> ModelDec
             raise
     if step is None:
         raise AgentRunError("step_conflict")
+    try:
+        _enforce_activity_budget(scope, status)
+    except _GraphStop:
+        await _release_prepared(scope, step.attempt_id, "budget_exhausted")
+        raise
     try:
         await deps.budget.mark_sent(fence, step.attempt_id)
     except AgentRunError as error:
@@ -829,6 +890,7 @@ class InteractiveGraphRunner:
             started_at=started_at,
         )
         token = _CURRENT_SCOPE.set(scope)
+        failed = False
         try:
             result = await self._graph.ainvoke(
                 InteractiveGraphState(),
@@ -839,16 +901,26 @@ class InteractiveGraphRunner:
                 },
             )
             state = _coerce_state(result)
-            outcome = _outcome_from_state(state)
-            elapsed = int((require_utc(deps.clock()) - started_at).total_seconds())
-            if elapsed >= 1:
-                await deps.budget.record_activity(
-                    context.fence,
-                    min(elapsed, _ACTIVITY_LIMIT_SECONDS),
-                )
-            return outcome
+            return _outcome_from_state(state)
+        except BaseException:
+            # 异常/取消也必须在 finally 记录本片段活动时间，避免下一片段漏记。
+            failed = True
+            raise
         finally:
-            _CURRENT_SCOPE.reset(token)
+            try:
+                elapsed = _elapsed_seconds(scope)
+                if elapsed >= 1:
+                    try:
+                        await deps.budget.record_activity(
+                            context.fence,
+                            min(elapsed, _ACTIVITY_LIMIT_SECONDS),
+                        )
+                    except AgentRunError:
+                        # 已有异常/取消时不能掩盖原始错误；正常结果时让账本失败阻止提交。
+                        if not failed:
+                            raise
+            finally:
+                _CURRENT_SCOPE.reset(token)
 
 
 # LangGraph 可能返回 Pydantic state 或 dict；两者都必须通过同一个安全模型重建。

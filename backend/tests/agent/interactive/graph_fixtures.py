@@ -3,6 +3,7 @@
 # 真实模型协议由 test_deepseek 的 MockTransport 证明，真实事务仍由后续任务验证。
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -277,11 +278,13 @@ class FakeBudget:
         reserve_error: AgentRunErrorCode = "budget_exhausted",
         mark_sent_error_at: int | None = None,
         mark_sent_error: AgentRunErrorCode = "budget_exhausted",
+        initial_active_seconds: int = 0,
     ) -> None:
         self.reserve_error_at = reserve_error_at
         self.reserve_error: AgentRunErrorCode = reserve_error
         self.mark_sent_error_at = mark_sent_error_at
         self.mark_sent_error: AgentRunErrorCode = mark_sent_error
+        self._active_seconds = initial_active_seconds
         self.reserve_calls: list[AttemptRequest] = []
         self.marked_sent: list[UUID] = []
         self.settled: list[tuple[UUID, AttemptResult]] = []
@@ -305,7 +308,7 @@ class FakeBudget:
             transport_sent=0,
             input_tokens=sum(item.reserved_input_tokens for item in self.reserve_calls),
             output_tokens=sum(item.reserved_output_tokens for item in self.reserve_calls),
-            active_seconds=0,
+            active_seconds=self._active_seconds,
         )
 
     async def status(self, fence: RunFence) -> BudgetStatus:
@@ -354,6 +357,7 @@ class FakeBudget:
     async def record_activity(self, fence: RunFence, seconds: int) -> BudgetStatus:
         _ = fence
         self.activity.append(seconds)
+        self._active_seconds += seconds
         return self._status()
 
     async def append_authorization(
@@ -444,8 +448,11 @@ class FakeModel:
     requested_model = "synthetic-model"
     available = True
 
-    def __init__(self, decisions: list[Any]) -> None:
+    def __init__(
+        self, decisions: list[Any], *, on_decide: Callable[[], None] | None = None
+    ) -> None:
         self._decisions = list(decisions)
+        self._on_decide = on_decide
         self.contexts: list[ModelContext] = []
 
     def estimate_request(self, context: ModelContext) -> int:
@@ -456,6 +463,8 @@ class FakeModel:
         if not self._decisions:
             raise AssertionError("模型替身没有剩余脚本")
         decision = self._decisions.pop(0)
+        if self._on_decide is not None:
+            self._on_decide()
         if isinstance(decision, BaseException):
             raise decision
         return decision
