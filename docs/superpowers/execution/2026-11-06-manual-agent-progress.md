@@ -949,28 +949,29 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 
 | 项目 | 记录 |
 | --- | --- |
-| 任务 | T12；`trade_planning/contracts.py`、`sizing.py`、`order_rules.py`、`margin.py`、`risk_checks.py`、`checklist.py` |
+| 任务 | T12；`trade_planning/contracts.py`、`sizing.py`、`order_rules.py`、`margin.py`、`risk_checks.py`、`checklist.py`；`inputs.py`/`planning_input_repository.py` 的预览绑定与历史兼容 |
 | FR/AC/HN | FR-09/FR-14/FR-15/FR-16；AC-21 至 AC-26；HN-13。软件数值正确性不代表策略盈利或计划可实施 |
 | 时间 | 2026-11-20 |
 | 任务状态 | `verified`（实现、聚焦/阶段/SQL 依赖/quick/full/静态检查完成）；正式审查 `awaiting_review` |
-| review_status | `awaiting_review`（待原审查助手审查） |
+| review_status | `awaiting_review`（首轮 `changes_requested` 后修复，待原审查助手复审） |
 | base | `c33613d2c081e95df64b90fa7f09a8bc5f6d9240`（`main`，T11 合并记录） |
-| implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（`feat: calculate deterministic manual trade plans`） |
-| implementation tree | `136c688be9bcb811acffb9b933b13573c9fcfef2` |
-| 改动 | 新增 C7 纯契约/数量求解/价格数量规则/保证金/逐项检查/人工清单和 53 项合成测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约 |
-| 公共接口 | `PlanningRequest`/`PlanningQuote`/`PlanningReason`/`SizingResult`/`ValidationCheck`/`PriceGeometry`/`ManualChecklist`；`calculate_size(request)->SizingResult`、`evaluate_planning_risk(request,size)->tuple[ValidationCheck,...]`、`build_manual_checklist(request,size,checks)->ManualChecklist`；均为纯函数 |
+| 首轮 implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（`feat: calculate deterministic manual trade plans`；首轮审查 `changes_requested`） |
+| implementation tip | `d0f5aeeb02a43119248139a1922fd526939f5ddc`（`fix: bind and complete deterministic planning checks`） |
+| implementation tree | `e310be4d5cb34cf8d045a971f107de479fb718f6` |
+| 改动 | 新增 C7 纯契约/数量求解/价格数量规则/保证金/逐项检查/人工清单和 71 项合成测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约；首轮审查后补强退出腿、材料/检查集合绑定、结算比率、缺项分类、日界、保证金预览绑定和市场边界精度 |
+| 公共接口 | `PlanningRequest`/`PlanningQuote`/`PlanningReason`/`SizingResult`（含 `material_hash`）/`ValidationCheck`/`PriceGeometry`/`ManualChecklist`/`PLANNING_CHECK_NAMES`；`calculate_size(request)->SizingResult`、`evaluate_planning_risk(request,size)->tuple[ValidationCheck,...]`、`build_manual_checklist(request,size,checks)->ManualChecklist`；均纯函数；`MarginEvidenceFields` 新增可选预览绑定字段 |
 | 依赖/迁移 | 无新增依赖；无新增迁移；迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
-| 验证 | T12 聚焦 53 passed；阶段（trade_planning/策略目录/规划资料 SQL/安全）180 passed；quick 后端 1249 passed；独立 PostgreSQL full 1488 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过 |
-| 未验证 | `ManualPlanningService`/readiness/采纳/资金池占用、`ManualPlanRepository`、HTTP/SSE/前端、生产 lifespan、真实公开规则持续可用性、真实用户资料、真实模型语义质量、任何实盘成交或收益 |
+| 验证 | T12 五文件聚焦 71 passed；全部 trade_planning 86 passed；阶段（trade_planning/策略目录/规划资料 SQL/安全）198 passed；quick 后端 1267 passed；独立 PostgreSQL full 1506 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过 |
+| 未验证 | `ManualPlanningService`/readiness/采纳/资金池占用、`ManualPlanRepository`、HTTP/SSE/前端、生产 lifespan、真实公开规则持续可用性、真实用户资料、真实模型语义质量、任何实盘成交或收益；修复版本尚未取得原审查助手复审通过 |
 
 ### T12 关键实现结果
 
 - **契约与材料指纹**：`PlanningRequest` 冻结候选、精确策略 ref、C3 refs/正文、报价、评估时刻和订单操作；校验 refs/正文/资金池代次/产品一致，拒绝未来声明/报价。`material_sha256` 只绑定候选、版本引用、报价引用/时刻/价格和操作，不含评估时钟；按 18 位结算量化，风险/保证金向上、收益/比率向下。
 - **数量与成本**：风险额度 R 取政策单笔/日损/组合上限与资料剩余单笔/日损/组合风险的最小值。单单位止损损失 L/目标净收益 W 使用成本上界；出场价按滑点+价差不利调整，入场费、止损/目标退出费和持有成本各计一次；限价入场用限价，市价入场用最大不利成交价，不重复叠加第二次入场滑点。数量上限同时考虑 R/L、政策名义额/数量、规则数量、可用保证金与产品过滤；只按 step 向下取整，最小数量/名义额冲突直接 blocked，不向上加量或移动结构。
-- **价格/订单**：入场带按 tick 向内取整（下界 ceil、上界 floor），触发价必须落在可执行区间；止损/目标在 `strict` 下必须对齐，在 `conservative_one_tick` 下只向风险不利方向移动一格。市价单必须有位于入场带、与当前报价和声明滑点/价差上界一致的最大不利成交价；基础资产数量单位要求合约乘数为 1。
-- **保证金/强平**：初始保证金 = 名义额/声明杠杆，向上量化；用户保证金预览必须与本次名义额和初始保证金完全一致，否则 unknown/fail。强平检查只验证止损位于预览参考价的安全一侧，明确不代表真实强平公式、账户核实或不会强平；维持保证金档位/强平参考缺失为 unknown。
-- **逐项检查**：输出唯一名称的 required/非 required 检查，覆盖资料/政策完整、资料/成本/规则/报价/候选/保证金时效、UTC 跨日损益声明、冷却/熔断、产品/模式、已有仓位/挂单、杠杆、价格格点、订单类型/TIF、市价上界、数量/最小订单/上限、风险、净盈亏比、保证金预览/强平方向、退出分配。缺失/无法证明为 unknown，只有实际确定性冲突才 fail。
-- **人工清单**：输出程序已验证/用户声明/人工核对分层，覆盖入场、数量/名义额、保护性止损、目标退出、到期/取消和反馈；异常分支覆盖未成交、部分成交、跳价、超时、到期、成本/规则变化、保证金/仓位变化。固定 `execution_mode=manual`，不含 TradeIntent、订单号或自动发/撤单入口；阻断项与检查集合一致。
+- **价格/订单**：入场带按 tick 向内取整（下界 ceil、上界 floor），触发价是人工观察阈值、允许离格但必须落在可执行区间；止损/目标在 `strict` 下必须对齐，在 `conservative_one_tick` 下只向风险不利方向移动一格。市价单必须有位于入场带、与当前报价和声明滑点/价差上界一致的最大不利成交价，比较使用显式 80 位上下文；基础资产数量单位要求合约乘数为 1。入场/止损/目标退出分别验证订单类型、MARKET_LOT_SIZE 步长/上下限和退出名义额。
+- **保证金/强平**：初始保证金 = 名义额/声明杠杆，向上量化；用户保证金预览必须绑定本次产品、方向、入场价、数量、名义额和初始保证金，历史 T03 快照缺少绑定字段时按待补处理、不物化默认值。强平检查只验证止损位于预览参考价的安全一侧，明确不代表真实强平公式、账户核实或不会强平；维持保证金档位/强平参考缺失为 unknown。
+- **逐项检查**：输出 `PLANNING_CHECK_NAMES` 固定顺序的 required/非 required 检查，覆盖资料/政策完整、资料/成本/规则/报价/候选/保证金时效、UTC 跨日损益声明（下一 UTC 零点到期）、冷却/熔断、产品/模式、已有仓位/挂单、杠杆、价格格点、入场/退出订单类型、TIF、市价上界、SizingResult 材料绑定、数量/最小订单/上限、风险、净盈亏比（结算后金额复算）、保证金证据/预览/强平方向、逐退出腿数量/名义额、退出分配。缺失/无法证明为 unknown，只有实际确定性冲突才 fail。
+- **人工清单**：要求完整固定检查集合、唯一性和按操作类型的 required 语义；输出程序已验证/用户声明/人工核对分层，覆盖入场、数量/名义额、保护性止损、目标退出、到期/取消和反馈；异常分支覆盖未成交、部分成交、跳价、超时、到期、成本/规则变化、保证金/仓位变化。固定 `execution_mode=manual`，不含 TradeIntent、订单号或自动发/撤单入口；阻断项与检查集合一致。
 - **边界**：T12 不读写数据库、不调用模型/工具/MCP/私有账户/订单服务；未接入 HTTP/前端/生产 lifespan，不实现 readiness/采纳/资金池占用。`SizingResult` 只是本请求材料下的确定性数值，不等于可实施、已采纳或收益。
 
 ### T12 测试证据
@@ -978,17 +979,35 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 | 检查 | 目录 | 命令 | 结果 |
 | --- | --- | --- | --- |
 | 预期红（缺模块） | `D:/project_git/t12/backend` | `uv run --locked --no-sync pytest tests/trade_planning/test_sizing.py tests/trade_planning/test_risk_checks.py tests/trade_planning/test_margin.py tests/trade_planning/test_order_rules.py tests/trade_planning/test_checklist.py -q --basetemp=../.tmp/pytest/t12-red-1` | 5 个 collection error（缺少 contracts/sizing/risk_checks/margin/order_rules/checklist），退出 2；符合测试先行预期 |
-| T12 聚焦 | `D:/project_git/t12/backend` | 同命令，`--basetemp=../.tmp/pytest/t12-green-15` | 68 passed（含既有 T03 trade_planning 15 项；T12 新增 53 项），退出 0 |
-| 阶段（T01/T03 SQL + 安全） | `D:/project_git/t12/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security -q --basetemp=../.tmp/pytest/t12-final-stage-1` | 180 passed / 0 failed / 0 skipped，退出 0 |
-| 后端 quick | `D:/project_git/t12` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t12-final-quick-backend.json` | `verification=passed`；1249 collected / 1249 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
-| 独立 PostgreSQL full | `D:/project_git/t12` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t12-final-full-backend.json` | `verification=passed`；1488 collected / 1488 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| T12 五文件聚焦 | `D:/project_git/t12/backend` | 同命令，`--basetemp=../.tmp/pytest/t12-r1-focused-final` | 71 passed（T12 新增 71 项），退出 0 |
+| 全部 trade_planning | `D:/project_git/t12/backend` | `uv run --locked --no-sync pytest tests/trade_planning -q --basetemp=../.tmp/pytest/t12-r1-green-11` | 86 passed（含 T03 既有 15 项），退出 0 |
+| 阶段（T01/T03 SQL + 安全） | `D:/project_git/t12/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security -q --basetemp=../.tmp/pytest/t12-r1-stage-sql-3` | 198 passed / 0 failed / 0 skipped，退出 0 |
+| 后端 quick | `D:/project_git/t12` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t12-r1-final-quick-backend.json` | `verification=passed`；1267 collected / 1267 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| 独立 PostgreSQL full | `D:/project_git/t12` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t12-r1-final-full-backend.json` | `verification=passed`；1506 collected / 1506 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
 | Ruff / 格式 / Pyright / 架构 | `D:/project_git/t12/backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright`；`python -m scripts.check_architecture` | Ruff/格式通过；Pyright 0 errors/0 warnings；architecture `status=passed`、`files_scanned=93`、`findings=[]`；退出 0 |
 | 迁移链 | `D:/project_git/t12/backend` | `uv run --locked --no-sync alembic heads` | `0027_agent_segments (head)`，退出 0 |
+
+### T12 首轮审查与 F1–F8 修复
+
+首轮正式审查对 `ef198f8`（tree `136c688`）判定 `changes_requested`，报告 `docs/superpowers/reviews/manual-agent/T12-review-result.md`。修复提交 `d0f5aee`（tree `e310be4`，`e870d27..d0f5aee` 18 个文件 +860/-112）逐项处理：
+
+| 发现 | 修复与回归 |
+| --- | --- |
+| F1/P1 退出腿类型/过滤器 | 新增 `exit_order_types_supported`（STOP_MARKET/TAKE_PROFIT_MARKET）和逐退出腿 MARKET_LOT_SIZE step/min/max/名义额检查；`test_exit_order_types_and_market_exit_filters_are_validated` |
+| F2/P1 SizingResult 未绑定材料 | 新增 `SizingResult.material_hash`、required `sizing_material_matches`；清单拒绝旧 size；`test_sizing_result_binds_request_material`、`test_mismatched_sizing_material_blocks_required_checks`、`test_checklist_rejects_size_from_another_material` |
+| F3/P2 清单检查集合不完整 | `PLANNING_CHECK_NAMES` 完整名称/顺序/required 校验；`test_checklist_rejects_incomplete_check_set`、`test_checklist_rejects_required_downgrade` |
+| F4/P2 比率未按结算金额 | 量化后的损失/收益复算比率；零值 blocked；`test_ratio_uses_final_quantized_settlement_amounts`、`test_reported_final_settlement_ratio_case` |
+| F5/P2 缺项被标 fail | 缺日损日期/账户模式/市价上界分别 unknown；`test_missing_inputs_are_unknown_not_hard_failures` |
+| F6/P2 日损跨 UTC 午夜 | `daily_risk_current.expires_at` 截短至下一 UTC 零点；`test_daily_risk_check_expires_at_next_utc_midnight` |
+| F7/P2 保证金预览绑定不足 | `MarginEvidenceFields` 新增可选产品/方向/入场价/数量绑定；历史快照/请求按 fields_set 兼容；`test_preview_binds_entry_price_and_quantity`、`test_preview_binds_product_and_direction`、T03 SQL 重放回归 |
+| F8/P2 市价边界精度 | 显式 80 位上下文；`test_reported_market_boundary_is_precision_independent`、`test_market_bound_is_independent_of_caller_decimal_precision` |
+
+修复前反例复现为 11 failed / 69 passed（`t12-r1-red-1`）；修复后五文件 71、全部 trade_planning 86、阶段 198、quick 1267、full 1506 passed。触发价明确为人工观察阈值，允许离格但必须落在可执行入场带（`test_off_grid_trigger_is_a_manual_observation_threshold`）。
 
 ### T12 环境与审查请求
 
 - 隔离工作区 `D:/project_git/t12` 从 `main` 的 `c33613d` 创建；主工作区未改动、未合并/推送/部署。
-- 使用独立 `.venv`（`uv sync --locked`）；专用 PostgreSQL 17 临时容器使用本机回环端口 55433、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`，通过 `scripts.check_test_database` 只读身份/权限预检；未指向或迁移业务库，验证后回收容器。
+- 使用独立 `.venv`（`uv sync --locked`）；专用 PostgreSQL 17 临时容器使用本机回环端口 55434、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`，通过 `scripts.check_test_database` 只读身份/权限预检；未指向或迁移业务库，验证后回收容器。
 - 未修改 `.env`、凭证或业务配置；未调用真实模型、真实 MCP、私有账户或交易执行；所有财务/规则/费率均为合成资料。
 - 本轮未执行前端 lint/typecheck/Vitest/build、浏览器 e2e、HTTP e2e 或完整生产 lifespan；原因是 T12 未接入 HTTP/前端/生产装配。
 - 审查请求：`docs/superpowers/reviews/manual-agent/T12-review-request.md`。本轮标记为**待原审查助手审查**（`awaiting_review`）；开发自测不能替代原审查助手正式结论，不自行标记 approved，不进入 T13。
@@ -1007,5 +1026,5 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
 12. T11 首轮 `changes_requested`（3 项）及二次复审 `changes_requested`（R1/R2）均已关闭；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。2026-11-17 原审查助手复审通过（`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`。按用户指令整理并 fast-forward 合并到 `main`（合并 tip `6a9ed12`），本 docs 提交记录结果；不自动进入 T12。
-13. T12 已实现 C7 纯契约、确定性数量/成本/保证金/风险检查与人工清单；聚焦 53、阶段 180、quick 1249、独立 PostgreSQL full 1488 passed，静态检查通过。实现 tip `ef198f8`（tree `136c688`），当前 `verified`/`awaiting_review`；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`。未取得正式结论，不进入 T13。
+13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`（2 P1 + 6 P2），修复 tip `d0f5aee`（tree `e310be4`，`e870d27..d0f5aee` 18 个文件 +860/-112）；五文件 71、全部 trade_planning 86、阶段 198、quick 1267、独立 PostgreSQL full 1506 passed，静态检查通过。当前 `verified`/`awaiting_review`（待复审）；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，首轮报告 `T12-review-result.md`。未取得复审通过，不进入 T13。
 14. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
