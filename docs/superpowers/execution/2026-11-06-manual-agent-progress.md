@@ -953,7 +953,7 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 | FR/AC/HN | FR-09/FR-14/FR-15/FR-16；AC-21 至 AC-26；HN-13。软件数值正确性不代表策略盈利或计划可实施 |
 | 时间 | 2026-11-20 |
 | 任务状态 | `verified`（实现、聚焦/阶段/SQL 依赖/quick/full/静态检查完成）；正式审查 `awaiting_review` |
-| review_status | `awaiting_review` |
+| review_status | `awaiting_review`（待原审查助手审查） |
 | base | `c33613d2c081e95df64b90fa7f09a8bc5f6d9240`（`main`，T11 合并记录） |
 | implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（`feat: calculate deterministic manual trade plans`） |
 | implementation tree | `136c688be9bcb811acffb9b933b13573c9fcfef2` |
@@ -991,7 +991,7 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 - 使用独立 `.venv`（`uv sync --locked`）；专用 PostgreSQL 17 临时容器使用本机回环端口 55433、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`，通过 `scripts.check_test_database` 只读身份/权限预检；未指向或迁移业务库，验证后回收容器。
 - 未修改 `.env`、凭证或业务配置；未调用真实模型、真实 MCP、私有账户或交易执行；所有财务/规则/费率均为合成资料。
 - 本轮未执行前端 lint/typecheck/Vitest/build、浏览器 e2e、HTTP e2e 或完整生产 lifespan；原因是 T12 未接入 HTTP/前端/生产装配。
-- 审查请求：`docs/superpowers/reviews/manual-agent/T12-review-request.md`。当前状态为 `awaiting_review`；开发自测不能替代原审查助手正式结论，不自行标记 approved，不进入 T13。
+- 审查请求：`docs/superpowers/reviews/manual-agent/T12-review-request.md`。本轮标记为**待原审查助手审查**（`awaiting_review`）；开发自测不能替代原审查助手正式结论，不自行标记 approved，不进入 T13。
 
 ## 后续接续规则
 
