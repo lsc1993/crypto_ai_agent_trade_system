@@ -956,12 +956,13 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 | review_status | `awaiting_review`（首轮 `changes_requested` 后修复，待原审查助手复审） |
 | base | `c33613d2c081e95df64b90fa7f09a8bc5f6d9240`（`main`，T11 合并记录） |
 | 首轮 implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（`feat: calculate deterministic manual trade plans`；首轮审查 `changes_requested`） |
-| implementation tip | `d0f5aeeb02a43119248139a1922fd526939f5ddc`（`fix: bind and complete deterministic planning checks`） |
-| implementation tree | `e310be4d5cb34cf8d045a971f107de479fb718f6` |
-| 改动 | 新增 C7 纯契约/数量求解/价格数量规则/保证金/逐项检查/人工清单和 71 项合成测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约；首轮审查后补强退出腿、材料/检查集合绑定、结算比率、缺项分类、日界、保证金预览绑定和市场边界精度 |
+| 二次复审 implementation tip | `d0f5aeeb02a43119248139a1922fd526939f5ddc`（tree `e310be4`；二次复审 `changes_requested`） |
+| implementation tip | `9a55aadf9c5752da5563820173b480033f2ce948`（`fix: accept current pool generations and complete planning guards`） |
+| implementation tree | `ddb94ce43404bdf9338c4fdacce2e2d7a4c4ba8a` |
+| 改动 | 新增 C7 纯契约/数量求解/价格数量规则/保证金/逐项检查/人工清单和 71 项合成测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约；首轮审查后补强退出腿、材料/检查集合绑定、结算比率、缺项分类、日界、保证金预览绑定和市场边界精度；复审 R1–R5 修复 T03 当前池代次、强平预览适用性、保守取整精度、缺模式占用冲突和冻结草稿省略字段 |
 | 公共接口 | `PlanningRequest`/`PlanningQuote`/`PlanningReason`/`SizingResult`（含 `material_hash`）/`ValidationCheck`/`PriceGeometry`/`ManualChecklist`/`PLANNING_CHECK_NAMES`；`calculate_size(request)->SizingResult`、`evaluate_planning_risk(request,size)->tuple[ValidationCheck,...]`、`build_manual_checklist(request,size,checks)->ManualChecklist`；均纯函数；`MarginEvidenceFields` 新增可选预览绑定字段 |
 | 依赖/迁移 | 无新增依赖；无新增迁移；迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
-| 验证 | T12 五文件聚焦 71 passed；全部 trade_planning 86 passed；阶段（trade_planning/策略目录/规划资料 SQL/安全）198 passed；quick 后端 1267 passed；独立 PostgreSQL full 1506 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过 |
+| 验证 | T12 五文件聚焦 76 passed；全部 trade_planning 92 passed；阶段（trade_planning/策略目录/规划资料 SQL/安全）205 passed；quick 后端 1273 passed；独立 PostgreSQL full 1513 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过 |
 | 未验证 | `ManualPlanningService`/readiness/采纳/资金池占用、`ManualPlanRepository`、HTTP/SSE/前端、生产 lifespan、真实公开规则持续可用性、真实用户资料、真实模型语义质量、任何实盘成交或收益；修复版本尚未取得原审查助手复审通过 |
 
 ### T12 关键实现结果
@@ -979,11 +980,12 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 | 检查 | 目录 | 命令 | 结果 |
 | --- | --- | --- | --- |
 | 预期红（缺模块） | `D:/project_git/t12/backend` | `uv run --locked --no-sync pytest tests/trade_planning/test_sizing.py tests/trade_planning/test_risk_checks.py tests/trade_planning/test_margin.py tests/trade_planning/test_order_rules.py tests/trade_planning/test_checklist.py -q --basetemp=../.tmp/pytest/t12-red-1` | 5 个 collection error（缺少 contracts/sizing/risk_checks/margin/order_rules/checklist），退出 2；符合测试先行预期 |
-| T12 五文件聚焦 | `D:/project_git/t12/backend` | 同命令，`--basetemp=../.tmp/pytest/t12-r1-focused-final` | 71 passed（T12 新增 71 项），退出 0 |
-| 全部 trade_planning | `D:/project_git/t12/backend` | `uv run --locked --no-sync pytest tests/trade_planning -q --basetemp=../.tmp/pytest/t12-r1-green-11` | 86 passed（含 T03 既有 15 项），退出 0 |
-| 阶段（T01/T03 SQL + 安全） | `D:/project_git/t12/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security -q --basetemp=../.tmp/pytest/t12-r1-stage-sql-3` | 198 passed / 0 failed / 0 skipped，退出 0 |
-| 后端 quick | `D:/project_git/t12` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t12-r1-final-quick-backend.json` | `verification=passed`；1267 collected / 1267 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
-| 独立 PostgreSQL full | `D:/project_git/t12` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t12-r1-final-full-backend.json` | `verification=passed`；1506 collected / 1506 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| T12 五文件聚焦 | `D:/project_git/t12/backend` | 同命令，`--basetemp=../.tmp/pytest/t12-r2-focused-final` | 76 passed（T12 新增 76 项），退出 0 |
+| 全部 trade_planning | `D:/project_git/t12/backend` | `uv run --locked --no-sync pytest tests/trade_planning -q --basetemp=../.tmp/pytest/t12-r2-green-2` | 92 passed（含 T03 既有 16 项；T12 新增 76 项），退出 0 |
+| R1 SQL 集成 | `D:/project_git/t12/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py::test_t12_accepts_t03_resolved_refs_after_generation_advances -q --basetemp=../.tmp/pytest/t12-r2-r1-sql` | 1 passed，退出 0 |
+| 阶段（T01/T03 SQL + 安全） | `D:/project_git/t12/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security -q --basetemp=../.tmp/pytest/t12-r2-stage-sql` | 205 passed / 0 failed / 0 skipped，退出 0 |
+| 后端 quick | `D:/project_git/t12` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t12-r2-final-quick-backend.json` | `verification=passed`；1273 collected / 1273 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| 独立 PostgreSQL full | `D:/project_git/t12` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t12-r2-final-full-backend.json` | `verification=passed`；1513 collected / 1513 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
 | Ruff / 格式 / Pyright / 架构 | `D:/project_git/t12/backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright`；`python -m scripts.check_architecture` | Ruff/格式通过；Pyright 0 errors/0 warnings；architecture `status=passed`、`files_scanned=93`、`findings=[]`；退出 0 |
 | 迁移链 | `D:/project_git/t12/backend` | `uv run --locked --no-sync alembic heads` | `0027_agent_segments (head)`，退出 0 |
 
@@ -1002,12 +1004,26 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 | F7/P2 保证金预览绑定不足 | `MarginEvidenceFields` 新增可选产品/方向/入场价/数量绑定；历史快照/请求按 fields_set 兼容；`test_preview_binds_entry_price_and_quantity`、`test_preview_binds_product_and_direction`、T03 SQL 重放回归 |
 | F8/P2 市价边界精度 | 显式 80 位上下文；`test_reported_market_boundary_is_precision_independent`、`test_market_bound_is_independent_of_caller_decimal_precision` |
 
-修复前反例复现为 11 failed / 69 passed（`t12-r1-red-1`）；修复后五文件 71、全部 trade_planning 86、阶段 198、quick 1267、full 1506 passed。触发价明确为人工观察阈值，允许离格但必须落在可执行入场带（`test_off_grid_trigger_is_a_manual_observation_threshold`）。
+修复前反例复现为 11 failed / 69 passed（`t12-r1-red-1`）；修复后五文件 76、全部 trade_planning 92、阶段 205、quick 1273、full 1513 passed。触发价明确为人工观察阈值，允许离格但必须落在可执行入场带（`test_off_grid_trigger_is_a_manual_observation_threshold`）。
+
+### T12 二次复审 R1–R5 修复
+
+二次复审对 `d0f5aee`（tree `e310be4`）判定 `changes_requested`（报告 `T12-rereview-d0f5aee.md`）。修复提交 `9a55aad`（tree `ddb94ce`，`d3e0964..9a55aad` 14 个文件 +324/-55）：
+
+| 发现 | 修复与回归 |
+| --- | --- |
+| R1/P1 T03 正常返回的 profile/policy/refs 代次被要求完全相等 | 只拒绝 profile/policy 创建代次晚于 refs 当前代次；保留同池、精确版本。新增真实 SQL `resolve_refs`→`PlanningRequest` 回归（profile=1、policy=2、refs=3）及纯度测试 |
+| R2/P2 强平使用未绑定/不适用预览 | 只有 `margin_preview_matches=PASS` 才比较强平；预览 unknown/fail 时强平 unknown |
+| R3/P2 保守一格调整量随调用方精度 | 调整量减法/绝对值放入显式 80 位上下文；报告 tick/止损反例在 precision 6 通过 |
+| R4/P2 缺模式掩盖已知占用 | 已知非零仓位/挂单先 fail；模式缺失只在占用全零/未知时 unknown |
+| R5/P3 冻结草稿物化省略绑定字段 | `MarginEvidence.build` 扁平正文按 fields_set 清理；省略与显式 null 分开断言 |
+
+修复后五文件 76、全部 trade_planning 92、阶段 205、quick 1273、full 1513 passed；静态检查通过。
 
 ### T12 环境与审查请求
 
 - 隔离工作区 `D:/project_git/t12` 从 `main` 的 `c33613d` 创建；主工作区未改动、未合并/推送/部署。
-- 使用独立 `.venv`（`uv sync --locked`）；专用 PostgreSQL 17 临时容器使用本机回环端口 55434、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`，通过 `scripts.check_test_database` 只读身份/权限预检；未指向或迁移业务库，验证后回收容器。
+- 使用独立 `.venv`（`uv sync --locked`）；专用 PostgreSQL 17 临时容器使用本机回环端口 55435、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`，通过 `scripts.check_test_database` 只读身份/权限预检；未指向或迁移业务库，验证后回收容器。
 - 未修改 `.env`、凭证或业务配置；未调用真实模型、真实 MCP、私有账户或交易执行；所有财务/规则/费率均为合成资料。
 - 本轮未执行前端 lint/typecheck/Vitest/build、浏览器 e2e、HTTP e2e 或完整生产 lifespan；原因是 T12 未接入 HTTP/前端/生产装配。
 - 审查请求：`docs/superpowers/reviews/manual-agent/T12-review-request.md`。本轮标记为**待原审查助手审查**（`awaiting_review`）；开发自测不能替代原审查助手正式结论，不自行标记 approved，不进入 T13。
@@ -1026,5 +1042,5 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
 12. T11 首轮 `changes_requested`（3 项）及二次复审 `changes_requested`（R1/R2）均已关闭；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。2026-11-17 原审查助手复审通过（`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`。按用户指令整理并 fast-forward 合并到 `main`（合并 tip `6a9ed12`），本 docs 提交记录结果；不自动进入 T12。
-13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`（2 P1 + 6 P2），修复 tip `d0f5aee`（tree `e310be4`，`e870d27..d0f5aee` 18 个文件 +860/-112）；五文件 71、全部 trade_planning 86、阶段 198、quick 1267、独立 PostgreSQL full 1506 passed，静态检查通过。当前 `verified`/`awaiting_review`（待复审）；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，首轮报告 `T12-review-result.md`。未取得复审通过，不进入 T13。
+13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`；修复到 `d0f5aee` 后二次复审又判定 1 P1 + 3 P2 + 1 P3 不通过。R1–R5 修复 tip `9a55aad`（tree `ddb94ce`，`d3e0964..9a55aad` 14 个文件 +324/-55）；五文件 76、全部 trade_planning 92、阶段 205、quick 1273、独立 PostgreSQL full 1513 passed，静态检查通过。当前 `verified`/`awaiting_review`（待复审）；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，报告 `T12-review-result.md`、`T12-rereview-d0f5aee.md`。未取得复审通过，不进入 T13。
 14. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。

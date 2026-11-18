@@ -4,8 +4,9 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本、推理实现和供应商侧版本未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明、维护指南与运行边界以当前仓库提交为准。
 - 首轮审查：**`changes_requested`**（2 P1 + 6 P2，报告 `docs/superpowers/reviews/manual-agent/T12-review-result.md`；受审范围 `c33613d..ef198f8`，tree `136c688`）。
-- 当前自测状态：**`verified`**（F1–F8 修复、报告反例回归、T12 聚焦、阶段 SQL/安全、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
-- 当前正式审查状态：**`awaiting_review`**（等待原审查助手对修复版本复审；开发自测不替代正式结论）。
+- 二次复审：**`changes_requested`**（1 P1 + 3 P2 + 1 P3，报告 `docs/superpowers/reviews/manual-agent/T12-rereview-d0f5aee.md`；受审实现 `d0f5aee`，tree `e310be4`）。
+- 当前自测状态：**`verified`**（F1–F8 与 R1–R5 修复、回归、T12 聚焦、阶段 SQL/安全、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
+- 当前正式审查状态：**`awaiting_review`**（等待原审查助手对 R1–R5 修复版本复审；开发自测不替代正式结论）。
 - 日期：2026-11-20。
 
 ## 1. 工作区、分支与提交范围
@@ -16,41 +17,44 @@
 | 隔离工作区 | `D:/project_git/t12` |
 | 分支 | `t12-deterministic-planning`（未推送、未合并、未部署） |
 | base | `c33613d2c081e95df64b90fa7f09a8bc5f6d9240`（`main`） |
-| 首轮 implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（tree `136c688`） |
-| 当前 implementation tip | `d0f5aeeb02a43119248139a1922fd526939f5ddc`（tree `e310be4`；`fix: bind and complete deterministic planning checks`） |
-| 当前代码/规范范围 | `c33613d..d0f5aee`，25 个文件，+4451/-23（含首轮实现、首轮审查请求/进度 docs、F1–F8 修复；不含本次复审请求/进度更新） |
-| 首轮审查后修复范围 | `e870d27..d0f5aee`，18 个文件，+860/-112（源码、测试、契约/计划/状态同步；不含 docs 审查请求更新） |
-| 本次 docs 提交 | 本复审请求、进度更新与首轮审查报告归档在代码提交之后单独提交；具体 hash 见最终交付回复，不写入 `implementation tip` |
-| review_status | `awaiting_review`（修复后待原审查助手复审） |
+| 首轮 implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（tree `136c688`，首轮 `changes_requested`） |
+| 二次复审 implementation tip | `d0f5aeeb02a43119248139a1922fd526939f5ddc`（tree `e310be4`，二次复审 `changes_requested`） |
+| 当前 implementation tip | `9a55aadf9c5752da5563820173b480033f2ce948`（tree `ddb94ce`；`fix: accept current pool generations and complete planning guards`） |
+| R1–R5 修复范围 | `d3e0964..9a55aad`，14 个文件，+324/-55（源码、测试、契约/计划/状态同步；不含本次复审请求/进度更新） |
+| 当前代码/规范范围 | `c33613d..9a55aad`，28 个文件，+4757/-24（含首轮实现、两轮修复、审查报告/请求 docs；不含本次复审请求/进度更新） |
+| 本次 docs 提交 | 本复审请求、进度更新与二次复审报告归档在代码提交之后单独提交；具体 hash 见最终交付回复，不写入 `implementation tip` |
+| review_status | `awaiting_review`（R1–R5 修复后待原审查助手复审） |
 | reviewed_tip | 尚无（当前修复版本未取得复审通过） |
 
 主工作区未因本轮改动；未修改 `.env`、凭证、业务库、生产配置、模拟盘资金/风控或交易执行链路。未调用真实模型、真实 MCP、私有账户或交易接口。
 
-### 1.1 文件指纹（implementation tip `d0f5aee`）
+### 1.1 文件指纹（implementation tip `9a55aad`）
 
 | 文件 | SHA-256 |
 | --- | --- |
-| `backend/src/app/trade_planning/contracts.py` | `476e1b6bbb7d0d7336d4642111fe8999aa0acb48626b39eee226326908e1466d` |
+| `backend/src/app/trade_planning/contracts.py` | `a85aaf39f73a95943bb1b633299415062f38f38f9258c38e2e946bb18e284a8c` |
 | `backend/src/app/trade_planning/sizing.py` | `209a1e06b9a2e4d74b2f7f3af5e28269fb674120fbe1e2abaf06174bd61a215c` |
-| `backend/src/app/trade_planning/order_rules.py` | `98f039351d3e5176dc2dbf3b293f3e5ff297e971946858de78a5b195e9b77e48` |
+| `backend/src/app/trade_planning/order_rules.py` | `8fc0a872e57689b190d76d4e6e10a6ef114e53c2e0d39225b23daf3882c310c1` |
 | `backend/src/app/trade_planning/margin.py` | `04aa40f3897ff772c725ac7ca8deb93a05764a08063f2f3ec41550ec235f2ab1` |
-| `backend/src/app/trade_planning/risk_checks.py` | `5fa16beeab241bd7f9ef0aeeeb66c26dca0379abe1f11897ff508677c58475c4` |
+| `backend/src/app/trade_planning/risk_checks.py` | `d38cc29072f1d13b8d56a3642244a55bdba2a9cfed93f464a59d68585fe05ba9` |
 | `backend/src/app/trade_planning/checklist.py` | `78f1e7a683f8a63293e28b8c6444d0618d2759b630897dadadd040b522da28be` |
-| `backend/src/app/trade_planning/inputs.py` | `eada6972f4018d8df9bad5443f47544843dae50f2e997334eb20b2c4558113f6` |
+| `backend/src/app/trade_planning/inputs.py` | `f97f0f54fe932cdf60ac7b5bb9b1a75f802a5c2cf3e376cff349475f5d9b5434` |
 | `backend/src/app/infrastructure/persistence/planning_input_repository.py` | `ab214615d8b8641cccd65792e20c7c880fb50350b9f54c77def96d78e017b601` |
-| `backend/tests/trade_planning/planning_fixtures.py` | `c4499f38d0309e3656336be04daa0e364ab526c2c0a7d0be01e045f1f6a76733` |
-| `backend/tests/trade_planning/test_sizing.py` | `845a70d441e46f5f20f9c68fbaa3f2dc49fd12705119e78c7812c32767834a0e` |
-| `backend/tests/trade_planning/test_risk_checks.py` | `fd73fa294eecdced6541bf7b2d0a1e56266cbf41421e332ef37da2ca3ad1d841` |
+| `backend/tests/trade_planning/planning_fixtures.py` | `b24f324b6490f8167c6d4cb0123d3c4557ae9b41db7238763839104df8ea91a5` |
+| `backend/tests/trade_planning/test_sizing.py` | `65b7fc68bca25e4458bef4237f8120aaa710962cb8680feddce0dbe330268b31` |
+| `backend/tests/trade_planning/test_risk_checks.py` | `483577a10d406344433f33a750d61f2c0c7d4a798ae3231b9c5b203a454793ab` |
 | `backend/tests/trade_planning/test_margin.py` | `f248ac5298cd11e7677543daee75351f902287d73f40ef0313965387aabd281f` |
-| `backend/tests/trade_planning/test_order_rules.py` | `188613de3bdfd9bbe09548453885daf973a8ed76dc1f925d78077fb22d81eefa` |
+| `backend/tests/trade_planning/test_order_rules.py` | `25058d80e54dc9c2ef9d8377a875f0321d9941236952a3394e1ee9b5de8177cd` |
 | `backend/tests/trade_planning/test_checklist.py` | `f5f478c49794843f9da5085ec599f318b3fdc982a84e5695cc13e0ef6e770d49` |
+| `backend/tests/trade_planning/test_inputs.py` | `355e2ed59833983f74a3da4ec6a9f39b0df660f367c85b9f8ea30ae87d1d8f26` |
+| `backend/tests/persistence/test_planning_inputs.py` | `67816ffc080fea1e75f480398e436a8ba9d962cebe42ed5c56c48112f6fdef86` |
 | `AGENTS.md` | `a57c8a9e4a4cc247234fe5a708d1db6932a66f8b563002ab981bae225b2e3b45` |
 | `backend/AGENTS.md` | `27dd630bf2c515f0435500d57a96b8abf193199d0cc2bd2370f89d7bd59c7d5e` |
-| `docs/ai-maintenance.md` | `5713f91732add2222b15c3c1bada815f710714714e3775bdf4c8844b5d96fc04` |
+| `docs/ai-maintenance.md` | `cdfa0548a021925a4fe7289f9b0bde9a1258087cb27060cf5a1adfd7d71c249c` |
 | `docs/operational-boundaries.md` | `6a7254fc86719248bda3187e35822ce0a9e4245dc2a0cc1c57697f186b7ecf45` |
-| `docs/project-status.md` | `281a1cab8046d4b0210569d9875fe08294790b25ddc345c8f95ae6d37fda5633` |
-| `docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md` | `017c0ff4a16f9854c966b2005d3cc8686e2f851da725b40ad93c41773744da45` |
-| `docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md` | `153559a90f8ea3d7d77d482e4a26551d4396d95669b2695f040ab53a516aae15` |
+| `docs/project-status.md` | `52686fdae7834526ff7203345bfa0d8bc583cd486a93f8911179d1ebdee83e9f` |
+| `docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md` | `eed5872aa941ad99d463f858b797ba0b5e53bc0fe03d234e3feebf472416e56e` |
+| `docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md` | `3a6f8cb2b7e589261c726a988d18a576ebc32b8bcf1c6c2296442c2929a7bf5f` |
 
 ## 2. 首轮审查 F1–F8 与修复映射
 
@@ -64,6 +68,16 @@
 | F6/P2 日损检查跨 UTC 午夜 | `daily_risk_current.expires_at = min(profile.expires_at, 下一 UTC 零点)` | `test_daily_risk_check_expires_at_next_utc_midnight` |
 | F7/P2 保证金预览未绑定实际入场价/数量 | `MarginEvidenceFields` 新增可选 `applicable_product`/`applicable_direction`/`applicable_entry_price`/`applicable_quantity`；预览要求六项（产品、方向、入场价、数量、名义额、初始保证金）一致，缺失为 unknown；T03 历史快照/请求按 `fields_set` 不物化新字段，旧 ref/request_id 保持兼容 | `test_preview_binds_entry_price_and_quantity`、`test_preview_binds_product_and_direction`、T03 `test_planning_inputs` SQL 重放回归 |
 | F8/P2 市价边界依赖调用方 Decimal 精度 | 市价上界加乘/比较放入显式 80 位 `localcontext`；低精度调用方不能放宽或错误拒绝边界 | `test_reported_market_boundary_is_precision_independent`、`test_market_bound_is_independent_of_caller_decimal_precision`、`test_sizing_is_independent_of_caller_decimal_precision` |
+
+### 2.1 二次复审 R1–R5 与修复映射
+
+| 发现 | 修复 | 回归证据 |
+| --- | --- | --- |
+| R1/P1 `PlanningRequest` 要求 profile/policy/refs 三个池代次完全相等，拒绝 T03 正常返回的当前池代次 | 只要求 `profile.pool_generation`/`policy.pool_generation` 不晚于 `refs.pool_generation`；保留同池、精确版本和未来代次拒绝 | `test_current_pool_generation_can_advance_after_profile_and_policy`、`test_profile_generation_newer_than_current_pool_is_rejected`、真实 SQL `test_t12_accepts_t03_resolved_refs_after_generation_advances`（profile=1、policy=2、refs=3） |
+| R2/P2 强平检查使用未绑定/不适用预览 | `liquidation_distance_safe` 仅在 `margin_preview_matches=PASS` 后比较；预览 unknown/fail 时强平一律 unknown，即使参考价数值看似安全或危险 | `test_liquidation_is_unknown_until_preview_is_applicable`（方向缺失参考 96/60、产品错配） |
+| R3/P2 保守一格调整量仍随调用方 Decimal 精度 | `_resolve_exit_price` 的调整量减法/绝对值放入显式 80 位 localcontext | `test_conservative_tolerance_is_independent_of_caller_decimal_precision`（报告中的 tick/止损值在 precision 6 通过） |
+| R4/P2 缺少账户模式掩盖已知占用冲突 | 先独立判断已知非零仓位/挂单：有正值即 fail；再对模式缺失/未知字段返回 unknown | `test_known_exposure_conflict_is_visible_when_mode_is_missing`（position_mode=None + notional=10 → existing_position_unsupported） |
+| R5/P3 冻结省略绑定字段的草稿物化显式 null | `MarginEvidence.build` 包装为 profile 形状调用清理函数；清理函数同时支持扁平保证金正文；省略字段不进入 fields_set/归档载荷，显式 null 保留 | `test_margin_preview_binding_fields_preserve_omitted_vs_explicit_null`（直接证据 build + profile versioned_payload） |
 
 补充：触发价明确为**人工观察阈值**，允许不在 tick 格点，但必须位于取整后的可执行入场带；只有实际入场价、止损和目标价格是交易所订单参数。回归 `test_off_grid_trigger_is_a_manual_observation_threshold`。首轮审查报告位于 `T12-review-result.md`。
 
@@ -138,11 +152,12 @@
 | 检查 | 完整命令 | 退出码 | 实际结果 | 证据路径 |
 | --- | --- | --- | --- | --- |
 | 首轮审查反例复现（修复前） | `uv run --locked --no-sync pytest tests/trade_planning/test_sizing.py tests/trade_planning/test_risk_checks.py tests/trade_planning/test_margin.py tests/trade_planning/test_order_rules.py tests/trade_planning/test_checklist.py -q --basetemp=../.tmp/pytest/t12-r1-red-1` | 1 | 11 failed / 69 passed；F1–F8 对应反例在修复前失败 | `.tmp/pytest/t12-r1-red-1` |
-| T12 五文件聚焦 | 同命令（修复后，`--basetemp=../.tmp/pytest/t12-r1-focused-final`） | 0 | 71 passed / 0 failed / 0 skipped | `.tmp/pytest/t12-r1-focused-final` |
-| 全部 trade_planning | `uv run --locked --no-sync pytest tests/trade_planning -q --basetemp=../.tmp/pytest/t12-r1-green-11` | 0 | 86 passed（含 T03 既有 15 项；T12 新增 71 项） | `.tmp/pytest/t12-r1-green-11` |
-| 阶段（T01/T03 SQL + 安全） | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security -q --basetemp=../.tmp/pytest/t12-r1-stage-sql-3` | 0 | 198 passed / 0 failed / 0 skipped | `.tmp/pytest/t12-r1-stage-sql-3` |
-| 后端 quick | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t12-r1-final-quick-backend.json` | 0 | `verification=passed`；1267 collected / 1267 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t12-r1-final-quick-backend.json` |
-| 独立 PostgreSQL full | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t12-r1-final-full-backend.json` | 0 | `verification=passed`；1506 collected / 1506 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t12-r1-final-full-backend.json` |
+| T12 五文件聚焦 | 同命令（R1–R5 修复后，`--basetemp=../.tmp/pytest/t12-r2-focused-final`） | 0 | 76 passed / 0 failed / 0 skipped | `.tmp/pytest/t12-r2-focused-final` |
+| 全部 trade_planning | `uv run --locked --no-sync pytest tests/trade_planning -q --basetemp=../.tmp/pytest/t12-r2-green-2` | 0 | 92 passed（含 T03 既有 16 项；T12 新增 76 项） | `.tmp/pytest/t12-r2-green-2` |
+| R1 SQL 集成 | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/persistence/test_planning_inputs.py::test_t12_accepts_t03_resolved_refs_after_generation_advances -q --basetemp=../.tmp/pytest/t12-r2-r1-sql` | 0 | 1 passed | `.tmp/pytest/t12-r2-r1-sql` |
+| 阶段（T01/T03 SQL + 安全） | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security -q --basetemp=../.tmp/pytest/t12-r2-stage-sql` | 0 | 205 passed / 0 failed / 0 skipped | `.tmp/pytest/t12-r2-stage-sql` |
+| 后端 quick | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t12-r2-final-quick-backend.json` | 0 | `verification=passed`；1273 collected / 1273 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t12-r2-final-quick-backend.json` |
+| 独立 PostgreSQL full | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/t12-r2-final-full-backend.json` | 0 | `verification=passed`；1513 collected / 1513 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t12-r2-final-full-backend.json` |
 | Ruff / 格式 / Pyright / 架构 | `uv run --locked --no-sync ruff check .`；`ruff format --check .`；`pyright`；`python -m scripts.check_architecture` | 0 | Ruff/格式通过；Pyright 0 errors/0 warnings；architecture `status=passed`，`files_scanned=93`，`findings=[]` | 终端输出 |
 | 迁移链 | `uv run --locked --no-sync alembic heads` | 0 | `0027_agent_segments (head)` | 终端输出 |
 
@@ -181,5 +196,5 @@
 ## 8. 审查状态声明
 
 - 自测状态：**`verified`**（上述命令与结果）。
-- 正式审查状态：**`awaiting_review`**。首轮审查已判定 `changes_requested`；当前修复版本尚未取得复审通过，不预填结论。
+- 正式审查状态：**`awaiting_review`**。首轮与二次复审均判定 `changes_requested`；R1–R5 修复版本尚未取得复审通过，不预填结论。
 - 开发模型及本地自动检查不替代原审查助手对当前 tip 的正式结论；未进入 T13。
