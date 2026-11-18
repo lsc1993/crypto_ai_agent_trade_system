@@ -1026,7 +1026,7 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 
 - 2026-11-20 用户传回原审查助手正式结论：R1–R5 全部关闭，T12 复审 **approved**；`reviewed_tip=9a55aad`（tree `ddb94ce`），报告 `docs/superpowers/reviews/manual-agent/T12-rereview-9a55aad.md`。
 - 复审确认：T03 当前池代次可晚于 profile/policy 创建代次；强平仅在预览适用后比较；多空保守取整在 Decimal 6/28/80 一致；缺模式时已知占用仍 fail；产品/方向/入场价/数量绑定的省略与显式 null 组合保持归档键集合。
-- 当前 `verified`/`approved`。按用户指令整理并合并到 `main`；合并 tip 与推送结果在合并后的 docs 提交记录。T13 readiness/采纳/资金池占用仍未实现。
+- 当前 `verified`/`approved`。按用户指令整理并以 fast-forward 合并到 `main`（合并 tip `f267978`），已推送 `origin/main`。T13 readiness/采纳/资金池占用仍未实现。
 
 ### T12 环境与审查请求
 
@@ -1050,5 +1050,5 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
 12. T11 首轮 `changes_requested`（3 项）及二次复审 `changes_requested`（R1/R2）均已关闭；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。2026-11-17 原审查助手复审通过（`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`。按用户指令整理并 fast-forward 合并到 `main`（合并 tip `6a9ed12`），本 docs 提交记录结果；不自动进入 T12。
-13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`；修复到 `d0f5aee` 后二次复审又判定 1 P1 + 3 P2 + 1 P3 不通过。R1–R5 修复 tip `9a55aad`（tree `ddb94ce`，`d3e0964..9a55aad` 14 个文件 +324/-55）；五文件 76、全部 trade_planning 92、阶段 205、quick 1273、独立 PostgreSQL full 1513 passed，静态检查通过。2026-11-20 原审查助手复审通过（`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，报告 `T12-review-result.md`、`T12-rereview-d0f5aee.md`、`T12-rereview-9a55aad.md`。按用户指令合并到 `main`；T13 仍未实现。
+13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`；修复到 `d0f5aee` 后二次复审又判定 1 P1 + 3 P2 + 1 P3 不通过。R1–R5 修复 tip `9a55aad`（tree `ddb94ce`，`d3e0964..9a55aad` 14 个文件 +324/-55）；五文件 76、全部 trade_planning 92、阶段 205、quick 1273、独立 PostgreSQL full 1513 passed，静态检查通过。2026-11-20 原审查助手复审通过（`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，报告 `T12-review-result.md`、`T12-rereview-d0f5aee.md`、`T12-rereview-9a55aad.md`。按用户指令以 fast-forward 合并到 `main`（合并 tip `f267978`）并推送；T13 仍未实现。
 14. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
