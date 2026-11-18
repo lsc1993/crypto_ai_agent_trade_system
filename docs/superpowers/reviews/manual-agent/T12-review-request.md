@@ -6,7 +6,7 @@
 - 首轮审查：**`changes_requested`**（2 P1 + 6 P2，报告 `docs/superpowers/reviews/manual-agent/T12-review-result.md`；受审范围 `c33613d..ef198f8`，tree `136c688`）。
 - 二次复审：**`changes_requested`**（1 P1 + 3 P2 + 1 P3，报告 `docs/superpowers/reviews/manual-agent/T12-rereview-d0f5aee.md`；受审实现 `d0f5aee`，tree `e310be4`）。
 - 当前自测状态：**`verified`**（F1–F8 与 R1–R5 修复、回归、T12 聚焦、阶段 SQL/安全、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
-- 当前正式审查状态：**`awaiting_review`**（等待原审查助手对 R1–R5 修复版本复审；开发自测不替代正式结论）。
+- 当前正式审查状态：**`approved`**（2026-11-20 原审查助手复审通过，`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`；报告 `T12-rereview-9a55aad.md`）。
 - 日期：2026-11-20。
 
 ## 1. 工作区、分支与提交范围
@@ -23,8 +23,9 @@
 | R1–R5 修复范围 | `d3e0964..9a55aad`，14 个文件，+324/-55（源码、测试、契约/计划/状态同步；不含本次复审请求/进度更新） |
 | 当前代码/规范范围 | `c33613d..9a55aad`，28 个文件，+4757/-24（含首轮实现、两轮修复、审查报告/请求 docs；不含本次复审请求/进度更新） |
 | 本次 docs 提交 | 本复审请求、进度更新与二次复审报告归档在代码提交之后单独提交；具体 hash 见最终交付回复，不写入 `implementation tip` |
-| review_status | `awaiting_review`（R1–R5 修复后待原审查助手复审） |
-| reviewed_tip | 尚无（当前修复版本未取得复审通过） |
+| review_status | `approved`（2026-11-20 原审查助手复审通过） |
+| reviewed_tip | `9a55aadf9c5752da5563820173b480033f2ce948` |
+| reviewed_tree | `ddb94ce43404bdf9338c4fdacce2e2d7a4c4ba8a` |
 
 主工作区未因本轮改动；未修改 `.env`、凭证、业务库、生产配置、模拟盘资金/风控或交易执行链路。未调用真实模型、真实 MCP、私有账户或交易接口。
 
@@ -196,5 +197,5 @@
 ## 8. 审查状态声明
 
 - 自测状态：**`verified`**（上述命令与结果）。
-- 正式审查状态：**`awaiting_review`**。首轮与二次复审均判定 `changes_requested`；R1–R5 修复版本尚未取得复审通过，不预填结论。
+- 正式审查状态：**`approved`**。首轮与二次复审均判定 `changes_requested`；R1–R5 修复后原审查助手于 2026-11-20 复审通过（`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`，报告 `T12-rereview-9a55aad.md`）。
 - 开发模型及本地自动检查不替代原审查助手对当前 tip 的正式结论；未进入 T13。

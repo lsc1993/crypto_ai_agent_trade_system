@@ -952,18 +952,20 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 | 任务 | T12；`trade_planning/contracts.py`、`sizing.py`、`order_rules.py`、`margin.py`、`risk_checks.py`、`checklist.py`；`inputs.py`/`planning_input_repository.py` 的预览绑定与历史兼容 |
 | FR/AC/HN | FR-09/FR-14/FR-15/FR-16；AC-21 至 AC-26；HN-13。软件数值正确性不代表策略盈利或计划可实施 |
 | 时间 | 2026-11-20 |
-| 任务状态 | `verified`（实现、聚焦/阶段/SQL 依赖/quick/full/静态检查完成）；正式审查 `awaiting_review` |
-| review_status | `awaiting_review`（首轮 `changes_requested` 后修复，待原审查助手复审） |
+| 任务状态 | `verified`（实现、聚焦/阶段/SQL 依赖/quick/full/静态检查完成）；正式审查 `approved` |
+| review_status | `approved`（2026-11-20 原审查助手复审通过） |
 | base | `c33613d2c081e95df64b90fa7f09a8bc5f6d9240`（`main`，T11 合并记录） |
 | 首轮 implementation tip | `ef198f871da811cb29894a19580cb04f76ac99af`（`feat: calculate deterministic manual trade plans`；首轮审查 `changes_requested`） |
 | 二次复审 implementation tip | `d0f5aeeb02a43119248139a1922fd526939f5ddc`（tree `e310be4`；二次复审 `changes_requested`） |
 | implementation tip | `9a55aadf9c5752da5563820173b480033f2ce948`（`fix: accept current pool generations and complete planning guards`） |
 | implementation tree | `ddb94ce43404bdf9338c4fdacce2e2d7a4c4ba8a` |
-| 改动 | 新增 C7 纯契约/数量求解/价格数量规则/保证金/逐项检查/人工清单和 71 项合成测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约；首轮审查后补强退出腿、材料/检查集合绑定、结算比率、缺项分类、日界、保证金预览绑定和市场边界精度；复审 R1–R5 修复 T03 当前池代次、强平预览适用性、保守取整精度、缺模式占用冲突和冻结草稿省略字段 |
+| reviewed_tip | `9a55aadf9c5752da5563820173b480033f2ce948` |
+| reviewed_tree | `ddb94ce43404bdf9338c4fdacce2e2d7a4c4ba8a` |
+| 改动 | 新增 C7 纯契约/数量求解/价格数量规则/保证金/逐项检查/人工清单和 76 项合成测试；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约；首轮审查后补强退出腿、材料/检查集合绑定、结算比率、缺项分类、日界、保证金预览绑定和市场边界精度；复审 R1–R5 修复 T03 当前池代次、强平预览适用性、保守取整精度、缺模式占用冲突和冻结草稿省略字段 |
 | 公共接口 | `PlanningRequest`/`PlanningQuote`/`PlanningReason`/`SizingResult`（含 `material_hash`）/`ValidationCheck`/`PriceGeometry`/`ManualChecklist`/`PLANNING_CHECK_NAMES`；`calculate_size(request)->SizingResult`、`evaluate_planning_risk(request,size)->tuple[ValidationCheck,...]`、`build_manual_checklist(request,size,checks)->ManualChecklist`；均纯函数；`MarginEvidenceFields` 新增可选预览绑定字段 |
 | 依赖/迁移 | 无新增依赖；无新增迁移；迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
 | 验证 | T12 五文件聚焦 76 passed；全部 trade_planning 92 passed；阶段（trade_planning/策略目录/规划资料 SQL/安全）205 passed；quick 后端 1273 passed；独立 PostgreSQL full 1513 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过 |
-| 未验证 | `ManualPlanningService`/readiness/采纳/资金池占用、`ManualPlanRepository`、HTTP/SSE/前端、生产 lifespan、真实公开规则持续可用性、真实用户资料、真实模型语义质量、任何实盘成交或收益；修复版本尚未取得原审查助手复审通过 |
+| 未验证 | `ManualPlanningService`/readiness/采纳/资金池占用、`ManualPlanRepository`、HTTP/SSE/前端、生产 lifespan、真实公开规则持续可用性、真实用户资料、真实模型语义质量、任何实盘成交或收益；正式审查已 approved（`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`） |
 
 ### T12 关键实现结果
 
@@ -1020,13 +1022,19 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 
 修复后五文件 76、全部 trade_planning 92、阶段 205、quick 1273、full 1513 passed；静态检查通过。
 
+### T12 复审通过
+
+- 2026-11-20 用户传回原审查助手正式结论：R1–R5 全部关闭，T12 复审 **approved**；`reviewed_tip=9a55aad`（tree `ddb94ce`），报告 `docs/superpowers/reviews/manual-agent/T12-rereview-9a55aad.md`。
+- 复审确认：T03 当前池代次可晚于 profile/policy 创建代次；强平仅在预览适用后比较；多空保守取整在 Decimal 6/28/80 一致；缺模式时已知占用仍 fail；产品/方向/入场价/数量绑定的省略与显式 null 组合保持归档键集合。
+- 当前 `verified`/`approved`。按用户指令整理并合并到 `main`；合并 tip 与推送结果在合并后的 docs 提交记录。T13 readiness/采纳/资金池占用仍未实现。
+
 ### T12 环境与审查请求
 
 - 隔离工作区 `D:/project_git/t12` 从 `main` 的 `c33613d` 创建；主工作区未改动、未合并/推送/部署。
 - 使用独立 `.venv`（`uv sync --locked`）；专用 PostgreSQL 17 临时容器使用本机回环端口 55435、固定测试库 `crypto_research_test` / 受限角色 `crypto_research_test_runner`，通过 `scripts.check_test_database` 只读身份/权限预检；未指向或迁移业务库，验证后回收容器。
 - 未修改 `.env`、凭证或业务配置；未调用真实模型、真实 MCP、私有账户或交易执行；所有财务/规则/费率均为合成资料。
 - 本轮未执行前端 lint/typecheck/Vitest/build、浏览器 e2e、HTTP e2e 或完整生产 lifespan；原因是 T12 未接入 HTTP/前端/生产装配。
-- 审查请求：`docs/superpowers/reviews/manual-agent/T12-review-request.md`。本轮标记为**待原审查助手审查**（`awaiting_review`）；开发自测不能替代原审查助手正式结论，不自行标记 approved，不进入 T13。
+- 审查请求：`docs/superpowers/reviews/manual-agent/T12-review-request.md`；复审报告 `T12-rereview-9a55aad.md`。2026-11-20 原审查助手复审通过（`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`），当前 `verified`/`approved`；按用户指令合并到 `main`，不自动进入 T13。
 
 ## 后续接续规则
 
@@ -1042,5 +1050,5 @@ T07 提交边界未变：未修改 worker/审计协调器；活动时间在返�
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
 12. T11 首轮 `changes_requested`（3 项）及二次复审 `changes_requested`（R1/R2）均已关闭；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。2026-11-17 原审查助手复审通过（`reviewed_tip=7c1f336`、`reviewed_tree=dacff63`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`。按用户指令整理并 fast-forward 合并到 `main`（合并 tip `6a9ed12`），本 docs 提交记录结果；不自动进入 T12。
-13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`；修复到 `d0f5aee` 后二次复审又判定 1 P1 + 3 P2 + 1 P3 不通过。R1–R5 修复 tip `9a55aad`（tree `ddb94ce`，`d3e0964..9a55aad` 14 个文件 +324/-55）；五文件 76、全部 trade_planning 92、阶段 205、quick 1273、独立 PostgreSQL full 1513 passed，静态检查通过。当前 `verified`/`awaiting_review`（待复审）；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，报告 `T12-review-result.md`、`T12-rereview-d0f5aee.md`。未取得复审通过，不进入 T13。
+13. T12 首轮审查对 `ef198f8` 判定 `changes_requested`；修复到 `d0f5aee` 后二次复审又判定 1 P1 + 3 P2 + 1 P3 不通过。R1–R5 修复 tip `9a55aad`（tree `ddb94ce`，`d3e0964..9a55aad` 14 个文件 +324/-55）；五文件 76、全部 trade_planning 92、阶段 205、quick 1273、独立 PostgreSQL full 1513 passed，静态检查通过。2026-11-20 原审查助手复审通过（`reviewed_tip=9a55aad`、`reviewed_tree=ddb94ce`），当前 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T12-review-request.md`，报告 `T12-review-result.md`、`T12-rereview-d0f5aee.md`、`T12-rereview-9a55aad.md`。按用户指令合并到 `main`；T13 仍未实现。
 14. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。
