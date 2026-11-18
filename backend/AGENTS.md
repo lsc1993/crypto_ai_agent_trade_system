@@ -28,7 +28,7 @@ AI Agent 新增、生成或修改后端代码时，必须把详细中文注释�
 
 - 先读 [AI 维护指南](../docs/ai-maintenance.md)。研究 `agent/` 与策略 `strategy/` 是不同边界：前者生成证据化报告或研究结论，后者生成 `TradeIntent`。`agent/interactive/` 可在授权工具、范围和预算内执行受控模型工具循环；`graph.py` 是唯一模型循环/片段路由，`model_port.py` 定义模型决策与产物暂存协议，`deepseek.py` 只发送原生工具 Schema 并解析观察，不自动重试。`agent/interactive/tools/` 是唯一工具守卫，只调用服务端登记的有界只读研究工具，不接受模型提供的 URL、SQL、代码、连接或凭据。该循环仍不能访问私有账户、模拟订单或真实执行；生产 lifespan/HTTP/前端装配仍待 T14。
 - `infrastructure/mcp/` 只承载固定 loopback 的只读 MCP 端点、进程内服务凭据、有界传输和 `read_strategy_definition` 服务。端点主机/端口/路径、协议和工具输入/输出 Schema 指纹必须来自服务端登记；不接受模型/用户提供的 URL、命令、stdio、sampling、roots、动态 elicitation 或外部服务发现。MCP 结果必须经 `agent/interactive/tools/` 网关的预算/目录/fence 校验，不能直连模型或形成第二条调用路径；T11 图只通过注入的 `ToolPort` 消费工具，MCP 的 HTTP/SSE、前端和生产 lifespan 仍待 T14。
-- `agent_runs/` 与 `trade_planning/` 不得反向依赖 `app.agent`、交易/风控放行或模拟执行实现；研究回测仍可按既有边界读取模拟成交契约。
+- `agent_runs/` 与 `trade_planning/` 不得反向依赖 `app.agent`、交易/风控放行或模拟执行实现；研究回测仍可按既有边界读取模拟成交契约。`trade_planning/` 的 T12 模块只提供纯数量/成本/保证金/风险检查和人工清单，不读写数据库、不调用 LLM、订单、私有账户或 `TradeIntent`；计划采纳、readiness、HTTP/前端和生产装配仍待 T13/T14。
 - `governance/` 是系统级 Harness 的治理内核，保持受限协调层，通过注入的协议执行固定研究工作流；禁止引入模型工具循环、私有账户、模拟盘或执行服务调用。`HarnessAudit*` 存储类型及既有 `harness_*` 表/事件值保留，但代码不得再导入 `app.harness`。
 - 模型输出必须经过确定性契约、证据引用和文本校验。不要为消除降级而直接放宽验证、伪造证据或复用旧数据冒充新采集。
 - 动态 `ResearchSymbol` 需经目录准入；交易、回测、模拟盘继续遵循各自静态契约，不能全局替换 `ContractSymbol`。
@@ -61,5 +61,6 @@ uv run pytest
 | MCP 端点、有界传输、只读服务与关闭生命周期 | `tests/mcp/`、`tests/tooling/test_mcp_lifespan.py`、`tests/security/test_agent_dependency_boundary.py` |
 | 报告字段与迁移 | 报告/API/仓储/迁移测试，以及对应前端解码与展示测试 |
 | 策略、回测、风控、模拟成交 | `tests/strategy/`、`tests/research/backtests/`、`tests/risk/`、`tests/execution/`、`tests/paper_trading/` |
+| 手动规划金额/数量/风险/保证金/清单 | `tests/trade_planning/` |
 
 模型与外部 HTTP 回归优先使用固定样本和替身，测试不能依赖真实模型密钥或发起真实交易。策略相关改动另遵循根目录关于未来数据、手续费、滑点、部分成交、幂等、风控与模拟盘差异的验证要求。

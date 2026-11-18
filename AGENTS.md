@@ -33,11 +33,12 @@
 | `market/`、`news/`、`symbols/` | 受治理公开源、研究币种准入与初始同步；动态 `ResearchSymbol` 不扩展交易契约的 `ContractSymbol` |
 | `research/backtests/`、`strategy/` | 确定性回测与策略；策略生成 `TradeIntent`，不得包含实盘密钥或真实下单实现 |
 | `risk/`、`execution/`、`paper_trading/` | 确定性风控、模拟成交与模拟账户；当前 `execution/` 是模拟器，不代表已接入真实交易所执行 |
+| `trade_planning/` | 本地规划资料、确定性数量/成本/保证金/风险检查与人工清单纯函数；不读写数据库、不调用 LLM/订单/私有账户，尚未实现计划采纳、HTTP/前端或可实施状态 |
 | `infrastructure/persistence/` | 数据库模型、仓储及不可变报告和审计记录；迁移位于 `backend/alembic/` |
 | `infrastructure/mcp/` | 固定 loopback 只读 MCP 端点、服务凭据、有界传输与 `read_strategy_definition` 服务；不接受任意 URL/stdio/外部发现，不持有交易或账户能力 |
 | `api/`、`shared/`、`dashboard/`、`trades/` | HTTP 契约、配置、日志、看板与交易日志/复盘 |
 
-`governance/` 是系统级 Harness 的准入与审计内核，不等于全部 Harness 能力。`HarnessAudit*` 存储类型以及既有 `harness_*` 表、审计事件值和日志名保留，以兼容历史记录；代码导入不得再使用 `app.harness`。当前生产仍是固定研究图；`agent/interactive/tools/` 已提供模块级工具契约、目录和逐次守卫，`agent/interactive/` 已提供模型驱动 LangGraph 模块（原生 Tool Calling、预算包装、工具观察回路与准备态人工等待），`infrastructure/mcp/` 已提供固定 loopback 的真实 TCP 只读 MCP 适配；但 HTTP/前端及生产 lifespan/worker 装配尚未完成，不能据此宣称生产模型已可调用工具。
+`governance/` 是系统级 Harness 的准入与审计内核，不等于全部 Harness 能力。`HarnessAudit*` 存储类型以及既有 `harness_*` 表、审计事件值和日志名保留，以兼容历史记录；代码导入不得再使用 `app.harness`。当前生产仍是固定研究图；`agent/interactive/tools/` 已提供模块级工具契约、目录和逐次守卫，`agent/interactive/` 已提供模型驱动 LangGraph 模块（原生 Tool Calling、预算包装、工具观察回路与准备态人工等待），`infrastructure/mcp/` 已提供固定 loopback 的真实 TCP 只读 MCP 适配；`trade_planning/` 已提供 T12 确定性数量/成本/保证金/风险检查和人工清单模块，但计划采纳、持久化、HTTP/前端及生产 lifespan/worker 装配尚未完成，不能据此宣称生产模型已可调用工具或手动规划闭环已上线。
 
 MCP 客户端/服务只用于已登记的本地只读 `read_strategy_definition` 端点，协议、工具输入/输出 Schema 指纹、目标主机/端口/路径和进程内凭据均由服务端登记；不得接受模型或用户文本指定的 URL、命令、stdio、sampling、roots、动态 elicitation 或外部服务发现。MCP 工具调用仍必须经 `agent/interactive/tools/` 的预算/目录/fence 守卫，不能形成绕过网关的第二条路径。`mcp`/`httpx2` 是当前仅用于该适配器的生产依赖；现有 `httpx` 继续服务公开源和模型。
 
