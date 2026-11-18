@@ -279,12 +279,14 @@ class FakeBudget:
         mark_sent_error_at: int | None = None,
         mark_sent_error: AgentRunErrorCode = "budget_exhausted",
         initial_active_seconds: int = 0,
+        on_mark_sent: Callable[[], None] | None = None,
     ) -> None:
         self.reserve_error_at = reserve_error_at
         self.reserve_error: AgentRunErrorCode = reserve_error
         self.mark_sent_error_at = mark_sent_error_at
         self.mark_sent_error: AgentRunErrorCode = mark_sent_error
         self._active_seconds = initial_active_seconds
+        self._on_mark_sent = on_mark_sent
         self.reserve_calls: list[AttemptRequest] = []
         self.marked_sent: list[UUID] = []
         self.settled: list[tuple[UUID, AttemptResult]] = []
@@ -342,6 +344,8 @@ class FakeBudget:
     async def mark_sent(self, fence: RunFence, attempt_id: UUID) -> None:
         _ = fence
         self.marked_sent.append(attempt_id)
+        if self._on_mark_sent is not None:
+            self._on_mark_sent()
         if self.mark_sent_error_at is not None and len(self.marked_sent) == self.mark_sent_error_at:
             raise AgentRunError(self.mark_sent_error)
 

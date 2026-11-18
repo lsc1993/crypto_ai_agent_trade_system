@@ -284,7 +284,10 @@ class DeepSeekToolCallingModel:
             async with self._client.stream(
                 "POST",
                 _DEEPSEEK_COMPLETIONS_URL,
-                headers={"Authorization": f"Bearer {secret_value}"},
+                headers={
+                    "Authorization": f"Bearer {secret_value}",
+                    "Accept-Encoding": "identity",
+                },
                 json=payload,
                 timeout=self._timeout_seconds,
             ) as response:
@@ -294,7 +297,12 @@ class DeepSeekToolCallingModel:
                     response.raise_for_status()
                 except httpx.HTTPStatusError as error:
                     raise ModelCallError("model_upstream_error") from error
-                async for chunk in response.aiter_bytes():
+                content_encoding = response.headers.get("content-encoding", "")
+                if content_encoding.strip().lower() not in {"", "identity"}:
+                    # 拒绝压缩响应，避免 HTTPX 在校验 256 KiB 前先解压并分配更大内存。
+                    raise ModelCallError("model_content_encoding_unsupported")
+                # aiter_raw 不经 HTTPX 解压；identity 编码下与真实传输字节一致。
+                async for chunk in response.aiter_raw():
                     if len(content) + len(chunk) > MAX_MODEL_RESPONSE_BYTES:
                         raise ModelCallError("model_response_too_large")
                     content.extend(chunk)

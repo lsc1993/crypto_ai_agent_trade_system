@@ -450,6 +450,36 @@ async def test_activity_time_is_recorded_when_runner_raises() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mark_sent_elapsed_activity_stops_before_model_request() -> None:
+    clock_value = [fixtures.NOW]
+
+    def clock() -> datetime:
+        return clock_value[0]
+
+    def mark_sent_takes_two_seconds() -> None:
+        clock_value[0] = fixtures.NOW + timedelta(seconds=2)
+
+    budget = fixtures.FakeBudget(
+        initial_active_seconds=584,
+        on_mark_sent=mark_sent_takes_two_seconds,
+    )
+    model = fixtures.FakeModel([fixtures.final_analysis()])
+    outcome, _ = await _run(
+        decisions=[],
+        model=model,
+        clock=clock,
+        budget=budget,
+    )
+
+    assert outcome.kind is SegmentOutcomeKind.DEGRADED
+    assert outcome.safe_reason == "budget_exhausted"
+    assert model.contexts == []
+    assert budget.settled and budget.settled[0][1].status.value == "failed"
+    assert budget.settled[0][1].reason_code == "budget_exhausted_before_request"
+    assert budget.activity == [2]
+
+
+@pytest.mark.asyncio
 async def test_activity_time_is_recorded_when_runner_is_cancelled() -> None:
     execution_context = fixtures.context()
     snapshot = fixtures.snapshot(execution_context)

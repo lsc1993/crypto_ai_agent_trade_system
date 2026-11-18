@@ -715,6 +715,22 @@ def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
     return tuple(values)
 
 
+# mark_sent 已提交但活动时间在提交等待中耗尽：按已发送失败结算，保留次数占用且不发送请求。
+async def _settle_sent_before_request(
+    scope: _RunScope,
+    attempt_id: UUID,
+    reason: str,
+) -> None:
+    await scope.dependencies.budget.settle(
+        scope.context.fence,
+        attempt_id,
+        AttemptResult(
+            status=AttemptStatus.FAILED,
+            reason_code=_safe_reason(reason, "budget_exhausted_before_request"),
+        ),
+    )
+
+
 # 发送前失败时释放已预留 attempt；结算失败不掩盖原始发送错误，交给恢复器处理。
 async def _release_prepared(
     scope: _RunScope,
@@ -791,6 +807,16 @@ async def _call_model(scope: _RunScope, model_context: ModelContext) -> ModelDec
             raise _GraphStop(SegmentOutcomeKind.CANCELLED, "user_cancelled") from error
         raise
     scope.model_calls += 1
+    try:
+        # mark_sent 的等待时间也必须计入活动预算；此时账本已标记 sent，不能再按 prepared 释放。
+        _enforce_activity_budget(scope, status)
+    except _GraphStop:
+        await _settle_sent_before_request(
+            scope,
+            step.attempt_id,
+            "budget_exhausted_before_request",
+        )
+        raise
     try:
         decision = await deps.model.decide(model_context)
     except ModelCallError as error:

@@ -88,10 +88,22 @@ class _Recorder:
     def __init__(self, responses: list[dict[str, Any]]) -> None:
         self.responses = responses
         self.requests: list[dict[str, Any]] = []
+        self.headers: list[httpx.Headers] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(json.loads(request.content))
-        return httpx.Response(200, json=self.responses.pop(0))
+        self.headers.append(request.headers)
+        payload = json.dumps(
+            self.responses.pop(0),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return httpx.Response(
+            200,
+            stream=_ChunkStream([payload]),
+            headers={"content-type": "application/json"},
+        )
 
 
 # 构造适配器；trace_sink 只收集合成元数据，不写入任何日志或文件。
@@ -140,6 +152,7 @@ async def test_native_tool_request_is_sent_and_batch_is_parsed() -> None:
     assert decision.usage.output_tokens == 30
 
     request = recorder.requests[0]
+    assert recorder.headers[0]["accept-encoding"] == "identity"
     assert request["model"] == "deepseek-v4-pro"
     assert request["thinking"] == {"type": "disabled"}
     assert request["max_tokens"] == 4096
@@ -413,6 +426,34 @@ async def test_oversized_stream_is_closed_before_consuming_later_chunks() -> Non
 
     assert captured.value.code == "model_response_too_large"
     assert stream.yielded == 2
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_compressed_response_is_rejected_before_decompression() -> None:
+    execution_context = fixtures.context()
+    base = fixtures.model_context(execution_context)
+    stream = _ChunkStream([b"compressed-not-read"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        _ = request
+        return httpx.Response(
+            200,
+            stream=stream,
+            headers={
+                "content-type": "application/json",
+                "content-encoding": "gzip",
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    model = _adapter(_Recorder([]), client=client)
+
+    with pytest.raises(ModelCallError) as captured:
+        await model.decide(base)
+
+    assert captured.value.code == "model_content_encoding_unsupported"
+    assert stream.yielded == 0
     assert stream.closed is True
 
 
