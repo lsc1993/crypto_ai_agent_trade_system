@@ -14,7 +14,11 @@ from app.trade_planning.margin import (
     liquidation_distance_ok,
     margin_preview_reasons,
 )
-from tests.trade_planning.planning_fixtures import build_request
+from tests.trade_planning.planning_fixtures import build_request, product
+
+
+def _product(symbol: str):
+    return product(symbol)
 
 
 # 逐仓初始保证金 = 名义额 / 声明杠杆；除法结果向上保留到 18 位，避免低估占用。
@@ -33,6 +37,8 @@ def test_margin_preview_must_match_plan_notional_and_initial_margin() -> None:
     assert (
         margin_preview_reasons(
             request,
+            entry_price=Decimal("100"),
+            quantity=Decimal("1.9"),
             notional=Decimal("190"),
             initial_margin=Decimal("95"),
         )
@@ -41,6 +47,8 @@ def test_margin_preview_must_match_plan_notional_and_initial_margin() -> None:
 
     notional_mismatch = margin_preview_reasons(
         request,
+        entry_price=Decimal("100"),
+        quantity=Decimal("1.7"),
         notional=Decimal("170"),
         initial_margin=Decimal("85"),
     )
@@ -48,6 +56,8 @@ def test_margin_preview_must_match_plan_notional_and_initial_margin() -> None:
 
     margin_mismatch = margin_preview_reasons(
         request,
+        entry_price=Decimal("100"),
+        quantity=Decimal("1.9"),
         notional=Decimal("190"),
         initial_margin=Decimal("94"),
     )
@@ -102,6 +112,54 @@ def test_margin_helpers_reject_non_positive_inputs() -> None:
     with pytest.raises(PlanningCalculationError):
         margin_preview_reasons(
             request,
+            entry_price=Decimal("0"),
+            quantity=Decimal("0"),
             notional=Decimal("0"),
             initial_margin=Decimal("0"),
         )
+
+
+# 名义额和初始保证金相同不代表同一预览：必须绑定实际入场价和数量，避免把
+# 50×3.8 的强平参考套到 100×1.9 的计划。
+def test_preview_binds_entry_price_and_quantity() -> None:
+    request = build_request(
+        margin_overrides={
+            "applicable_entry_price": "50",
+            "applicable_quantity": "3.8",
+        }
+    )
+
+    reasons = margin_preview_reasons(
+        request,
+        entry_price=Decimal("100"),
+        quantity=Decimal("1.9"),
+        notional=Decimal("190"),
+        initial_margin=Decimal("95"),
+    )
+    assert PlanningReason.MARGIN_PREVIEW_MISMATCH in reasons
+
+
+# 预览还必须绑定产品与方向；同一数量/名义额不能跨多头/空头或不同产品复用。
+def test_preview_binds_product_and_direction() -> None:
+    wrong_direction = build_request(
+        direction=StrategyDirection.SHORT,
+        margin_overrides={"applicable_direction": "long"},
+    )
+    direction_reasons = margin_preview_reasons(
+        wrong_direction,
+        entry_price=Decimal("100"),
+        quantity=Decimal("1.9"),
+        notional=Decimal("190"),
+        initial_margin=Decimal("95"),
+    )
+    assert PlanningReason.MARGIN_PREVIEW_MISMATCH in direction_reasons
+
+    wrong_product = build_request(margin_overrides={"applicable_product": _product("ETHUSDT")})
+    product_reasons = margin_preview_reasons(
+        wrong_product,
+        entry_price=Decimal("100"),
+        quantity=Decimal("1.9"),
+        notional=Decimal("190"),
+        initial_margin=Decimal("95"),
+    )
+    assert PlanningReason.MARGIN_PREVIEW_MISMATCH in product_reasons

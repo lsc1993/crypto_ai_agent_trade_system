@@ -46,26 +46,43 @@ def margin_capacity(request: PlanningRequest) -> Decimal:
 def margin_preview_reasons(
     request: PlanningRequest,
     *,
+    entry_price: Decimal,
+    quantity: Decimal,
     notional: Decimal,
     initial_margin: Decimal,
 ) -> tuple[PlanningReason, ...]:
-    if notional <= 0 or initial_margin <= 0:
+    if entry_price <= 0 or quantity <= 0 or notional <= 0 or initial_margin <= 0:
         raise PlanningCalculationError(
-            "保证金预览核对需要正名义额和正保证金",
+            "保证金预览核对需要正入场价、数量、名义额和保证金",
             code=PlanningReason.CALCULATION_FAILED.value,
         )
     evidence = request.profile.margin_evidence
     if evidence is None:
         return (PlanningReason.MARGIN_EVIDENCE_INCOMPLETE,)
 
+    # 预览绑定字段在 T03 历史快照中可缺失；缺失是待补资料，不是“已核对不匹配”。
+    if (
+        not evidence.is_complete
+        or evidence.applicable_entry_price is None
+        or evidence.applicable_quantity is None
+        or evidence.applicable_product is None
+        or evidence.applicable_direction is None
+    ):
+        return (PlanningReason.MARGIN_EVIDENCE_INCOMPLETE,)
+
     reasons: list[PlanningReason] = []
-    if not evidence.is_complete:
-        reasons.append(PlanningReason.MARGIN_EVIDENCE_INCOMPLETE)
+    if (
+        evidence.applicable_entry_price != entry_price
+        or evidence.applicable_quantity != quantity
+        or evidence.applicable_product != request.profile.product
+        or evidence.applicable_direction != request.candidate.direction.value
+    ):
+        reasons.append(PlanningReason.MARGIN_PREVIEW_MISMATCH)
     if evidence.applicable_notional != notional:
         reasons.append(PlanningReason.MARGIN_PREVIEW_NOT_APPLICABLE)
     if evidence.required_margin != initial_margin:
         reasons.append(PlanningReason.MARGIN_PREVIEW_MISMATCH)
-    return tuple(reasons)
+    return tuple(dict.fromkeys(reasons))
 
 
 # 保护性止损必须位于强平参考价的安全一侧：多头强平价更低、空头更高。

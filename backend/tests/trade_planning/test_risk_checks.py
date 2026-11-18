@@ -3,12 +3,13 @@
 # 测试只使用合成资料，不访问数据库、网络、模型、账户或交易服务。
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.trade_planning.contracts import (
     CheckBasis,
     CheckStatus,
+    OrderOperation,
     PlanningRequest,
     SizingResult,
     ValidationCheck,
@@ -208,3 +209,111 @@ def test_incomplete_margin_evidence_makes_preview_and_liquidation_unknown() -> N
     assert checks["margin_evidence_complete"].status is CheckStatus.UNKNOWN
     assert checks["margin_preview_matches"].status is CheckStatus.UNKNOWN
     assert checks["liquidation_distance_safe"].status is CheckStatus.UNKNOWN
+
+
+# SizingResult 必须与本次 PlanningRequest 的材料指纹一致；旧数量+新政策不能全 pass。
+def test_mismatched_sizing_material_blocks_required_checks() -> None:
+    old_request = build_request()
+    old_size = calculate_size(old_request)
+    tightened = build_request(policy_overrides={"max_quantity": "0.1", "max_risk_per_trade": "1"})
+    checks = evaluate_planning_risk(tightened, old_size)
+    by_name = {check.name: check for check in checks}
+
+    assert by_name["sizing_material_matches"].status is CheckStatus.FAIL
+    assert any(check.required and check.status is not CheckStatus.PASS for check in checks)
+
+
+# 未填日损日期/账户模式/市价最大不利价属于资料缺失，应为 unknown；不能伪装成
+# 过期、模式不支持或硬冲突。
+def test_missing_inputs_are_unknown_not_hard_failures() -> None:
+    daily = build_request(profile_overrides={"daily_risk_as_of": None})
+    daily_size = calculate_size(daily)
+    daily_checks = {check.name: check for check in evaluate_planning_risk(daily, daily_size)}
+    assert daily_checks["daily_risk_current"].status is CheckStatus.UNKNOWN
+
+    modes = build_request(profile_overrides={"margin_mode": None, "position_mode": None})
+    mode_size = calculate_size(modes)
+    mode_checks = {check.name: check for check in evaluate_planning_risk(modes, mode_size)}
+    assert mode_checks["product_supported"].status is CheckStatus.UNKNOWN
+
+    market = build_request(order_operation=OrderOperation.MARKET)
+    market_size = calculate_size(market)
+    market_checks = {check.name: check for check in evaluate_planning_risk(market, market_size)}
+    assert market_checks["market_price_bound_supported"].status is CheckStatus.UNKNOWN
+    assert market_checks["price_grid_valid"].status is CheckStatus.UNKNOWN
+
+
+# 当日风险声明到 UTC 午夜失效；23:59:55 通过后不能把次日凌晨的旧日损额度继续
+# 视为有效。
+def test_daily_risk_check_expires_at_next_utc_midnight() -> None:
+    evaluated = datetime(2026, 11, 20, 23, 59, 55, tzinfo=UTC)
+    declared = datetime(2026, 11, 20, 23, 55, tzinfo=UTC)
+    request = build_request(evaluated_at=evaluated, declared_at=declared)
+    _, checks = _checks_by_name(request)
+
+    assert checks["daily_risk_current"].status is CheckStatus.PASS
+    assert checks["daily_risk_current"].expires_at == datetime(2026, 11, 21, 0, 0, tzinfo=UTC)
+
+
+# 退出订单类型和 MARKET_LOT_SIZE 也必须验证；仅校验入场 LIMIT/step 会放行不可执行
+# 的止损/目标退出。
+def test_exit_order_types_and_market_exit_filters_are_validated() -> None:
+    limit_only = build_request(rules_overrides={"order_types": ("LIMIT",)})
+    _, limit_checks = _checks_by_name(limit_only)
+    assert limit_checks["exit_order_types_supported"].status is CheckStatus.FAIL
+
+    coarse_exit = build_request(
+        rules_overrides={
+            "market_quantity_step": "1",
+            "market_min_quantity": "1",
+        }
+    )
+    coarse_size, coarse_checks = _checks_by_name(coarse_exit)
+    assert coarse_size.quantity == Decimal("1.9")
+    assert coarse_checks["stop_exit_quantity_valid"].status is CheckStatus.FAIL
+    assert coarse_checks["target_exit_quantity_valid"].status is CheckStatus.FAIL
+
+
+# 保证金预览必须绑定实际入场价和数量，不能只因名义额/初始保证金相同就复用。
+def test_margin_preview_binds_entry_price_and_quantity() -> None:
+    request = build_request(
+        margin_overrides={
+            "applicable_entry_price": "50",
+            "applicable_quantity": "3.8",
+        }
+    )
+    _, checks = _checks_by_name(request)
+
+    assert checks["margin_preview_matches"].status is CheckStatus.FAIL
+    assert checks["margin_preview_matches"].reason_code == "margin_preview_mismatch"
+
+
+# 审查报告 F4 的精确反例：结算后损失 2e-18、收益 1e-18 时比率必须为 0.5，
+# 不能被未量化的 1.727... 绕过 1.5 门槛。
+def test_reported_final_settlement_ratio_case() -> None:
+    request = build_request(
+        cost_overrides={
+            "entry_fee_rate": "0",
+            "stop_exit_fee_rate": "0",
+            "target_exit_fee_rate": "0",
+        },
+        policy_overrides={"max_notional": "0.0000000000000001"},
+        rules_overrides={
+            "price_tick": "0.1",
+            "quantity_step": "0.000000000000000001",
+            "min_quantity": "0.000000000000000001",
+            "min_notional": "0.000000000000000001",
+            "market_quantity_step": "0.000000000000000001",
+            "market_min_quantity": "0.000000000000000001",
+        },
+        candidate_overrides={
+            "stop_loss": Decimal("98.9"),
+            "target": Decimal("101.9"),
+        },
+    )
+    size, checks = _checks_by_name(request)
+
+    assert size.stop_path_loss == Decimal("0.000000000000000002")
+    assert size.target_net_reward == Decimal("0.000000000000000001")
+    assert size.net_reward_risk_ratio == Decimal("0.5")
+    assert checks["reward_risk_ratio_met"].status is CheckStatus.FAIL

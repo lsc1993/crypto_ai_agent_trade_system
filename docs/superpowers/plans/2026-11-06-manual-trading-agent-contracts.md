@@ -72,7 +72,7 @@ class KnowledgeIndex(Protocol):
 | `PlanningRiskPolicy` | 用户确认的单笔风险额、最大名义额/数量/杠杆、最小净盈亏比、日损与组合约束、止损强制要求、冷却/熔断规则，全部版本化；无默认金额、比例或杠杆，不读取模拟盘 RiskConfig |
 | `VenueRuleSnapshot` | ProductKey、合约乘数/数量单位、PRICE_FILTER/LOT_SIZE/MARKET_LOT_SIZE/MIN_NOTIONAL 等适用过滤器、交易状态、订单/触发/有效期支持、规则时刻/来源/有效期；缺项不可用，不能只看 pricePrecision/quantityPrecision |
 | `CostAssumptions` | 入场/止损/目标退出费率、滑点/价差与持有成本情景及上界、来源/声明/有效期；同一项不得在成交价和附加费重复计入 |
-| `MarginEvidence` | 逐仓模式、声明杠杆、适用名义额/维持保证金档位或交易所界面预览、保证金需求/强平参考/触发价基准、来源和有效期；用户资料标 user_declared，不能伪装公共 API 已核实 |
+| `MarginEvidence` | 逐仓模式、声明杠杆、适用名义额/维持保证金档位或交易所界面预览、保证金需求/强平参考/触发价基准、来源和有效期；T12 预览绑定可选字段 `applicable_product`/`applicable_direction`/`applicable_entry_price`/`applicable_quantity` 用于证明预览对应当前计划，缺失时为待补，历史 T03 快照不物化这些默认值。用户资料标 user_declared，不能伪装公共 API 已核实 |
 
 首批支持目录只发布 BTCUSDT、ETHUSDT 的 Binance USDT 线性永续、逐仓、新入场；这只是实施起点，不更改研究目录或模拟盘契约。反向、全仓、多资产、同品种已有仓位/挂单合并以及不支持订单模式明确阻断。新增规划产品需规则与回归证据，不能从研究准入自动加入。
 
@@ -182,7 +182,7 @@ T11 实现细节：新增 `agent/interactive/model_port.py`、`deepseek.py`、`p
 
 ## C7. 确定性规划、产物与占用
 
-`trade_planning/contracts.py` 定义 `PlanningRequest`：合法 PriceCandidate、精确策略 ref、PlanningRefs，以及解析并核对指纹后的 `profile: PlanningProfileSnapshot`、`policy: PlanningRiskPolicy`、`rules: VenueRuleSnapshot`、`costs: CostAssumptions`、当前公开报价引用/时刻、订单操作选择；MarginEvidence 从 profile 中读取。纯函数接收完整已解析数据，不通过引用自行查库。`SizingResult`：Decimal 数量/名义额/保证金/止损路径风险/目标情景净收益/净盈亏比与计算版本；`ValidationCheck`：name/required/pass-fail-unknown/basis/source/time/material_hash/expires_at/reason_code。
+`trade_planning/contracts.py` 定义 `PlanningRequest`：合法 PriceCandidate、精确策略 ref、PlanningRefs，以及解析并核对指纹后的 `profile: PlanningProfileSnapshot`、`policy: PlanningRiskPolicy`、`rules: VenueRuleSnapshot`、`costs: CostAssumptions`、当前公开报价引用/时刻、订单操作选择、评估时刻；MarginEvidence 从 profile 中读取。纯函数接收完整已解析数据，不通过引用自行查库。`SizingResult`：Decimal 数量/名义额/保证金/止损路径风险/目标情景净收益/净盈亏比与计算版本，**并携带本请求的 `material_hash`**；检查入口和清单入口都必须核对它。`ValidationCheck`：name/required/pass-fail-unknown/basis/source/time/material_hash/expires_at/reason_code。`PLANNING_CHECK_NAMES` 固定完整检查集合；`ManualChecklist` 要求完整名称、顺序和按操作类型的 required 语义。
 
 ```python
 # trade_planning/sizing.py：纯函数，无网络/LLM
@@ -208,11 +208,13 @@ Readiness 固定为 draft/needs_inputs/blocked/ready_for_review/ready_for_manual
 
 T12 实现细节（纯计算，尚无持久化/HTTP/采纳）：`trade_planning/contracts.py` 定义 `PlanningQuote`（artifact/price/observed/expires/source/可选 max_adverse_price）、`PlanningRequest`（候选、精确策略 ref、C3 refs/正文、报价、评估时刻、订单操作）、`PriceGeometry`、`SizingResult`、`ValidationCheck`、`ManualChecklist` 及稳定原因码 `PlanningReason`。`PlanningRequest` 校验 refs/正文/资金池代次/产品一致，拒绝未来声明和未来报价；`material_sha256` 绑定候选、版本、报价引用/时刻/价格和操作，刻意不含评估时钟，便于 T13 在有效期内重读同一材料。
 
-`calculate_size` 先检查资料/政策完整性、订单类型/GTC，再解析有限价格几何。入场带按 tick 向内取整（下界 ceil、上界 floor），触发价必须落在格点区间；止损/目标在 `strict` 下要求对齐，在 `conservative_one_tick` 下只向风险不利方向移动一个 tick。市价单必须有 `max_adverse_price`，位于取整后入场带，并与当前报价及声明的滑点/价差上界一致；否则阻断。风险额度 R 取政策单笔/日损/组合上限与资料剩余单笔/日损/组合风险的较小值。单单位止损路径损失 L 和目标净收益 W 使用成本上界：出场价按滑点+价差不利调整，入场/止损退出费、目标退出费和持有成本各计一次；限价入场使用限价，市价入场使用最大不利成交价，不重复叠加第二次入场滑点。数量上限取 R/L、政策名义额/数量、规则数量、可用保证金（min(可用额度, 规划资金) × 杠杆）和 `min_notional` 后置复核；数量只按 step 向下取整，结算值固定 18 位且风险/保证金向上、收益/比率向下。最小数量/名义额冲突直接 blocked，不向上加量或移动结构。风险政策最小净盈亏比不在求解阶段放大数量，而是由 `reward_risk_ratio_met` 检查阻断 readiness。
+`calculate_size` 先检查资料/政策完整性、订单类型/GTC，再解析有限价格几何。入场带按 tick 向内取整（下界 ceil、上界 floor），触发价是人工观察阈值、允许离格但必须落在可执行带；止损/目标在 `strict` 下要求对齐，在 `conservative_one_tick` 下只向风险不利方向移动一个 tick。市价单必须有 `max_adverse_price`，位于取整后入场带，并与当前报价及声明的滑点/价差上界一致；该比较使用显式 80 位上下文，不继承调用方 Decimal 精度。风险额度 R 取政策单笔/日损/组合上限与资料剩余单笔/日损/组合风险的较小值。单单位止损路径损失 L 和目标净收益 W 使用成本上界：出场价按滑点+价差不利调整，入场/止损退出费、目标退出费和持有成本各计一次；限价入场使用限价，市价入场使用最大不利成交价，不重复叠加第二次入场滑点。数量上限取 R/L、政策名义额/数量、规则数量、可用保证金（min(可用额度, 规划资金) × 杠杆）和 `min_notional` 后置复核；数量只按 step 向下取整；**最终净盈亏比由向上量化的止损损失和向下量化的目标收益复算**，结算值为零时返回带稳定原因的 blocked，不构造非法结果。最小数量/名义额冲突直接 blocked，不向上加量或移动结构。风险政策最小净盈亏比不在求解阶段放大数量，而是由 `reward_risk_ratio_met` 检查阻断 readiness。
 
-`evaluate_planning_risk` 返回固定唯一名称的 required/非 required 检查：资料/政策完整、资料/成本/规则/报价/候选/保证金时效、当日损益声明、冷却/熔断、产品/模式、已有仓位/挂单、杠杆、价格格点、订单类型/TIF、市价上界、数量/最小订单/上限、计划风险、净盈亏比、初始保证金、保证金证据/预览/强平方向、保护性止损与目标退出分配。缺失或无法证明的项为 unknown；只有实际确定性冲突才 fail。保证金预览只接受与本次名义额和初始保证金完全一致的 `user_declared` 证据；强平检查只验证止损位于预览参考价的安全一侧，不声称真实强平公式或账户已核实。`build_manual_checklist` 复用同一材料/检查，输出分层核对项（program_verified/user_declared/manual_confirmation_required）和未成交/部分成交/跳价/超时/到期/成本或规则变化等人工分支；固定 `execution_mode=manual`，不含 TradeIntent、订单号或自动发/撤单入口，阻断项完整列出。
+`evaluate_planning_risk` 返回 `PLANNING_CHECK_NAMES` 固定顺序的 required/非 required 检查：资料/政策完整、资料/成本/规则/报价/候选/保证金时效、当日损益声明（有效期截短至下一 UTC 零点）、冷却/熔断、产品/模式、已有仓位/挂单、杠杆、价格格点、入场/退出订单类型、TIF、市价上界、SizingResult 材料绑定、数量/最小订单/上限、计划风险、净盈亏比、初始保证金、保证金证据/预览/强平方向、逐退出腿 MARKET_LOT_SIZE 步长/上下限/最小名义额、保护性止损与目标退出分配。缺失或无法证明的项为 unknown；只有实际确定性冲突才 fail。保证金预览要求 `applicable_product`/`applicable_direction`/`applicable_entry_price`/`applicable_quantity`/名义额/初始保证金与本次计划一致；强平检查只验证止损位于预览参考价的安全一侧，不声称真实强平公式或账户已核实。`build_manual_checklist` 拒绝与请求材料不一致的 size/check，要求完整固定检查集合和正确 required 语义，再输出分层核对项（program_verified/user_declared/manual_confirmation_required）和未成交/部分成交/跳价/超时/到期/成本或规则变化等人工分支；固定 `execution_mode=manual`，不含 TradeIntent、订单号或自动发/撤单入口，阻断项完整列出。
 
-T12 未实现 `ManualPlanningService.build/revalidate`、`ManualPlanRepository.stage/read`、readiness/采纳/资金池占用、HTTP/前端、生产 lifespan 或业务库迁移；`SizingResult` 只表示候选在本请求材料下的确定性数值，不等于可实施、已采纳或收益。`tests/trade_planning/planning_fixtures.py` 为合成测试夹具，新增 53 项测试；无新增依赖/迁移，迁移 head 仍为 `0027_agent_segments`。
+T12 未实现 `ManualPlanningService.build/revalidate`、`ManualPlanRepository.stage/read`、readiness/采纳/资金池占用、HTTP/前端、生产 lifespan 或业务库迁移；`SizingResult` 只表示候选在本请求材料下的确定性数值，不等于可实施、已采纳或收益。`tests/trade_planning/planning_fixtures.py` 为合成测试夹具，新增 71 项测试；无新增依赖/迁移，迁移 head 仍为 `0027_agent_segments`。
+
+首轮正式审查（`c33613d..ef198f8`）判定 `changes_requested`：F1 退出腿类型/过滤器未验证、F2 SizingResult 未绑定材料、F3 清单接受不完整检查集合、F4 结算比率未复算、F5 缺项被标硬冲突、F6 日损检查跨 UTC 午夜、F7 保证金预览未绑定入场价/数量/产品/方向、F8 市价边界依赖调用方 Decimal 精度。修复增加 `SizingResult.material_hash`、`PLANNING_CHECK_NAMES` 完整/required 校验、逐退出腿检查、结算后金额复算、缺项 unknown、日界截断、预览绑定字段（历史 T03 快照按 fields_set 兼容）和显式 80 位市场边界；修复后聚焦 86、阶段 198、quick 1267、full 1506 passed。
 
 `trade_planning/ports.py:ManualPlanRepository` 提供 async `stage(fence: RunFence, plan: ManualTradePlan, checks: tuple[ValidationCheck, ...]) -> ArtifactRef` 与 `read(workspace_id: UUID, plan_id: UUID) -> ManualPlanView | None`；草案写入也检查 fence，采纳/池占用仍只由 coordinator 原子应用。ManualPlanView 带 serverNow、checkedAt/expiresAt 与来源；浏览器用服务端参考时间和接收后的经过时间判断过期，后台页重新可见时重新读取，不让设备时钟偏差维持旧可实施标记。清单导出选 UTF-8 Markdown，使用固定模板和 UUID/版本文件名，保留有效期/依据/人工分支，不输出交易所可提交请求。
 

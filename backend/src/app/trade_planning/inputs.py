@@ -195,6 +195,12 @@ class MarginEvidenceFields(AgentModel):
     margin_mode: MarginMode
     leverage: DecimalText
     applicable_notional: DecimalText
+    # T12 预览绑定：适用入场价和数量与名义额一起证明预览确实对应本计划。
+    # 可选以兼容首轮 T03 历史快照；T12 在执行前会要求它们与计划一致。
+    applicable_entry_price: DecimalText | None = None
+    applicable_quantity: DecimalText | None = None
+    applicable_product: ProductKey | None = None
+    applicable_direction: Literal["long", "short"] | None = None
     maintenance_margin_rate: DecimalText | None = None
     maintenance_margin_amount: DecimalText | None = None
     required_margin: DecimalText
@@ -216,6 +222,8 @@ class MarginEvidenceFields(AgentModel):
             raise ValueError("首期规划只支持逐仓保证金模式")
         _require_positive(self.leverage, field="杠杆")
         _require_positive(self.applicable_notional, field="适用名义额")
+        _require_positive(self.applicable_entry_price, field="适用入场价")
+        _require_positive(self.applicable_quantity, field="适用数量")
         _require_non_negative(self.required_margin, field="所需保证金")
         if self.maintenance_margin_rate is not None:
             _require_non_negative(self.maintenance_margin_rate, field="维持保证金率")
@@ -283,6 +291,7 @@ class MarginEvidence(MarginEvidenceFields):
         expires_at: datetime,
     ) -> MarginEvidence:
         content = draft.model_dump(mode="json", by_alias=False)
+        _strip_unset_margin_preview(content, draft)
         content.update(
             {
                 "declared_at": _utc_json(declared_at),
@@ -527,12 +536,13 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
     def content_sha256(self) -> str:
         excluded = {"ref", "cooldown_status"} if self.is_legacy_profile else {"ref"}
         payload = self.model_dump(mode="json", by_alias=False, exclude=excluded)
+        _strip_unset_margin_preview(payload, self.margin_evidence)
         return sha256_json(cast(JsonValue, payload))
 
     # 历史归档序列化保留原字段集合，避免把默认 None 物化后破坏旧 ref；
     # 新版快照仍序列化全部字段。
     def versioned_payload(self) -> JsonObject:
-        return cast(
+        payload = cast(
             JsonObject,
             self.model_dump(
                 mode="json",
@@ -540,6 +550,8 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
                 exclude_unset=self.is_legacy_profile,
             ),
         )
+        _strip_unset_margin_preview(payload, self.margin_evidence)
+        return payload
 
     @field_validator("declared_at", "expires_at")
     @classmethod
@@ -614,9 +626,7 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
                 "pool_id": str(pool_id),
                 "pool_generation": pool_generation,
                 "margin_evidence": (
-                    None
-                    if margin_evidence is None
-                    else margin_evidence.model_dump(mode="json", by_alias=False)
+                    None if margin_evidence is None else _margin_evidence_payload(margin_evidence)
                 ),
                 "costs_ref": (
                     None if costs_ref is None else costs_ref.model_dump(mode="json", by_alias=False)
@@ -627,6 +637,41 @@ class PlanningProfileSnapshot(PlanningProfileFields, VersionedPlanningSnapshot):
             }
         )
         return _seal_snapshot(cls, version_id=version_id, content=cast(JsonObject, content))
+
+
+# T12 新增的预览绑定字段必须按 fields_set 决定是否进入旧指纹/序列化；否则把默认
+# None 物化后会让 T03 首轮快照的 ref 改变。这里只对未显式提供的字段做删除。
+_MARGIN_PREVIEW_FIELDS = (
+    "applicable_entry_price",
+    "applicable_quantity",
+    "applicable_product",
+    "applicable_direction",
+)
+
+
+def _strip_unset_margin_preview(
+    payload: JsonObject,
+    evidence: MarginEvidenceFields | None,
+) -> None:
+    if evidence is None:
+        return
+    nested = payload.get("margin_evidence")
+    if not isinstance(nested, dict):
+        return
+    nested_payload = cast(dict[str, object], nested)
+    for field in _MARGIN_PREVIEW_FIELDS:
+        if field not in evidence.model_fields_set:
+            nested_payload.pop(field, None)
+
+
+# 保证金证据归档载荷也按 fields_set 截取；显式绑定字段仍完整写入。
+def _margin_evidence_payload(evidence: MarginEvidence) -> JsonObject:
+    payload = cast(
+        JsonObject,
+        evidence.model_dump(mode="json", by_alias=False),
+    )
+    _strip_unset_margin_preview({"margin_evidence": payload}, evidence)
+    return payload
 
 
 # 校验资料与保证金证据的模式/杠杆一致；草稿和快照共用，避免只在某一层放行。

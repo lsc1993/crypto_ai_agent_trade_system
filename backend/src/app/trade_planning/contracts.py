@@ -102,6 +102,9 @@ class PlanningReason(StrEnum):
     MARGIN_PREVIEW_MISMATCH = "margin_preview_mismatch"
     LIQUIDATION_DISTANCE_UNSAFE = "liquidation_distance_unsafe"
     EXIT_ALLOCATION_INCOMPLETE = "exit_allocation_incomplete"
+    EXIT_ORDER_TYPE_UNSUPPORTED = "exit_order_type_unsupported"
+    EXIT_QUANTITY_STEP_INVALID = "exit_quantity_step_invalid"
+    SIZING_MATERIAL_MISMATCH = "sizing_material_mismatch"
     PRECISION_EXCEEDED = "planning_precision_exceeded"
     CALCULATION_FAILED = "planning_calculation_failed"
 
@@ -133,6 +136,46 @@ class ChecklistVerification(StrEnum):
     PROGRAM_VERIFIED = "program_verified"
     USER_DECLARED = "user_declared"
     MANUAL_CONFIRMATION_REQUIRED = "manual_confirmation_required"
+
+
+# 检查名称是 T13/T14 消费的公共集合；新增/删除必须同步 risk_checks、清单完整性和
+# 下游 readiness，不能只在一处增加一个“总是 pass”的检查。
+PLANNING_CHECK_NAMES: tuple[str, ...] = (
+    "profile_complete",
+    "policy_complete",
+    "profile_current",
+    "costs_current",
+    "rules_current",
+    "quote_current",
+    "candidate_current",
+    "daily_risk_current",
+    "cooldown_inactive",
+    "circuit_breaker_inactive",
+    "product_supported",
+    "existing_exposure_supported",
+    "leverage_within_policy",
+    "price_grid_valid",
+    "order_type_supported",
+    "order_time_in_force_supported",
+    "market_price_bound_supported",
+    "sizing_material_matches",
+    "exit_order_types_supported",
+    "quantity_sized",
+    "min_quantity_met",
+    "min_notional_met",
+    "max_quantity_respected",
+    "max_notional_respected",
+    "risk_within_budget",
+    "reward_risk_ratio_met",
+    "initial_margin_within_capital",
+    "margin_evidence_current",
+    "margin_evidence_complete",
+    "margin_preview_matches",
+    "liquidation_distance_safe",
+    "stop_exit_quantity_valid",
+    "target_exit_quantity_valid",
+    "exit_allocation_complete",
+)
 
 
 # 把中间 Decimal 规范到 18 位；向上用于风险/保证金，向下用于收益/比率。
@@ -322,6 +365,7 @@ class PriceGeometry(AgentModel):
 # 不以 None/默认值冒充已计算，也不让调用方从未完成的中间量继续生成清单。
 class SizingResult(AgentModel):
     status: SizingStatus
+    material_hash: str
     quantity: DecimalText
     notional: DecimalText
     initial_margin: DecimalText
@@ -347,6 +391,13 @@ class SizingResult(AgentModel):
     @classmethod
     def validate_expiry(cls, value: datetime) -> datetime:
         return require_utc(value)
+
+    @field_validator("material_hash")
+    @classmethod
+    def validate_material_hash(cls, value: str) -> str:
+        if not is_sha256(value):
+            raise ValueError("数量结果材料指纹必须是 64 位小写十六进制")
+        return value
 
     @model_validator(mode="after")
     def validate_sizing(self) -> Self:
@@ -479,6 +530,17 @@ class ManualChecklist(AgentModel):
             raise ValueError("阻断清单与逐项检查不一致")
         if not self.items or not self.exception_branches or not self.checks:
             raise ValueError("人工清单必须包含操作步骤、异常分支和逐项检查")
+        if tuple(check.name for check in self.checks) != PLANNING_CHECK_NAMES:
+            raise ValueError("人工清单必须携带完整、固定顺序的检查集合")
+        for check in self.checks:
+            if check.name == "order_time_in_force_supported":
+                expected_required = self.order_operation is OrderOperation.LIMIT
+            elif check.name == "market_price_bound_supported":
+                expected_required = self.order_operation is OrderOperation.MARKET
+            else:
+                expected_required = True
+            if check.required is not expected_required:
+                raise ValueError("人工清单检查的必需性与操作类型不一致")
         if len(set(self.blocking_checks)) != len(self.blocking_checks):
             raise ValueError("阻断清单不能重复")
         return self
@@ -486,6 +548,7 @@ class ManualChecklist(AgentModel):
 
 __all__ = [
     "CALCULATION_PRECISION",
+    "PLANNING_CHECK_NAMES",
     "QUOTE_VALIDITY",
     "SETTLEMENT_PLACES",
     "CheckBasis",

@@ -3,7 +3,7 @@
 # 规则快照为合成公开数据，不读取交易所实时规则或账户。
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, localcontext
 
 import pytest
 
@@ -199,3 +199,89 @@ def test_base_asset_unit_requires_unit_contract_multiplier() -> None:
     with pytest.raises(PlanningCalculationError) as error:
         resolve_prices(request)
     assert error.value.code == PlanningReason.UNIT_INCONSISTENT.value
+
+
+# 触发价是人工观察阈值，不是交易所订单价格：允许离格但必须落在可执行入场带。
+def test_off_grid_trigger_is_a_manual_observation_threshold() -> None:
+    request = build_request(candidate_overrides={"trigger": Decimal("99.9")})
+    prices = resolve_prices(request)
+
+    assert prices.trigger == Decimal("99.9")
+    assert prices.entry_lower <= prices.trigger <= prices.entry_upper
+    assert prices.entry == Decimal("100")
+
+
+# 市价上界比较必须使用显式高精度上下文，不能依赖调用方当前 Decimal 精度。
+def test_market_bound_is_independent_of_caller_decimal_precision() -> None:
+    price = Decimal("1234567890123456789012345678.123456789012345678")
+    penalty = Decimal("0.000000000000000001")
+    with localcontext() as context:
+        context.prec = 80
+        exact = price * (1 + penalty)
+        max_adverse = exact.quantize(Decimal("0.000000000000000001"), rounding=ROUND_CEILING)
+    request = build_request(
+        order_operation=OrderOperation.MARKET,
+        quote_overrides={"price": price, "max_adverse_price": max_adverse},
+        cost_overrides={
+            "slippage_upper_bound": penalty,
+            "spread_upper_bound": "0",
+        },
+        rules_overrides={
+            "price_tick": "0.000000000000000001",
+            "max_price": "111111111111111111111111111111",
+            "min_price": "0.5",
+        },
+        candidate_overrides={
+            "entry_lower": price,
+            "trigger": price,
+            "entry_upper": max_adverse,
+            "stop_loss": price - 1,
+            "target": max_adverse + 1,
+        },
+    )
+    with pytest.raises(PlanningCalculationError) as error:
+        resolve_prices(request)
+    assert error.value.code == PlanningReason.MARKET_PRICE_BOUND_INCONSISTENT.value
+
+
+# 审查报告 F8 的精确边界：合法上界在低精度上下文中仍应通过，再加一个 tick
+# 则必须拒绝；比较不能依赖调用方 Decimal 精度。
+def test_reported_market_boundary_is_precision_independent() -> None:
+    price = Decimal("100000000000.123456789012345678")
+    penalty = Decimal("0.01")
+    with localcontext() as context:
+        context.prec = 80
+        exact = price * (1 + penalty)
+        legal = exact.quantize(Decimal("0.000000000000000001"), rounding=ROUND_FLOOR)
+        illegal = legal + Decimal("0.000000000000000001")
+
+    def request_for(bound: Decimal):
+        return build_request(
+            order_operation=OrderOperation.MARKET,
+            quote_overrides={"price": price, "max_adverse_price": bound},
+            cost_overrides={
+                "slippage_upper_bound": penalty,
+                "spread_upper_bound": "0",
+            },
+            rules_overrides={
+                "price_tick": "0.000000000000000001",
+                "max_price": "111111111111111111111111111111",
+                "min_price": "0.5",
+            },
+            candidate_overrides={
+                "entry_lower": price,
+                "trigger": price,
+                "entry_upper": bound,
+                "stop_loss": price - 1,
+                "target": bound + 1,
+            },
+        )
+
+    legal_request = request_for(legal)
+    illegal_request = request_for(illegal)
+    with localcontext() as context:
+        context.prec = 6
+        assert resolve_prices(legal_request).entry == legal
+        with pytest.raises(PlanningCalculationError) as error:
+            resolve_prices(illegal_request)
+    assert error.value.code == PlanningReason.MARKET_PRICE_BOUND_INCONSISTENT.value

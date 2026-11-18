@@ -79,6 +79,10 @@ def margin_defaults() -> dict[str, object]:
         "margin_mode": "isolated",
         "leverage": "2",
         "applicable_notional": "190",
+        "applicable_entry_price": "100",
+        "applicable_quantity": "1.9",
+        "applicable_product": product().model_dump(mode="json", by_alias=False),
+        "applicable_direction": "long",
         "maintenance_margin_rate": "0.005",
         "required_margin": "95",
         "liquidation_price_reference": "60",
@@ -231,6 +235,8 @@ def build_request(
 ) -> PlanningRequest:
     cost_payload = cost_defaults()
     cost_payload.update(cost_overrides or {})
+    if "valid_until" not in (cost_overrides or {}):
+        cost_payload["valid_until"] = declared_at + timedelta(minutes=30)
     cost = CostAssumptions.build(
         version_id=COST_VERSION_ID,
         draft=CostAssumptionsDraft.model_validate(cost_payload),
@@ -240,6 +246,10 @@ def build_request(
 
     margin_payload = margin_defaults()
     margin_payload.update(margin_overrides or {})
+    if "valid_until" not in (margin_overrides or {}):
+        margin_payload["valid_until"] = declared_at + timedelta(minutes=30)
+    if "applicable_direction" not in (margin_overrides or {}):
+        margin_payload["applicable_direction"] = direction.value
     margin = MarginEvidence.build(
         draft=MarginEvidenceDraft.model_validate(margin_payload),
         declared_at=declared_at,

@@ -19,6 +19,9 @@ from app.trade_planning.contracts import (
     quantize_decimal,
 )
 
+# 首期退出固定为市价触发保护/目标；规则未声明任一项时不能生成可执行清单。
+EXIT_ORDER_TYPES = ("STOP_MARKET", "TAKE_PROFIT_MARKET")
+
 
 # 订单操作到交易所类型的映射固定；新增类型必须同时有规则、清单分支和测试。
 def order_type_for(request: PlanningRequest) -> str:
@@ -30,6 +33,11 @@ def order_type_for(request: PlanningRequest) -> str:
 # 规则快照未声明该订单类型时明确不支持；不按常见交易所习惯猜测。
 def order_type_supported(request: PlanningRequest) -> bool:
     return request.rules.supports_order_type(order_type_for(request))
+
+
+# 止损和目标退出都需要规则声明对应触发市价类型；仅声明 LIMIT 不够。
+def exit_order_types_supported(request: PlanningRequest) -> bool:
+    return all(request.rules.supports_order_type(order_type) for order_type in EXIT_ORDER_TYPES)
 
 
 # 限价单使用 GTC（取消前有效）；规则未声明时必须阻断，市价单不依赖 TIF。
@@ -92,6 +100,11 @@ def price_on_tick(price: Decimal, tick: Decimal) -> bool:
         context.prec = CALCULATION_PRECISION
         units = price / tick
         return units == units.to_integral_value()
+
+
+# 数量步长复用 tick 的精确整除判断；MARKET_LOT_SIZE 也有独立 step。
+def quantity_on_step(value: Decimal, step: Decimal) -> bool:
+    return price_on_tick(value, step)
 
 
 # 向指定方向取到最近 tick 格点。入场带向内取整；止损/目标只在评估器声明的
@@ -158,16 +171,19 @@ def resolve_prices(request: PlanningRequest) -> PriceGeometry:
                 code=PlanningReason.PRICE_NOT_ON_TICK.value,
             )
         # 市价最不利价必须覆盖当前报价，同时不能超过声明的滑点/价差上界；
-        # 否则成本假设与用户填写的最大成交价不是同一个风险边界。
-        exit_penalty = request.costs.slippage_upper_bound + request.costs.spread_upper_bound
-        if direction is StrategyDirection.LONG:
-            bound_low = request.quote.price
-            bound_high = request.quote.price * (1 + exit_penalty)
-            consistent = bound_low <= entry <= bound_high
-        else:
-            bound_low = request.quote.price * (1 - exit_penalty)
-            bound_high = request.quote.price
-            consistent = bound_low <= entry <= bound_high
+        # 否则成本假设与用户填写的最大成交价不是同一个风险边界。比较必须使用
+        # 显式高精度上下文，不能继承调用方可能只有 28 位的 Decimal 精度。
+        with localcontext() as context:
+            context.prec = CALCULATION_PRECISION
+            exit_penalty = request.costs.slippage_upper_bound + request.costs.spread_upper_bound
+            if direction is StrategyDirection.LONG:
+                bound_low = request.quote.price
+                bound_high = request.quote.price * (1 + exit_penalty)
+                consistent = bound_low <= entry <= bound_high
+            else:
+                bound_low = request.quote.price * (1 - exit_penalty)
+                bound_high = request.quote.price
+                consistent = bound_low <= entry <= bound_high
         if not consistent:
             raise PlanningCalculationError(
                 "最大不利成交价与当前报价/滑点上界不一致",
@@ -265,12 +281,15 @@ def _require_within_filters(price: Decimal, request: PlanningRequest, *, label: 
 
 
 __all__ = [
+    "EXIT_ORDER_TYPES",
+    "exit_order_types_supported",
     "floor_to_step",
     "max_quantity_for",
     "min_quantity_for",
     "order_type_for",
     "order_type_supported",
     "price_on_tick",
+    "quantity_on_step",
     "quantity_step_for",
     "resolve_prices",
     "time_in_force_supported",

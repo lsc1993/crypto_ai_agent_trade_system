@@ -12,6 +12,7 @@ from app.trade_planning.contracts import (
     ChecklistVerification,
     CheckStatus,
     ManualChecklist,
+    PlanningCalculationError,
     PlanningRequest,
 )
 from app.trade_planning.risk_checks import evaluate_planning_risk
@@ -164,7 +165,41 @@ def test_checklist_rejects_checks_from_another_material() -> None:
     checks = evaluate_planning_risk(request, size)
     foreign = checks[0].model_copy(update={"material_hash": "f" * 64})
 
-    from app.trade_planning.contracts import PlanningCalculationError
-
     with pytest.raises(PlanningCalculationError):
         build_manual_checklist(request, size, (foreign, *checks[1:]))
+
+
+# 清单必须收到完整检查集合；只传一个通过项不能把违反政策的计划变成空阻断清单。
+def test_checklist_rejects_incomplete_check_set() -> None:
+    request = build_request()
+    size = calculate_size(request)
+    checks = evaluate_planning_risk(request, size)
+
+    with pytest.raises((PlanningCalculationError, ValueError)):
+        build_manual_checklist(request, size, (checks[0],))
+
+
+# 完整检查集合中把 required 降级也不能绕过阻断；清单必须验证每个检查的必需性。
+def test_checklist_rejects_required_downgrade() -> None:
+    request = build_request()
+    size = calculate_size(request)
+    checks = evaluate_planning_risk(request, size)
+    downgraded = tuple(
+        check.model_copy(update={"required": False})
+        if check.name == "reward_risk_ratio_met"
+        else check
+        for check in checks
+    )
+    with pytest.raises((PlanningCalculationError, ValueError)):
+        build_manual_checklist(request, size, downgraded)
+
+
+# 清单必须拒绝与本请求材料不匹配的数量结果。
+def test_checklist_rejects_size_from_another_material() -> None:
+    old_request = build_request()
+    old_size = calculate_size(old_request)
+    tightened = build_request(policy_overrides={"max_quantity": "0.1", "max_risk_per_trade": "1"})
+    checks = evaluate_planning_risk(tightened, old_size)
+
+    with pytest.raises(PlanningCalculationError):
+        build_manual_checklist(tightened, old_size, checks)

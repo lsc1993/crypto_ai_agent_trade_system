@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from uuid import UUID
 
 import pytest
@@ -284,3 +284,64 @@ def test_material_hash_excludes_evaluation_clock() -> None:
 
     assert later.material_sha256() == request.material_sha256()
     assert later.evaluated_at != request.evaluated_at
+
+
+# SizingResult 必须绑定本请求的材料指纹；否则旧请求的数量可以套到新政策/资料上。
+def test_sizing_result_binds_request_material() -> None:
+    request = build_request()
+    size = calculate_size(request)
+
+    assert size.material_hash == request.material_sha256()
+
+
+# 结算精度会把极小的 L/W 量化到 1e-18 格点；返回的净盈亏比必须由最终结算金额
+# 复算，不能用未量化的原始比率绕过政策门槛。
+def test_ratio_uses_final_quantized_settlement_amounts() -> None:
+    request = build_request(
+        policy_overrides={"max_notional": "0.0000000000000001"},
+        rules_overrides={
+            "quantity_step": "0.000000000000000001",
+            "min_quantity": "0.000000000000000001",
+            "min_notional": "0.000000000000000001",
+            "market_quantity_step": "0.000000000000000001",
+            "market_min_quantity": "0.000000000000000001",
+        },
+    )
+    size = calculate_size(request)
+
+    assert size.status is SizingStatus.SIZED
+    assert size.stop_path_loss == Decimal("0.000000000000000006")
+    assert size.target_net_reward == Decimal("0.000000000000000009")
+    assert size.net_reward_risk_ratio == Decimal("1.5")
+
+
+# 若最终收益量化到 0，必须返回 blocked，而不是构造非法的 SizingResult/抛 Pydantic
+# ValidationError；否则调用方无法得到稳定原因。
+def test_zero_quantized_reward_blocks_without_validation_error() -> None:
+    request = build_request(
+        policy_overrides={"max_notional": "0.0000000000000001"},
+        rules_overrides={
+            "quantity_step": "0.000000000000000001",
+            "min_quantity": "0.000000000000000001",
+            "min_notional": "0.000000000000000001",
+            "market_quantity_step": "0.000000000000000001",
+            "market_min_quantity": "0.000000000000000001",
+        },
+        candidate_overrides={"target": Decimal("100.5")},
+    )
+    size = calculate_size(request)
+
+    assert size.status is SizingStatus.BLOCKED
+    assert PlanningReason.REWARD_NOT_POSITIVE in size.reason_codes
+
+
+# 计算不得继承调用方较低的 Decimal 精度；同一合法请求在低精度上下文中应得到
+# 相同数量/风险/收益/比率。
+def test_sizing_is_independent_of_caller_decimal_precision() -> None:
+    request = build_request()
+    baseline = calculate_size(request)
+    with localcontext() as context:
+        context.prec = 6
+        low_precision = calculate_size(request)
+
+    assert low_precision == baseline

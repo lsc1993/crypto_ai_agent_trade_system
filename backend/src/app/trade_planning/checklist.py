@@ -91,6 +91,11 @@ def build_manual_checklist(
     checks: tuple[ValidationCheck, ...],
 ) -> ManualChecklist:
     material_hash = request.material_sha256()
+    if size.material_hash != material_hash:
+        raise PlanningCalculationError(
+            "数量结果不属于当前规划材料",
+            code=PlanningReason.SIZING_MATERIAL_MISMATCH.value,
+        )
     if any(check.material_hash != material_hash for check in checks):
         raise PlanningCalculationError(
             "人工清单检查不属于当前规划材料",

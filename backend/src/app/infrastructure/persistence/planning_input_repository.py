@@ -833,6 +833,20 @@ def _snapshot_payload(
 # 草稿持久化载荷；与快照相同，使用内部字段名并保留 None。
 def _draft_payload(value: PlanningProfileDraft | PlanningRiskPolicyDraft) -> JsonObject:
     dumped = value.model_dump(mode="json", by_alias=False)
+    # T12 新增的保证金预览绑定字段按 fields_set 决定是否进入请求指纹；历史请求
+    # 没有这两个字段，不能因默认 None 被物化而让旧 request_id 重放误报冲突。
+    if isinstance(value, PlanningProfileDraft) and value.margin_evidence is not None:
+        nested = dumped.get("margin_evidence")
+        if isinstance(nested, dict):
+            nested_payload = cast(dict[str, object], nested)
+            for field in (
+                "applicable_entry_price",
+                "applicable_quantity",
+                "applicable_product",
+                "applicable_direction",
+            ):
+                if field not in value.margin_evidence.model_fields_set:
+                    nested_payload.pop(field, None)
     return cast(JsonObject, copy.deepcopy(dumped))
 
 

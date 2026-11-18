@@ -176,6 +176,7 @@ def _blocked(
     unique = tuple(dict.fromkeys(reasons)) or (PlanningReason.CALCULATION_FAILED,)
     return SizingResult(
         status=SizingStatus.BLOCKED,
+        material_hash=request.material_sha256(),
         quantity=Decimal("0"),
         notional=Decimal("0"),
         initial_margin=Decimal("0"),
@@ -219,22 +220,40 @@ def _sized_result(
         notional = quantity * multiplier * prices.entry
         loss = unit_costs.loss * quantity
         reward = unit_costs.reward * quantity
-        ratio = unit_costs.reward / unit_costs.loss
-    if ratio <= 0:
-        raise PlanningCalculationError(
-            "单单位目标净收益必须为正",
-            code=PlanningReason.REWARD_NOT_POSITIVE.value,
-        )
     rounded_notional = quantize_decimal(notional, direction="up")
     margin = initial_margin_for(rounded_notional, leverage)
+    rounded_loss = quantize_decimal(loss, direction="up")
+    rounded_reward = quantize_decimal(reward, direction="down")
+    # 结算量化后的金额才是用户看到的计划风险/收益；比率必须由这两个金额复算，
+    # 不能用未量化的原始比率绕过最小盈亏比，也不能在收益量化为零时构造非法结果。
+    if rounded_loss <= 0:
+        raise PlanningCalculationError(
+            "结算后的止损路径损失必须为正",
+            code=PlanningReason.LOSS_NOT_POSITIVE.value,
+        )
+    if rounded_reward <= 0:
+        raise PlanningCalculationError(
+            "结算后的目标净收益必须为正",
+            code=PlanningReason.REWARD_NOT_POSITIVE.value,
+        )
+    with localcontext() as context:
+        context.prec = CALCULATION_PRECISION
+        exact_ratio = rounded_reward / rounded_loss
+    rounded_ratio = quantize_decimal(exact_ratio, direction="down")
+    if rounded_ratio <= 0:
+        raise PlanningCalculationError(
+            "结算后的净盈亏比必须为正",
+            code=PlanningReason.REWARD_NOT_POSITIVE.value,
+        )
     return SizingResult(
         status=SizingStatus.SIZED,
+        material_hash=request.material_sha256(),
         quantity=quantity,
         notional=rounded_notional,
         initial_margin=margin,
-        stop_path_loss=quantize_decimal(loss, direction="up"),
-        target_net_reward=quantize_decimal(reward, direction="down"),
-        net_reward_risk_ratio=quantize_decimal(ratio, direction="down"),
+        stop_path_loss=rounded_loss,
+        target_net_reward=rounded_reward,
+        net_reward_risk_ratio=rounded_ratio,
         risk_budget=risk_budget,
         entry_price=prices.entry,
         stop_price=prices.stop,
@@ -349,7 +368,10 @@ def calculate_size(request: PlanningRequest) -> SizingResult:
             quantity_step=prices.quantity_step,
         )
     multiplier = request.rules.contract_multiplier
-    if quantity * multiplier * prices.entry < request.rules.min_notional:
+    with localcontext() as context:
+        context.prec = CALCULATION_PRECISION
+        entry_notional = quantity * multiplier * prices.entry
+    if entry_notional < request.rules.min_notional:
         return _blocked(
             request,
             (PlanningReason.MIN_NOTIONAL_NOT_MET,),

@@ -4,10 +4,12 @@
 # 不修改计划、不调用 LLM、不生成 TradeIntent；unknown 不能被 T13 当作通过。
 from __future__ import annotations
 
-from datetime import datetime
-from decimal import Decimal
+from datetime import datetime, timedelta
+from decimal import Decimal, localcontext
 
 from app.trade_planning.contracts import (
+    CALCULATION_PRECISION,
+    PLANNING_CHECK_NAMES,
     CheckBasis,
     CheckStatus,
     OrderOperation,
@@ -24,7 +26,9 @@ from app.trade_planning.margin import (
     margin_preview_reasons,
 )
 from app.trade_planning.order_rules import (
+    exit_order_types_supported,
     order_type_supported,
+    quantity_on_step,
     resolve_prices,
     time_in_force_supported,
 )
@@ -160,22 +164,29 @@ def _freshness_checks(request: PlanningRequest) -> tuple[ValidationCheck, ...]:
         expires_at=request.candidate.valid_until,
         reason=(PlanningReason.CANDIDATE_EXPIRED if now >= request.candidate.valid_until else None),
     )
+    # 当日损益声明在 UTC 午夜失效，检查有效期不能越过下一天；否则 T13 在
+    # 00:00 后仍会把前一天剩余额度当作有效。
+    next_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    daily_expiry = min(request.profile.expires_at, next_midnight)
+    if request.profile.daily_risk_as_of is None:
+        daily_status = CheckStatus.UNKNOWN
+        daily_reason: PlanningReason | None = PlanningReason.PROFILE_INCOMPLETE
+    elif request.profile.daily_risk_as_of == now.date():
+        daily_status = CheckStatus.PASS
+        daily_reason = None
+    else:
+        daily_status = CheckStatus.FAIL
+        daily_reason = PlanningReason.DAILY_RISK_STALE
     daily_current = _check(
         request=request,
         name="daily_risk_current",
         required=True,
-        status=(
-            CheckStatus.PASS if request.profile.daily_risk_as_of == now.date() else CheckStatus.FAIL
-        ),
+        status=daily_status,
         basis=CheckBasis.USER_DECLARED,
         source="profile",
         time=request.profile.declared_at,
-        expires_at=request.profile.expires_at,
-        reason=(
-            None
-            if request.profile.daily_risk_as_of == now.date()
-            else PlanningReason.DAILY_RISK_STALE
-        ),
+        expires_at=daily_expiry,
+        reason=daily_reason,
     )
     return (
         profile_current,
@@ -253,52 +264,62 @@ def _guard_checks(request: PlanningRequest) -> tuple[ValidationCheck, Validation
 def _product_checks(request: PlanningRequest) -> tuple[ValidationCheck, ValidationCheck]:
     catalog = PlanningProductCatalog()
     zero = Decimal("0")
-    product_decision = catalog.evaluate(
-        product=request.profile.product,
-        margin_mode=request.profile.margin_mode,
-        position_mode=request.profile.position_mode,
-        existing_position_notional=zero,
-        existing_position_margin=zero,
-        existing_position_risk=zero,
-        open_order_notional=zero,
-        open_order_margin=zero,
-        open_order_risk=zero,
-        requested_order_types=(),
-    )
-    product_supported = product_decision.reason_code == "supported"
+    if request.profile.margin_mode is None or request.profile.position_mode is None:
+        product_status = CheckStatus.UNKNOWN
+        product_reason: PlanningReason | None = PlanningReason.PROFILE_INCOMPLETE
+        exposure_status = CheckStatus.UNKNOWN
+        exposure_reason: PlanningReason | None = PlanningReason.PROFILE_INCOMPLETE
+    else:
+        product_decision = catalog.evaluate(
+            product=request.profile.product,
+            margin_mode=request.profile.margin_mode,
+            position_mode=request.profile.position_mode,
+            existing_position_notional=zero,
+            existing_position_margin=zero,
+            existing_position_risk=zero,
+            open_order_notional=zero,
+            open_order_margin=zero,
+            open_order_risk=zero,
+            requested_order_types=(),
+        )
+        product_supported = product_decision.reason_code == "supported"
+        product_status = CheckStatus.PASS if product_supported else CheckStatus.FAIL
+        product_reason = (
+            None if product_supported else _support_reason(product_decision.reason_code)
+        )
+
+        exposure_decision = catalog.evaluate(
+            product=request.profile.product,
+            margin_mode=request.profile.margin_mode,
+            position_mode=request.profile.position_mode,
+            existing_position_notional=request.profile.existing_position_notional,
+            existing_position_margin=request.profile.existing_position_margin,
+            existing_position_risk=request.profile.existing_position_risk,
+            open_order_notional=request.profile.open_order_notional,
+            open_order_margin=request.profile.open_order_margin,
+            open_order_risk=request.profile.open_order_risk,
+            requested_order_types=(),
+        )
+        if exposure_decision.reason_code == "supported":
+            exposure_status = CheckStatus.PASS
+            exposure_reason = None
+        elif exposure_decision.reason_code == "existing_exposure_unknown":
+            exposure_status = CheckStatus.UNKNOWN
+            exposure_reason = PlanningReason.EXPOSURE_UNKNOWN
+        else:
+            exposure_status = CheckStatus.FAIL
+            exposure_reason = _support_reason(exposure_decision.reason_code)
     product = _check(
         request=request,
         name="product_supported",
         required=True,
-        status=CheckStatus.PASS if product_supported else CheckStatus.FAIL,
+        status=product_status,
         basis=CheckBasis.DETERMINISTIC_CALCULATION,
         source="product_catalog",
         time=request.profile.declared_at,
         expires_at=request.profile.expires_at,
-        reason=(None if product_supported else _support_reason(product_decision.reason_code)),
+        reason=product_reason,
     )
-
-    exposure_decision = catalog.evaluate(
-        product=request.profile.product,
-        margin_mode=request.profile.margin_mode,
-        position_mode=request.profile.position_mode,
-        existing_position_notional=request.profile.existing_position_notional,
-        existing_position_margin=request.profile.existing_position_margin,
-        existing_position_risk=request.profile.existing_position_risk,
-        open_order_notional=request.profile.open_order_notional,
-        open_order_margin=request.profile.open_order_margin,
-        open_order_risk=request.profile.open_order_risk,
-        requested_order_types=(),
-    )
-    if exposure_decision.reason_code == "supported":
-        exposure_status = CheckStatus.PASS
-        exposure_reason = None
-    elif exposure_decision.reason_code == "existing_exposure_unknown":
-        exposure_status = CheckStatus.UNKNOWN
-        exposure_reason = PlanningReason.EXPOSURE_UNKNOWN
-    else:
-        exposure_status = CheckStatus.FAIL
-        exposure_reason = _support_reason(exposure_decision.reason_code)
     exposure = _check(
         request=request,
         name="existing_exposure_supported",
@@ -365,7 +386,12 @@ def _order_checks(request: PlanningRequest) -> tuple[ValidationCheck, ...]:
     except PlanningCalculationError as error:
         price_error = error
     price_reason = _reason_for_error(price_error) if price_error is not None else None
-    price_status = CheckStatus.PASS if price_error is None else CheckStatus.FAIL
+    if price_error is None:
+        price_status = CheckStatus.PASS
+    elif price_reason is PlanningReason.MARKET_PRICE_BOUND_MISSING:
+        price_status = CheckStatus.UNKNOWN
+    else:
+        price_status = CheckStatus.FAIL
     price_check = _check(
         request=request,
         name="price_grid_valid",
@@ -418,7 +444,7 @@ def _order_checks(request: PlanningRequest) -> tuple[ValidationCheck, ...]:
 
     if request.order_operation is OrderOperation.MARKET:
         if request.quote.max_adverse_price is None:
-            market_status = CheckStatus.FAIL
+            market_status = CheckStatus.UNKNOWN
             market_reason = PlanningReason.MARKET_PRICE_BOUND_MISSING
         elif price_error is not None:
             market_status = CheckStatus.FAIL
@@ -448,7 +474,24 @@ def _order_checks(request: PlanningRequest) -> tuple[ValidationCheck, ...]:
             time=request.quote.observed_at,
             expires_at=request.quote.expires_at,
         )
+
     return price_check, order_check, tif_check, market_check
+
+
+# 退出触发市价类型是独立 required 检查；仅声明入场 LIMIT 不能证明保护性退出可提交。
+def _exit_order_type_check(request: PlanningRequest) -> ValidationCheck:
+    supported = exit_order_types_supported(request)
+    return _check(
+        request=request,
+        name="exit_order_types_supported",
+        required=True,
+        status=CheckStatus.PASS if supported else CheckStatus.FAIL,
+        basis=CheckBasis.PUBLIC_SOURCE,
+        source="venue_rules",
+        time=request.rules.observed_at,
+        expires_at=request.rules.expires_at,
+        reason=None if supported else PlanningReason.EXIT_ORDER_TYPE_UNSUPPORTED,
+    )
 
 
 # 把求解错误转换为有限原因；未知错误折叠为计算失败，不回显异常文本。
@@ -461,9 +504,64 @@ def _reason_for_error(error: PlanningCalculationError | None) -> PlanningReason:
         return PlanningReason.CALCULATION_FAILED
 
 
-# 数量相关检查：数量求解成功时全部 pass；资料/政策缺失时 unknown；只有实际
-# 出现的确定性冲突才 fail，不能把所有未知原因都误标成同一项失败。
-def _quantity_checks(request: PlanningRequest, size: SizingResult) -> tuple[ValidationCheck, ...]:
+# 退出数量必须使用 MARKET_LOT_SIZE 的 step/min/max，并按退出价重新核对最小名义额；
+# 只验证入场 LIMIT/step 会放行不可交易的止损/目标。
+def _exit_quantity_check(
+    request: PlanningRequest,
+    *,
+    name: str,
+    quantity: Decimal,
+    price: Decimal | None,
+) -> ValidationCheck:
+    if price is None:
+        return _deterministic_check(
+            request, name, CheckStatus.FAIL, PlanningReason.EXIT_ALLOCATION_INCOMPLETE
+        )
+    rules = request.rules
+    if not quantity_on_step(quantity, rules.market_quantity_step):
+        return _deterministic_check(
+            request, name, CheckStatus.FAIL, PlanningReason.EXIT_QUANTITY_STEP_INVALID
+        )
+    if quantity < rules.market_min_quantity:
+        return _deterministic_check(
+            request, name, CheckStatus.FAIL, PlanningReason.MIN_QUANTITY_NOT_MET
+        )
+    if quantity > rules.market_max_quantity:
+        return _deterministic_check(
+            request, name, CheckStatus.FAIL, PlanningReason.MAX_QUANTITY_EXCEEDED
+        )
+    with localcontext() as context:
+        context.prec = CALCULATION_PRECISION
+        notional = quantity * rules.contract_multiplier * price
+    if notional < rules.min_notional:
+        return _deterministic_check(
+            request, name, CheckStatus.FAIL, PlanningReason.MIN_NOTIONAL_NOT_MET
+        )
+    return _deterministic_check(request, name, CheckStatus.PASS, None)
+
+
+# 数量相关检查：数量求解成功时逐项复算；资料/政策/市价上界缺失时 unknown；
+# 只有实际出现的确定性冲突才 fail，不能把所有未知原因都误标成同一项失败。
+def _quantity_checks(
+    request: PlanningRequest,
+    size: SizingResult,
+    *,
+    size_current: bool,
+) -> tuple[ValidationCheck, ...]:
+    if not size_current:
+        reason = PlanningReason.SIZING_MATERIAL_MISMATCH
+        return tuple(
+            _deterministic_check(request, name, CheckStatus.UNKNOWN, reason)
+            for name in (
+                "quantity_sized",
+                "min_quantity_met",
+                "min_notional_met",
+                "max_quantity_respected",
+                "max_notional_respected",
+                "risk_within_budget",
+            )
+        )
+
     if size.status is SizingStatus.SIZED:
         return (
             _deterministic_check(request, "quantity_sized", CheckStatus.PASS, None),
@@ -472,15 +570,17 @@ def _quantity_checks(request: PlanningRequest, size: SizingResult) -> tuple[Vali
             _deterministic_check(request, "max_quantity_respected", CheckStatus.PASS, None),
             _deterministic_check(request, "max_notional_respected", CheckStatus.PASS, None),
             _deterministic_check(request, "risk_within_budget", CheckStatus.PASS, None),
-            _deterministic_check(request, "stop_exit_quantity_valid", CheckStatus.PASS, None),
-            _deterministic_check(request, "target_exit_quantity_valid", CheckStatus.PASS, None),
-            _deterministic_check(request, "exit_allocation_complete", CheckStatus.PASS, None),
         )
 
     reasons = set(size.reason_codes)
     first_reason = size.reason_codes[0] if size.reason_codes else PlanningReason.QUANTITY_NOT_SIZED
     input_unknown = bool(
-        {PlanningReason.INPUTS_INCOMPLETE, PlanningReason.POLICY_INCOMPLETE} & reasons
+        {
+            PlanningReason.INPUTS_INCOMPLETE,
+            PlanningReason.POLICY_INCOMPLETE,
+            PlanningReason.MARKET_PRICE_BOUND_MISSING,
+        }
+        & reasons
     )
 
     def blocked(name: str, failure: PlanningReason) -> ValidationCheck:
@@ -510,10 +610,62 @@ def _quantity_checks(request: PlanningRequest, size: SizingResult) -> tuple[Vali
         blocked("max_quantity_respected", PlanningReason.MAX_QUANTITY_EXCEEDED),
         blocked("max_notional_respected", PlanningReason.MAX_NOTIONAL_EXCEEDED),
         risk,
-        blocked("stop_exit_quantity_valid", PlanningReason.EXIT_ALLOCATION_INCOMPLETE),
-        blocked("target_exit_quantity_valid", PlanningReason.EXIT_ALLOCATION_INCOMPLETE),
-        blocked("exit_allocation_complete", PlanningReason.EXIT_ALLOCATION_INCOMPLETE),
     )
+
+
+# 退出数量单独在风险/保证金之后返回，保持公共检查顺序固定。
+def _exit_quantity_checks(
+    request: PlanningRequest,
+    size: SizingResult,
+    *,
+    size_current: bool,
+) -> tuple[ValidationCheck, ValidationCheck, ValidationCheck]:
+    if not size_current or size.status is not SizingStatus.SIZED:
+        reasons = set(size.reason_codes)
+        first_reason = (
+            PlanningReason.SIZING_MATERIAL_MISMATCH
+            if not size_current
+            else (size.reason_codes[0] if size.reason_codes else PlanningReason.QUANTITY_NOT_SIZED)
+        )
+
+        def blocked_exit(name: str) -> ValidationCheck:
+            if PlanningReason.EXIT_ALLOCATION_INCOMPLETE in reasons:
+                return _deterministic_check(
+                    request,
+                    name,
+                    CheckStatus.FAIL,
+                    PlanningReason.EXIT_ALLOCATION_INCOMPLETE,
+                )
+            return _deterministic_check(request, name, CheckStatus.UNKNOWN, first_reason)
+
+        return (
+            blocked_exit("stop_exit_quantity_valid"),
+            blocked_exit("target_exit_quantity_valid"),
+            blocked_exit("exit_allocation_complete"),
+        )
+
+    stop_exit = _exit_quantity_check(
+        request,
+        name="stop_exit_quantity_valid",
+        quantity=size.stop_exit_quantity,
+        price=size.stop_price,
+    )
+    target_exit = _exit_quantity_check(
+        request,
+        name="target_exit_quantity_valid",
+        quantity=size.target_exit_quantity,
+        price=size.target_price,
+    )
+    allocation_ok = (
+        size.stop_exit_quantity == size.quantity and size.target_exit_quantity == size.quantity
+    )
+    allocation = _deterministic_check(
+        request,
+        "exit_allocation_complete",
+        CheckStatus.PASS if allocation_ok else CheckStatus.FAIL,
+        None if allocation_ok else PlanningReason.EXIT_ALLOCATION_INCOMPLETE,
+    )
+    return stop_exit, target_exit, allocation
 
 
 # 确定性检查共用时间/来源；阻断结果没有价格，故统一以评估时刻和候选有效期记录。
@@ -541,6 +693,8 @@ def _deterministic_check(
 def _risk_and_margin_checks(
     request: PlanningRequest,
     size: SizingResult,
+    *,
+    size_current: bool,
 ) -> tuple[ValidationCheck, ...]:
     evidence = request.profile.margin_evidence
     if evidence is None:
@@ -584,6 +738,22 @@ def _risk_and_margin_checks(
         expires_at=None if evidence is None else evidence.expires_at,
         reason=complete_reason,
     )
+
+    if not size_current:
+        reason = PlanningReason.SIZING_MATERIAL_MISMATCH
+        return (
+            _deterministic_check(request, "reward_risk_ratio_met", CheckStatus.UNKNOWN, reason),
+            _deterministic_check(
+                request,
+                "initial_margin_within_capital",
+                CheckStatus.UNKNOWN,
+                reason,
+            ),
+            evidence_current,
+            evidence_complete,
+            _deterministic_check(request, "margin_preview_matches", CheckStatus.UNKNOWN, reason),
+            _deterministic_check(request, "liquidation_distance_safe", CheckStatus.UNKNOWN, reason),
+        )
 
     if size.status is not SizingStatus.SIZED:
         reason = size.reason_codes[0] if size.reason_codes else PlanningReason.QUANTITY_NOT_SIZED
@@ -636,17 +806,26 @@ def _risk_and_margin_checks(
             None if within else PlanningReason.MARGIN_EXCEEDS_AVAILABLE,
         )
 
-    if evidence is None or not evidence.is_complete:
+    if size.entry_price is None:
         preview_status = CheckStatus.UNKNOWN
-        preview_reason: PlanningReason | None = PlanningReason.MARGIN_EVIDENCE_INCOMPLETE
+        preview_reason: PlanningReason | None = PlanningReason.SIZING_MATERIAL_MISMATCH
     else:
         preview_reasons = margin_preview_reasons(
             request,
+            entry_price=size.entry_price,
+            quantity=size.quantity,
             notional=size.notional,
             initial_margin=size.initial_margin,
         )
-        preview_status = CheckStatus.PASS if not preview_reasons else CheckStatus.FAIL
-        preview_reason = None if not preview_reasons else preview_reasons[0]
+        if not preview_reasons:
+            preview_status = CheckStatus.PASS
+            preview_reason = None
+        elif PlanningReason.MARGIN_EVIDENCE_INCOMPLETE in preview_reasons:
+            preview_status = CheckStatus.UNKNOWN
+            preview_reason = PlanningReason.MARGIN_EVIDENCE_INCOMPLETE
+        else:
+            preview_status = CheckStatus.FAIL
+            preview_reason = preview_reasons[0]
     preview_check = _check(
         request=request,
         name="margin_preview_matches",
@@ -696,6 +875,8 @@ def evaluate_planning_risk(
     request: PlanningRequest,
     size: SizingResult,
 ) -> tuple[ValidationCheck, ...]:
+    material_hash = request.material_sha256()
+    size_current = size.material_hash == material_hash
     profile_complete, policy_complete = _completeness_checks(request)
     checks: list[ValidationCheck] = [profile_complete, policy_complete]
     checks.extend(_freshness_checks(request))
@@ -703,9 +884,29 @@ def evaluate_planning_risk(
     checks.extend(_product_checks(request))
     checks.append(_leverage_check(request))
     checks.extend(_order_checks(request))
-    checks.extend(_quantity_checks(request, size))
-    checks.extend(_risk_and_margin_checks(request, size))
-    return tuple(checks)
+    material_check = _check(
+        request=request,
+        name="sizing_material_matches",
+        required=True,
+        status=CheckStatus.PASS if size_current else CheckStatus.FAIL,
+        basis=CheckBasis.DETERMINISTIC_CALCULATION,
+        source="deterministic_calculation",
+        time=request.evaluated_at,
+        expires_at=request.candidate.valid_until,
+        reason=None if size_current else PlanningReason.SIZING_MATERIAL_MISMATCH,
+    )
+    checks.append(material_check)
+    checks.append(_exit_order_type_check(request))
+    checks.extend(_quantity_checks(request, size, size_current=size_current))
+    checks.extend(_risk_and_margin_checks(request, size, size_current=size_current))
+    checks.extend(_exit_quantity_checks(request, size, size_current=size_current))
+    result = tuple(checks)
+    if tuple(check.name for check in result) != PLANNING_CHECK_NAMES:
+        raise PlanningCalculationError(
+            "规划检查集合与公共契约不一致",
+            code=PlanningReason.CALCULATION_FAILED.value,
+        )
+    return result
 
 
 __all__ = ["evaluate_planning_risk"]

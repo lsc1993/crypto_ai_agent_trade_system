@@ -313,7 +313,7 @@
 
 ### T12：确定性数量、成本、保证金和操作分支（D4-P）
 
-**Files:** Create `backend/src/app/trade_planning/contracts.py`、`sizing.py`、`risk_checks.py`、`margin.py`、`order_rules.py`、`checklist.py`；Test `backend/tests/trade_planning/test_sizing.py`、`test_risk_checks.py`、`test_margin.py`、`test_order_rules.py`、`test_checklist.py`。消费 T01/T03；无订单/LLM 依赖。
+**Files:** Create `backend/src/app/trade_planning/contracts.py`、`sizing.py`、`risk_checks.py`、`margin.py`、`order_rules.py`、`checklist.py`；Test `backend/tests/trade_planning/test_sizing.py`、`test_risk_checks.py`、`test_margin.py`、`test_order_rules.py`、`test_checklist.py`。Modify `backend/src/app/trade_planning/inputs.py`（保证金预览绑定字段及历史指纹兼容）、`backend/src/app/infrastructure/persistence/planning_input_repository.py`（旧请求指纹兼容）。消费 T01/T03；无订单/LLM 依赖。
 
 **Interfaces:** C7 `calculate_size(request: PlanningRequest) -> SizingResult`；`evaluate_planning_risk(request, size) -> tuple[ValidationCheck, ...]` 在 risk_checks.py、`build_manual_checklist(request, size, checks) -> ManualChecklist` 在 checklist.py（ManualChecklist 同 contracts 定义，包含 C7 操作/异常分支）。均纯函数。
 
@@ -324,15 +324,16 @@
   assert size.target_net_reward == Decimal("18.601")
   assert size.initial_margin == Decimal("95")
   ```
-  这不是用户参数或真实费率；另测非零费用/滑点/资金费、不完整档位/用户预览、冷却熔断/日损/仓位拒绝，以及 Review Focus 的非有限数和单位错误。实际新增 53 项测试（`test_sizing.py` 19、`test_risk_checks.py` 10、`test_margin.py` 5、`test_order_rules.py` 11、`test_checklist.py` 8），并复用 `planning_fixtures.py` 构造合成资料。
+  这不是用户参数或真实费率；另测非零费用/滑点/资金费、不完整档位/用户预览、冷却熔断/日损/仓位拒绝，以及 Review Focus 的非有限数和单位错误。实际新增 71 项测试（`test_sizing.py` 23、`test_risk_checks.py` 16、`test_margin.py` 7、`test_order_rules.py` 14、`test_checklist.py` 11），并复用 `planning_fixtures.py` 构造合成资料。
 - [x] **Step 2：运行 `uv run --locked --no-sync pytest tests/trade_planning/test_sizing.py tests/trade_planning/test_risk_checks.py tests/trade_planning/test_margin.py tests/trade_planning/test_order_rules.py tests/trade_planning/test_checklist.py -q`，确认红。**
   首次运行 5 个 collection error（缺少 `trade_planning.contracts`/`sizing`/`risk_checks`/`margin`/`order_rules`/`checklist`），退出码 2；未用 Mock 或跳过取得绿色。
 - [x] **Step 3：实现 C7 线性公式、有限档位计算和保守格点规则。** 计算精度使用显式 Decimal localcontext（精度 80，舍入规则显式），最终在相应 tick/step/结算单位向保守方向量化并复验；不枚举无限格点。保证金规则或合格预览缺失为 unknown；强平与止损基准/安全距离由适用规则与用户政策验证，不能简式保证不会强平。
   实际实现：`contracts.py` 固定 `PlanningRequest`/`PlanningQuote`/`SizingResult`/`ValidationCheck`/`ManualChecklist`；`sizing.py` 使用 80 位 localcontext、18 位结算量化（风险/保证金向上、收益/比率向下）和最多两步回退；`order_rules.py` 将入场带按 tick 向内取整（下界 ceil、上界 floor），止损/目标只在 `strict`/`conservative_one_tick` 下处理；`margin.py` 精确核对用户预览的名义额/初始保证金，并只做强平方向核对；`risk_checks.py` 输出唯一名称的 required 检查；`checklist.py` 输出人工步骤、异常分支和阻断项。
 - [x] **Step 4：同命令全绿。** 断言实际检查覆盖最小名义额/每批退出量/总量/保护性止损、未成交/部分成交/跳价/超时；最小额不能通过加大风险或移动结构达标；不给无价格上界市价单可实施状态。
-  实际：聚焦 53 passed；`tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security` 180 passed（专用 PostgreSQL 17）；quick 后端 1249 passed；full 后端 1488 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过，迁移 head 仍为 `0027_agent_segments`（T12 无新迁移）。
+  实际：聚焦 86 passed；`tests/trade_planning tests/research/strategies tests/persistence/test_strategy_catalog.py tests/persistence/test_planning_inputs.py tests/security` 198 passed（专用 PostgreSQL 17）；quick 后端 1267 passed；full 后端 1506 passed / 0 failed / 0 skipped；Ruff/格式/Pyright/架构门禁/迁移链通过，迁移 head 仍为 `0027_agent_segments`（T12 无新迁移）。
 - [x] **Step 5：提交 `feat: calculate deterministic manual trade plans`。** FR-09/FR-14/FR-15/FR-16，AC-21 至 AC-26，HN-13；软件数值正确性不代表策略盈利。
   实际实现 tip 由本任务代码提交固定，见审查请求与进度文件；当前自测 `verified`、审查 `awaiting_review`，未接入 HTTP/前端/持久化采纳/生产 lifespan，不生成 `TradeIntent`、不调用订单或私有账户。
+  首轮正式审查对 `ef198f8` 判定 `changes_requested`（2 P1 + 6 P2）：退出腿类型/数量过滤器未验证、SizingResult 未绑定请求材料、清单接受不完整检查集合、结算比率未复算、缺项被归为硬冲突、日损检查跨 UTC 午夜、保证金预览未绑定入场价/数量、市价边界依赖调用方 Decimal 精度。修复新增逐退出腿（STOP_MARKET/TAKE_PROFIT_MARKET、MARKET_LOT_SIZE、退出名义额）检查、`SizingResult.material_hash` 与检查/清单绑定、完整 `PLANNING_CHECK_NAMES` 及 required 完整性、结算后金额重算比率、缺项 unknown、日界截断、保证金产品/方向/入场价/数量绑定和统一高精度市场边界；新增回归覆盖报告反例。修复后实现 tip 见审查请求；不得在取得正式通过前进入 T13。
 
 ### T13：规划服务、可实施状态、跨计划占用与手工反馈（D4-P）
 
