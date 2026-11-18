@@ -2,8 +2,8 @@
 
 - 记录日期：2026-11-17
 - 文档基线：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0。
-- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；首轮正式审查提出 1 P1 + 4 P2，修复 tip `063e8a3` 后开发聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；审查阶段独立 PostgreSQL 验证 C5/片段/恢复 33、SQL 网关 14、后端 full 1366 passed。2026-11-17 用户传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前为 `verified`/`approved`。T10 首轮 `690d726` 判定 `changes_requested`；R1/R2 修复到 `b5509ac` 后用户于同日传回复审通过结论（`reviewed_tip=b5509ac`），当前为 `verified`/`approved`。T11 已实现模块级原生 Tool Calling、C5 预算包装、T09 工具观察回路、准备态人工等待与 `AnalysisArtifactStager` 协议；首轮正式审查判定 `changes_requested`（3 项：活动时间准入、流式响应上限、finish reason 白名单），R1–R3 已修复并补回归，当前为 `verified`/`awaiting_review`（implementation tip `e0bc26e`），不自动进入 T12。
-- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 首轮审查的 1 P1 + 4 P2 已修复，用户于 2026-11-17 传回正式通过结论（`reviewed_tip=063e8a3`），当前为 `approved`。T10 首轮正式审查对象 `690d726` 结论为 `changes_requested`（R1/P1 参数化 Content-Type 绕过上限、R2/P2 非 ASCII 鉴权头 500）；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`），当前 `verified`/`approved`。T11 的 `review_status` 为 `awaiting_review`，等待用户转交原审查助手；开发自测不替代正式审查。
+- 状态口径：`implemented` 表示代码、文档和自测已落地；`verified` 表示本轮必需验证完成；`approved` 只能记录用户传回的原审查助手正式结论。T00–T05 的 `verified` 与 `approved` 已按用户传回的正式审查结论记录；T06 已完成实现、F1 修复、聚焦/SQL/阶段/静态检查和后端 full，自测为 `verified`；用户于 2026-11-12 传回原审查助手正式通过结论（`reviewed_tip=dea9848`），当前为 `approved`。T07 首轮正式审查 R1/P1 不通过（worker 取消后执行器未停止）；R1 修复后原审查助手于 2026-11-12 复审通过（`reviewed_tip=ec3e8e5`），当前为 `verified`/`approved`。T08 已实现冻结证据、动态上下文、内部 manifest 持久化与公开行情证据适配器；首轮正式审查 `changes_requested`（R1–R4），修复后聚焦 55、D3 阶段 422、后端 full 1300 passed，自测为 `verified`；2026-11-16 用户传回原审查助手复审通过，当前为 `approved`（`reviewed_tip=08532dc`）。T09 已实现 C6 工具契约、不可变目录、逐次网关与六个只读研究工具；首轮正式审查提出 1 P1 + 4 P2，修复 tip `063e8a3` 后开发聚焦 108、交互式 87、阶段 307、quick 后端 1127 passed；审查阶段独立 PostgreSQL 验证 C5/片段/恢复 33、SQL 网关 14、后端 full 1366 passed。2026-11-17 用户传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前为 `verified`/`approved`。T10 首轮 `690d726` 判定 `changes_requested`；R1/R2 修复到 `b5509ac` 后用户于同日传回复审通过结论（`reviewed_tip=b5509ac`），当前为 `verified`/`approved`。T11 已实现模块级原生 Tool Calling、C5 预算包装、T09 工具观察回路、准备态人工等待与 `AnalysisArtifactStager` 协议；首轮正式审查判定 `changes_requested`（3 项：活动时间准入、流式响应上限、finish reason 白名单），二次复审确认 R3 关闭、R1/R2 剩余问题已修复到 `7c1f336`，当前为 `verified`/`awaiting_review`（implementation tip `7c1f336`），不自动进入 T12。
+- 审查口径：`review_status` 由开发执行者维护；`approved` 只能由用户传回原审查助手的正式结论，不能自行填写。T07/T08 已批准；T09 首轮审查的 1 P1 + 4 P2 已修复，用户于 2026-11-17 传回正式通过结论（`reviewed_tip=063e8a3`），当前为 `approved`。T10 首轮正式审查对象 `690d726` 结论为 `changes_requested`（R1/P1 参数化 Content-Type 绕过上限、R2/P2 非 ASCII 鉴权头 500）；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`），当前 `verified`/`approved`。T11 的 `review_status` 为 `awaiting_review`（首轮 3 项 + 二次复审 R1/R2 剩余问题已修复），等待用户转交原审查助手复审；开发自测不替代正式审查。
 
 ## 当前工作区（T11）
 
@@ -12,11 +12,11 @@
 | 主工作区 | `D:/project_git/crypto_ai_agent_trade_system`（`main` tip `c45640e`，工作区干净；T10 已合并） |
 | 隔离工作区 | `D:/project_git/t11`（分支 `t11-model-graph`，从 `main` 的 `c45640e` 创建；未推送、未合并、未部署） |
 | base | `c45640e51b6473f42126ac3dea9ae76536124fef`（`main`，`docs: record T10 merge into main`） |
-| implementation tip | `e0bc26e902e3a0de6d1469f58fe9231787b8b33c`（`fix: address T11 review findings`；首轮受审 `d1e3560` / tree `5c78429`） |
-| implementation tree | `362489a03f796dbed1137942471719b5bde2dfbe` |
-| 累计代码/文档范围 | `c45640e..e0bc26e`，17 个文件，+3658/-21（含 T11 代码、测试、规范/计划/状态同步） |
-| self_test | `verified`（新增 34；交互式/安全/治理 240；SQL/恢复 248；T07 恢复 15；quick 后端 1194；D3 full 1433 passed） |
-| review_status | `awaiting_review`（等待用户转交原审查助手；开发自测不替代正式审查） |
+| implementation tip | `7c1f33660f91e0df8c170533ee8f17f222836249`（`fix: close remaining T11 activity and response bounds`；前序修复 `e0bc26e`，首轮受审 `d1e3560` / tree `5c78429`） |
+| implementation tree | `dacff63ed8deee4e707c4a32826c82a90cb3e987` |
+| 累计代码/文档范围 | `c45640e..7c1f336`，19 个文件，+4098/-26（含 T11 代码、测试、规范/计划/状态同步） |
+| self_test | `verified`（新增 36；交互式/安全/治理 242；SQL/恢复 250；T07 恢复 15；quick 后端 1196；D3 full 1435 passed） |
+| review_status | `awaiting_review`（首轮 3 项 + 二次复审 R1/R2 剩余问题已修复，待原审查助手复审） |
 | reviewed_tip | 未填写（不得预填审查通过） |
 | 审查请求 | `docs/superpowers/reviews/manual-agent/T11-review-request.md`（本次 docs 提交生成） |
 | 文档提交 | 见最终交付回复；不把 docs 自身提交号写入 implementation tip |
@@ -854,15 +854,15 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 | FR/AC/HN | FR-02/FR-03/FR-07（FR-07 仅安全 trace 元数据）；AC-01/AC-03/AC-10/AC-12/AC-15/AC-16；HN-01/HN-04/HN-05/HN-06/HN-07/HN-09/HN-10/HN-11/HN-12 的模块边界。AC-02 的真实 TCP MCP 证明仍归 T10；T11 证明图只消费已授权工具端口 |
 | 时间 | 2026-11-17 |
 | 任务状态 | `verified`（实现、聚焦/阶段/SQL/quick/full/静态检查完成；不等于正式审查通过） |
-| review_status | `awaiting_review`（首轮 `changes_requested`；R1–R3 已修复，待复审） |
+| review_status | `awaiting_review`（首轮 3 项及二次复审 R1/R2 剩余问题已修复，待复审） |
 | reviewed_tip | 未填写 |
 | base | `c45640e51b6473f42126ac3dea9ae76536124fef`（`main`） |
-| implementation tip | `e0bc26e902e3a0de6d1469f58fe9231787b8b33c`（`fix: address T11 review findings`；首轮受审 `d1e3560` / tree `5c78429`） |
-| implementation tree | `362489a03f796dbed1137942471719b5bde2dfbe` |
+| implementation tip | `7c1f33660f91e0df8c170533ee8f17f222836249`（`fix: close remaining T11 activity and response bounds`；前序修复 `e0bc26e`，首轮受审 `d1e3560` / tree `5c78429`） |
+| implementation tree | `dacff63ed8deee4e707c4a32826c82a90cb3e987` |
 | 改动 | 新增 `model_port.py`（ToolBatch/ModelControlDecision/FinalAnalysis/ModelPort/AnalysisArtifactStager）、`deepseek.py`（固定端点原生 Tool Calling）、`prompt.py`、`graph.py`（GraphDependencies/有限 LangGraph/SegmentRunner）、`state.py`（仅阶段/计数/引用）；修改 `worker.py` 支持 `runner`+`audit_coordinator`；新增 `test_deepseek.py`、`test_graph.py`、`test_graph_segments.py`、`graph_fixtures.py`；同步根/后端规范、维护/运行边界、项目状态、实施计划与契约 |
 | 公共接口 | `ToolBatch`/`ModelControlDecision`/`FinalAnalysis`/`ModelDecision`；`ModelPort`（`decide`、`available`、`requested_model`、`estimate_request`）；`ModelCallTrace`/`ModelCallError`；`AnalysisArtifactStager`/`AnalysisStagingError`；`GraphDependencies`/`build_interactive_graph(...)->SegmentRunner`/`not_executed_tool_message`；`InteractiveAgentWorker(..., runner=..., audit_coordinator=...)` |
 | 依赖/迁移 | 无新增依赖；无新增迁移；迁移 head 仍为 `0027_agent_segments`；未迁移业务库 |
-| 验证 | 新增 34 passed；交互式/安全/治理/agent_runs 240 passed；SQL/恢复聚焦 248 passed；T07 恢复 15 passed；quick 后端 1194 collected/passed；D3 full 1433 collected/passed；Ruff/格式/Pyright/架构门禁 87 文件/迁移链通过 |
+| 验证 | 新增 36 passed；交互式/安全/治理/agent_runs 242 passed；SQL/恢复聚焦 250 passed；T07 恢复 15 passed；quick 后端 1196 collected/passed；D3 full 1435 collected/passed；Ruff/格式/Pyright/架构门禁 87 文件/迁移链通过 |
 | 未验证 | 真实 DeepSeek 调用与语义质量、真实 MCP 发送、生产 lifespan/HTTP/SSE/前端、T12/T13 规划与计划采纳、业务库迁移、浏览器 e2e、完整生产装配 |
 
 ### T11 关键实现结果
@@ -877,7 +877,7 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 
 ### T11 首轮正式审查与 R1–R3 修复
 
-首轮正式审查对前序 `d1e3560`（tree `5c78429`）判定 `changes_requested`，提出 3 项必须修复；本轮已修复到 `e0bc26e`（tree `362489a`），修复前新增 30、阶段 236、SQL 244、quick 1190、full 1429，修复后新增 34、阶段 240、SQL 248、quick 1194、full 1433。
+首轮正式审查对前序 `d1e3560`（tree `5c78429`）判定 `changes_requested`，提出 3 项必须修复；本轮已在 `e0bc26e`（tree `362489a`）修复首轮问题；修复前新增 30、阶段 236、SQL 244、quick 1190、full 1429，首轮修复后新增 34、阶段 240、SQL 248、quick 1194、full 1433。二次复审的 R1/R2 剩余问题见下节。
 
 | 发现 | 根因/复现 | 修复与回归 |
 | --- | --- | --- |
@@ -887,18 +887,30 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 
 修复后仍未执行 PostgreSQL/full 以外的真实模型/MCP/HTTP/前端/生产装配验证；本轮重新执行了专项 SQL 248、quick 1194 和 D3 full 1433，未取得原审查助手对修复版本的正式结论。
 
+### T11 二次复审与 R1/R2 修复
+
+二次复审确认 R3 已关闭，但 R1/R2 各有一处剩余问题：R1 的最后活动检查在 `mark_sent` 前；R2 的压缩响应在 HTTPX 解压后才按 256 KiB 检查。修复提交 `7c1f336`（tree `dacff63`，`4bde392..7c1f336` 8 个文件 +116/-7）。
+
+| 发现 | 修复与回归 |
+| --- | --- |
+| R1/P1 `mark_sent` 等待耗尽安全余量 | 在 `mark_sent` 返回后、实际模型请求前再次检查活动预算；账本已 sent 时以 `failed` 结算并记录 `budget_exhausted_before_request`，不按 prepared 释放，不发送模型请求。新增 584+2 秒回归：模型零调用、failed 结算、finally 记录 2 秒。 |
+| R2/P1 压缩响应先解压再检查 | 请求 `Accept-Encoding: identity`；读取前拒绝非 identity `Content-Encoding`（`model_content_encoding_unsupported`），使用 `aiter_raw` 按原始字节流计数。新增 gzip 回归：读取前拒绝、消费 0 块、响应关闭。 |
+| R3/P2 finish reason | 二次复审确认已关闭，未修改；保留过滤/缺失/未知/形状不一致回归。 |
+
+T07 提交边界未变：未修改 worker/审计协调器；活动时间在返回 `SegmentOutcome` 前记录，正常路径记账失败阻止结果返回，等待/终态仍由治理执行器和协调器提交。
+
 ### T11 测试证据
 
 | 检查 | 目录 | 命令 | 结果 |
 | --- | --- | --- | --- |
 | 改动前基线 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/governance/test_interactive_planning.py tests/mcp -q --basetemp=../.tmp/pytest/t11-baseline` | 171 passed，退出 0 |
 | 首轮预期红（缺模块） | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_deepseek.py tests/agent/interactive/test_graph.py tests/agent/interactive/test_graph_segments.py -q --basetemp=../.tmp/pytest/t11-red-1` | 3 个 collection error（`deepseek`/`graph`/`model_port` 不存在），退出 2；符合测试先行预期 |
-| 新增聚焦最终 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_deepseek.py tests/agent/interactive/test_graph.py tests/agent/interactive/test_graph_segments.py -q --basetemp=../.tmp/pytest/t11-review-fix-focused-2` | 34 passed / 0 failed / 0 skipped，退出 0 |
-| 交互式/安全/治理/agent_runs 阶段 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/governance/test_interactive_planning.py tests/security -q --basetemp=../.tmp/pytest/t11-review-fix-stage-2` | 240 passed / 0 failed / 0 skipped，退出 0 |
-| SQL/恢复聚焦（专用 PostgreSQL 17） | `D:/project_git/t11/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py -q --basetemp=../.tmp/pytest/t11-review-fix-sql-2` | 248 passed / 0 failed / 0 skipped，退出 0 |
+| 新增聚焦最终 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_deepseek.py tests/agent/interactive/test_graph.py tests/agent/interactive/test_graph_segments.py -q --basetemp=../.tmp/pytest/t11-review2-focused-2` | 36 passed / 0 failed / 0 skipped，退出 0 |
+| 交互式/安全/治理/agent_runs 阶段 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/governance/test_interactive_planning.py tests/security -q --basetemp=../.tmp/pytest/t11-review2-stage-1` | 242 passed / 0 failed / 0 skipped，退出 0 |
+| SQL/恢复聚焦（专用 PostgreSQL 17） | `D:/project_git/t11/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py -q --basetemp=../.tmp/pytest/t11-review2-sql-1` | 250 passed / 0 failed / 0 skipped，退出 0 |
 | T07 恢复专项（专用 PostgreSQL 17） | `D:/project_git/t11/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_segments.py -q --basetemp=../.tmp/pytest/t11-t07-recovery` | 15 passed / 0 failed / 0 skipped，退出 0 |
-| 后端 quick | `D:/project_git/t11` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t11-final-quick-backend.json` | `verification=passed`；1194 collected / 1194 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
-| 后端 full（D3 阶段，专用 PostgreSQL 17） | `D:/project_git/t11` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-d3-full.json` | `verification=passed`；1433 collected / 1433 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| 后端 quick | `D:/project_git/t11` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t11-final-quick-backend.json` | `verification=passed`；1196 collected / 1196 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
+| 后端 full（D3 阶段，专用 PostgreSQL 17） | `D:/project_git/t11` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-d3-full.json` | `verification=passed`；1435 collected / 1435 passed / 0 failed / 0 skipped / 0 collection errors；退出 0 |
 | Ruff / 格式 | `D:/project_git/t11/backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | All checks passed；404 files already formatted；退出 0 |
 | Pyright | `D:/project_git/t11/backend` | `uv run --locked --no-sync pyright` | 0 errors / 0 warnings，退出 0 |
 | 架构门禁 | `D:/project_git/t11/backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | `status=passed`，`files_scanned=87`，`findings=[]`，退出 0 |
@@ -937,5 +949,5 @@ uv run --locked --no-sync pytest tests/persistence/test_agent_runs.py::test_json
 9. T08 已实现证据冻结、动态上下文、输入控长与公开行情证据适配器；实现 tip `08532dc`（15 个文件，+4682/-7；首轮 `deec8f2`、加固 `96b8270`、审查修复 `08532dc`），聚焦 55、阶段 422、后端 full 1300 passed。2026-11-16 用户传回原审查助手复审通过（`reviewed_tip=08532dc`），当前为 `verified`/`approved`；审查请求 `docs/superpowers/reviews/manual-agent/T08-review-request.md`，复审报告 `T08-review-report.md`。按用户指令 fast-forward 合并到 `main` 并推送（合并 tip `06d5ff7`）；不自动进入 T09。
 10. T09 首轮 1 P1 + 4 P2 已修复，修复 tip `063e8a3`；用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=063e8a3`），当前 `verified`/`approved`。SQL 验证增量 `a9d19df`，独立 full 1366 passed；复审请求 `docs/superpowers/reviews/manual-agent/T09-review-request.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `2df4bf0`），不自动进入 T10/T11。
 11. T10 首轮正式审查 `690d726` 结论为 `changes_requested`；R1/R2 修复到 `b5509ac` 后，用户于 2026-11-17 传回原审查助手正式通过结论（`reviewed_tip=b5509ac`，`reviewed_tree=c2f504`），当前 `verified`/`approved`。审查请求见 `docs/superpowers/reviews/manual-agent/T10-review-request.md`，正式结论见 `T10-review-result.md`。按用户指令 fast-forward 合并到 `main`（合并 tip `53913d4`），本轮不自动进入 T11。
-12. T11 首轮正式审查 `changes_requested`（3 项：片段内活动时间准入、流式响应上限、finish reason 白名单）；R1–R3 已修复到 `e0bc26e`（tree `362489a`，17 个文件 +3658/-21），新增 34、阶段 240、SQL/恢复 248、T07 恢复 15、quick 1194、D3 full 1433 passed。当前 `verified`/`awaiting_review`，审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`；未取得复审通过前不进入 T12。
+12. T11 首轮正式审查 `changes_requested`（3 项）及二次复审 `changes_requested`（R3 已关闭，R1/R2 剩余问题）；修复到 `7c1f336`（tree `dacff63`，19 个文件 +4098/-26），新增 36、阶段 242、SQL/恢复 250、T07 恢复 15、quick 1196、D3 full 1435 passed。当前 `verified`/`awaiting_review`，审查请求 `docs/superpowers/reviews/manual-agent/T11-review-request.md`；未取得复审通过前不进入 T12。
 13. 后续每个审查单元继续执行“实现/自测 → 审查包 → 原审查助手正式结论 → 放行”的门槛，开发自测不能替代正式审查。

@@ -4,7 +4,7 @@
 - 执行模型：DeepSeek `deepseek-flash`（`PI_PROVIDER=deepseek`、`PI_MODEL=deepseek-flash`、`PI_REASONING_LEVEL=max`）；具体模型版本、推理实现和供应商侧版本未知。
 - 文档版本：需求 v2.0、架构 v2.0、实施计划 v1.1、实施契约 v1.1、跨模型交接 v1.1、开发模型提示词 v1.0；质量验证说明、维护指南与运行边界以当前仓库提交为准。
 - 自测状态：**`verified`**（实现、聚焦、阶段、SQL/恢复、quick、独立 PostgreSQL full、Ruff/格式/Pyright/架构/迁移链完成；不等于正式审查通过）。
-- 正式审查状态：**`awaiting_review`**（首轮正式审查结论为 `changes_requested`，提出 3 项；R1–R3 已修复并补回归，等待原审查助手复审；未预填通过结论）。
+- 正式审查状态：**`awaiting_review`**（首轮 `changes_requested` 3 项；二次复审 `changes_requested`，R3 已关闭，R1/R2 剩余问题已在 `7c1f336` 修复；等待原审查助手再次复审；未预填通过结论）。
 - 日期：2026-11-17。
 
 ## 1. 工作区、分支与提交范围
@@ -15,10 +15,10 @@
 | 隔离工作区 | `D:/project_git/t11`（从 `main` 的 `c45640e` 创建） |
 | 分支 | `t11-model-graph`（未推送、未合并、未部署） |
 | base | `c45640e51b6473f42126ac3dea9ae76536124fef`（`main`，`docs: record T10 merge into main`） |
-| implementation tip | `e0bc26e902e3a0de6d1469f58fe9231787b8b33c`（`fix: address T11 review findings`；首轮受审 `d1e3560` / tree `5c78429`） |
-| implementation tree | `362489a03f796dbed1137942471719b5bde2dfbe` |
-| 代码/文档范围 | `c45640e..e0bc26e`，17 个文件，+3658/-21（T11 源码、测试、规范/计划/状态同步；不含本审查请求和进度 docs 提交） |
-| review_status | `awaiting_review` |
+| implementation tip | `7c1f33660f91e0df8c170533ee8f17f222836249`（`fix: close remaining T11 activity and response bounds`；前序修复 `e0bc26e`，首轮受审 `d1e3560` / tree `5c78429`） |
+| implementation tree | `dacff63ed8deee4e707c4a32826c82a90cb3e987` |
+| 代码/文档范围 | `c45640e..7c1f336`，19 个文件，+4098/-26（T11 源码、测试、规范/计划/状态同步；不含本审查请求和进度 docs 提交） |
+| review_status | `awaiting_review`（首轮 3 项 + 二次复审 R1/R2 剩余问题已修复，待复审） |
 | reviewed_tip | 未填写（不得预填审查通过） |
 | docs 提交 | 本审查请求与进度更新在代码提交之后单独提交；具体 hash 见最终交付回复；不把 docs 自身提交号写入 `implementation tip` |
 
@@ -29,21 +29,21 @@
 | 文件 | SHA-256 |
 | --- | --- |
 | `backend/src/app/agent/interactive/model_port.py` | `e4d8415c839d575a3ff99afe9116ac2651ce342b2a38f5306dc2da001f0e045b` |
-| `backend/src/app/agent/interactive/deepseek.py` | `f7ca6ad7bf5567142d9dca9f3f1e27810d4927d6faa3d24d0ba92c102479a0a9` |
+| `backend/src/app/agent/interactive/deepseek.py` | `9e32a2e13e4e2f2dc3c5c6a1bcfc04f4496a2caaacaf1295e7d5ef12c13634e4` |
 | `backend/src/app/agent/interactive/prompt.py` | `735395ddd62f6340362479c19dca5888d0ac605ac79c9691065d64d541a6c719` |
-| `backend/src/app/agent/interactive/graph.py` | `5387ab2a144231ff447009336e7206fd1126f4bcef6eaf336556a16b70cc6753` |
+| `backend/src/app/agent/interactive/graph.py` | `f8486ed242ffb4ac97f173dba3b96974d34d2fd96cc2b1446206f6ead644c4fb` |
 | `backend/src/app/agent/interactive/state.py` | `0894ff092b8c4ac824a04a6b5a0f3ee567509bd633ffc1a0e3f61d029d68231d` |
 | `backend/src/app/agent/interactive/worker.py` | `a467d2eda36f6ab56cee54793baf1eff95ffa33f3c1148b8a285702c894dd9bc` |
-| `backend/tests/agent/interactive/graph_fixtures.py` | `b0f7f39be375a26968407d362caa5d7d0df96d14ccff0e86a0fc0ed276ee2c74` |
-| `backend/tests/agent/interactive/test_deepseek.py` | `e9087e481e67ffcdbc1bbcb844c756947d5daee76a36dca58f096549b407f769` |
-| `backend/tests/agent/interactive/test_graph.py` | `e7ec9d386ef1366272fd1c0d76088e141e56490902a02102c64a2b18445babb1` |
+| `backend/tests/agent/interactive/graph_fixtures.py` | `55ab7e3a9c0aa573a838d7d039924125bc0da4f3fae514ec6e83ed01d691f039` |
+| `backend/tests/agent/interactive/test_deepseek.py` | `5c9bca0382204f7eb48ef99581b920ee759f29b11d52f8b775dd94c346d6048c` |
+| `backend/tests/agent/interactive/test_graph.py` | `edab64df72e3f4705f9748a852bba2cd851b40fc7fc18367e1bf527a23eca374` |
 | `backend/tests/agent/interactive/test_graph_segments.py` | `29587b55cea668cb56adb21780830d860963a2e3ed56ec3b44f02525e37281e3` |
 | `AGENTS.md` | `3e4c3317eaabf418c912b614bec6049fdd0d90da05d292818bff7e0225680022` |
 | `backend/AGENTS.md` | `f3263a77b4cd39dfe60206aef58f9e1c55916b967b8607884ef5e4c73f350af2` |
-| `docs/ai-maintenance.md` | `aaa09bbe1c784ffa895b0728667d19f25e587d822eb3c7dcf0d2e5b396292dcd` |
+| `docs/ai-maintenance.md` | `bbfe804b681e98f8fcc10342b83a33c94dfbaef8274727734447d966af7bd569` |
 | `docs/operational-boundaries.md` | `fddb8380a7cfabc1792413640b2487a0d2bfd082b8a4b7dbe7aa85bda5488817` |
-| `docs/project-status.md` | `20bf0c22311ad77c9967d577eb637a6be7f0dd751ff191fbe0af11df3f3214f3` |
-| `docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md` | `a2bd13b21b8ca9cf9bfe656efe9b340f5a4f84a2672d88fb7fb8a34fc0d0dd67` |
+| `docs/project-status.md` | `033a9c2e6d68e72922fc9a6fb96d532d4482295aaccdc497a0d8e8d540dd9def` |
+| `docs/superpowers/plans/2026-11-06-manual-trading-agent-implementation.md` | `b65560b5101ea88a263169e766178c14c630791badc7516ec77f99f01fe02552` |
 | `docs/superpowers/plans/2026-11-06-manual-trading-agent-contracts.md` | `788fd855d49886981a5a0d163dc257f2340b342ee095ab51b026541cf7885ce9` |
 
 ## 2. 任务范围与 FR/AC/HN 映射
@@ -101,8 +101,8 @@ T11 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 **新增测试**
 - `backend/tests/agent/interactive/graph_fixtures.py`：合成任务/证据/上下文/预算/模型/工具/交互/产物替身。
-- `backend/tests/agent/interactive/test_deepseek.py`：12 项原生协议与错误分级。
-- `backend/tests/agent/interactive/test_graph.py`：20 项图路由、预算、等待、取消、证据/产物。
+- `backend/tests/agent/interactive/test_deepseek.py`：13 项原生协议与错误分级。
+- `backend/tests/agent/interactive/test_graph.py`：21 项图路由、预算、等待、取消、证据/产物。
 - `backend/tests/agent/interactive/test_graph_segments.py`：worker `runner` 注入和等待不轮询。
 
 **修改**
@@ -124,13 +124,25 @@ T11 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 ### 3.3 首轮正式审查 R1–R3 修复
 
-首轮正式审查对 `d1e3560`（前序提交范围）判定 `changes_requested`，提出 3 项必须修复；本轮已在 `e0bc26e` 修复并补回归。修复前基线为新增 30、阶段 236、SQL 244、quick 1190、full 1429；修复后为新增 34、阶段 240、SQL 248、quick 1194、full 1433。
+首轮正式审查对 `d1e3560`（前序提交范围）判定 `changes_requested`，提出 3 项必须修复；本轮已在 `e0bc26e` 修复并补回归。修复前基线为新增 30、阶段 236、SQL 244、quick 1190、full 1429；首轮修复后为新增 34、阶段 240、SQL 248、quick 1194、full 1433；二次复审后最终为新增 36、阶段 242、SQL 250、quick 1196、full 1435，详见 3.4。
 
 | 发现 | 根因与复现 | 修复与回归 |
 | --- | --- | --- |
 | R1/P1 活动时间预算不能阻止片段内继续调用 | 原实现只在片段正常结束后 `record_activity`；模型/工具调用前读取的账本不包含本片段已耗时。复现：账本 570 秒，首模型耗时 20 秒后仍执行工具和第二次模型，累计 610 秒。 | 新增 `_activity_exhausted`/`_enforce_activity_budget`：每次模型决策和每个工具调用前用 `active_seconds + 本片段 elapsed + 15` 检查，超限停止并写入未执行工具观察；`reserve` 后、`mark_sent` 前再次检查并释放 prepared。`InteractiveGraphRunner.run` 在 `finally` 记录一次活动时间，正常/异常/取消均覆盖；已有异常时账本写入失败不掩盖原错误。新增 570+20 停止和异常路径仍记录 20 秒的回归。 |
 | R2/P1 响应大小限制在完整缓冲后才检查 | 原实现 `AsyncClient.post()` 后检查 `response.content`，256 KiB 限制前已完整进入内存。 | 改为 `AsyncClient.stream()`，逐块累计；越限立即退出 `async with` 并关闭响应，不消费后续块。测试使用计数异步流，断言只消费 2 个块、响应已关闭。 |
 | R3/P2 非成功 finish reason 仍可触发工具执行 | 原实现只特殊处理 `length`，随后直接接受任何非空 `tool_calls`；`content_filter`、缺失/未知原因或不一致形状都能形成 ToolBatch。 | 结束原因白名单限定 `stop`/`tool_calls`：`tool_calls` 必须有非空工具调用，`stop` 不能携带工具调用；过滤/缺失/未知原因返回 `model_finish_reason_unsupported`，形状不一致返回 `model_invalid_response`，均保留已观察 usage/provider id。新增过滤、stop+工具、缺失原因的回归。 |
+
+### 3.4 二次复审 R1/R2 剩余问题修复
+
+二次复审对修复 tip `e0bc26e`（tree `362489a`）仍判定 `changes_requested`：R3 已关闭，R1/R2 各有一处剩余问题。本轮在 `7c1f336`（tree `dacff63`，`4bde392..7c1f336` 8 个文件 +116/-7）修复；修复后新增 36、阶段 242、SQL 250、quick 1196、full 1435。
+
+| 发现 | 根因/复现 | 修复与回归 |
+| --- | --- | --- |
+| R1/P1 `mark_sent` 等待期间耗尽安全余量仍发送模型 | 最后一次活动检查在 `await mark_sent(...)` 之前；账本 584 秒、`mark_sent` 耗时 2 秒后实际只剩 14 秒，模型仍被调用。 | 在 `mark_sent` 返回后、实际 `model.decide` 前再次检查活动预算。此时账本已标记 sent，不再按 prepared 释放；以 `failed` 结算并记录 `budget_exhausted_before_request`，保留已发送计数和未知 Token 保守占用，不发送模型请求。新增 584+2 秒回归，断言模型零调用、failed 结算和 finally 记录 2 秒。 |
+| R2/P1 压缩响应可在 256 KiB 检查前分配更大内存 | 使用 `aiter_bytes()`，锁定 HTTPX 先解压原始块再交给适配器；单块解压分配不受 256 KiB 限制。 | 请求显式 `Accept-Encoding: identity`；读取前拒绝非 identity `Content-Encoding`（返回 `model_content_encoding_unsupported`），并使用 `aiter_raw()` 按原始字节流计数。新增 gzip 响应回归，断言在解压/读取前拒绝、流消费 0 块且响应关闭。 |
+| R3/P2 非成功 finish reason | 二次复审确认已关闭：`tool_calls` 必须是非空列表，`stop` 拒绝携带非空工具调用；过滤/缺失/未知原因在工具路由前拒绝并保留 usage/provider id。 | 本轮未修改该项，保留原回归。 |
+
+T07 提交边界保持不变：本次差异未改 worker/审计协调器；活动时间在 runner 返回 `SegmentOutcome` 前记录，正常路径记账失败阻止结果返回，等待发布和终态提交仍由既有治理执行器/协调器负责。
 
 ## 4. 公共接口、依赖与迁移影响
 
@@ -173,12 +185,12 @@ T11 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 | --- | --- | --- | --- | --- | --- |
 | 改动前基线 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/governance/test_interactive_planning.py tests/mcp -q --basetemp=../.tmp/pytest/t11-baseline` | 0 | 171 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-baseline` |
 | 首轮预期红（缺模块） | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_deepseek.py tests/agent/interactive/test_graph.py tests/agent/interactive/test_graph_segments.py -q --basetemp=../.tmp/pytest/t11-red-1` | 2 | 3 个 collection error（`deepseek`/`graph`/`model_port` 不存在），符合测试先行预期；未发付费请求 | `.tmp/pytest/t11-red-1` |
-| 新增聚焦最终 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_deepseek.py tests/agent/interactive/test_graph.py tests/agent/interactive/test_graph_segments.py -q --basetemp=../.tmp/pytest/t11-review-fix-focused-2` | 0 | 34 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-review-fix-focused-2` |
-| 交互式/安全/治理/agent_runs 阶段 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/governance/test_interactive_planning.py tests/security -q --basetemp=../.tmp/pytest/t11-review-fix-stage-2` | 0 | 240 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-review-fix-stage-2` |
-| SQL/恢复聚焦（专用 PostgreSQL 17） | `D:/project_git/t11/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py -q --basetemp=../.tmp/pytest/t11-review-fix-sql-2` | 0 | 248 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-review-fix-sql-2` |
+| 新增聚焦最终 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive/test_deepseek.py tests/agent/interactive/test_graph.py tests/agent/interactive/test_graph_segments.py -q --basetemp=../.tmp/pytest/t11-review2-focused-2` | 0 | 36 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-review2-focused-2` |
+| 交互式/安全/治理/agent_runs 阶段 | `D:/project_git/t11/backend` | `uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/governance/test_interactive_planning.py tests/security -q --basetemp=../.tmp/pytest/t11-review2-stage-1` | 0 | 242 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-review2-stage-1` |
+| SQL/恢复聚焦（专用 PostgreSQL 17） | `D:/project_git/t11/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/agent/interactive tests/agent_runs tests/persistence/test_agent_segments.py tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_attempts.py tests/persistence/test_agent_interactions.py tests/persistence/test_agent_runs.py tests/persistence/test_migrations.py -q --basetemp=../.tmp/pytest/t11-review2-sql-1` | 0 | 250 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-review2-sql-1` |
 | T07 恢复专项 | `D:/project_git/t11/backend` | `TEST_DATABASE_URL` 进程注入；`uv run --locked --no-sync pytest tests/persistence/test_agent_segment_recovery.py tests/persistence/test_agent_segments.py -q --basetemp=../.tmp/pytest/t11-t07-recovery` | 0 | 15 passed / 0 failed / 0 skipped | `.tmp/pytest/t11-t07-recovery` |
-| 后端 quick | `D:/project_git/t11` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t11-final-quick-backend.json` | 0 | `verification=passed`；1194 collected / 1194 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t11-final-quick-backend.json` |
-| 后端 full（D3 阶段） | `D:/project_git/t11` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-d3-full.json` | 0 | `verification=passed`；1433 collected / 1433 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/manual-agent-d3-full.json` |
+| 后端 quick | `D:/project_git/t11` | `uv run --project backend --locked --no-sync python scripts/verify.py quick --component backend --report .tmp/quality/t11-final-quick-backend.json` | 0 | `verification=passed`；1196 collected / 1196 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/t11-final-quick-backend.json` |
+| 后端 full（D3 阶段） | `D:/project_git/t11` | `TEST_DATABASE_URL` 进程注入；`uv run --project backend --locked --no-sync python scripts/verify.py full --component backend --report .tmp/quality/manual-agent-d3-full.json` | 0 | `verification=passed`；1435 collected / 1435 passed / 0 failed / 0 skipped / 0 collection errors | `.tmp/quality/manual-agent-d3-full.json` |
 | Ruff / 格式 | `D:/project_git/t11/backend` | `uv run --locked --no-sync ruff check .`；`ruff format --check .` | 0 | All checks passed；404 files already formatted | 终端记录 |
 | Pyright | `D:/project_git/t11/backend` | `uv run --locked --no-sync pyright` | 0 | 0 errors / 0 warnings | 终端记录 |
 | 架构门禁 | `D:/project_git/t11/backend` | `uv run --locked --no-sync python -m scripts.check_architecture` | 0 | `status=passed`，`files_scanned=87`，`findings=[]` | 终端记录 |
@@ -189,8 +201,8 @@ T11 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 
 - **真实 wire 形状**：MockTransport 断言请求含 `model`、`messages`、已授权工具 `tools`、`thinking:{type:disabled}`、`max_tokens=4096`；不含工具选择参数。系统 Prompt 与 T08 上下文系统消息合并为唯一 system 消息。
 - **工具观察回填**：第二次请求最后一条是 `role=tool` 且 `tool_call_id` 等于供应商返回的 call id；前一条 assistant 消息包含同 id 的原生 tool_calls；模型不能只写“已调用”。
-- **结果上限/结束原因/错误**：响应用异步字节流逐块读取，超过 256 KiB 在越限块处关闭响应，不再消费后续块；测试断言计数流只消费 2 个块且 `closed=True`。finish reason 只接受 `stop`/`tool_calls`；`content_filter`、缺失/未知原因返回 `model_finish_reason_unsupported`，`stop` + 工具调用返回 `model_invalid_response`，均保留已知 usage。超过四个 tool_calls、无效 JSON 参数、缺失 returned model、HTTP 503 和无效最终 JSON 同样 fail-closed；usage 缺失保持 `None`。
-- **预算/活动时间**：测试断言每次模型决策的 `reserve` 输入等于对应 `ModelContext.input_reservation`，`mark_sent`/`settle` 成对出现；`mark_sent` 失败时 prepared attempt 结算为 failed；超时结算为 unknown 且只预留一次。新增“账本 570 秒 + 本片段 20 秒”场景，确认工具和第二次模型都被活动时间准入阻止；异常路径仍在 finally 记录本片段活动时间。
+- **结果上限/结束原因/错误**：请求 `Accept-Encoding: identity`，读取前拒绝非 identity `Content-Encoding`；响应用 `aiter_raw` 逐块读取，超过 256 KiB 在越限块处关闭响应，不再消费后续块。测试断言普通计数流只消费 2 个块且 `closed=True`，gzip 响应在读取前被拒绝、消费 0 块。finish reason 只接受 `stop`/`tool_calls`；`content_filter`、缺失/未知原因返回 `model_finish_reason_unsupported`，`stop` + 工具调用返回 `model_invalid_response`，均保留已知 usage。超过四个 tool_calls、无效 JSON 参数、缺失 returned model、HTTP 503 和无效最终 JSON 同样 fail-closed；usage 缺失保持 `None`。
+- **预算/活动时间**：测试断言每次模型决策的 `reserve` 输入等于对应 `ModelContext.input_reservation`，`mark_sent`/`settle` 成对出现；`mark_sent` 失败时 prepared attempt 结算为 failed；超时结算为 unknown 且只预留一次。新增“账本 570 秒 + 本片段 20 秒”场景，确认工具和第二次模型都被活动时间准入阻止；另在 `mark_sent` 等待 2 秒、账本 584 秒场景确认请求前停止并结算 failed；异常/取消路径在 finally 记录本片段活动时间。
 - **等待**：模型返回 CLARIFY/AP-01 时只准备一个 `preparing` 待办，片段立刻结束；worker 测试断言 `model.contexts==1`，等待期间没有第二次模型调用。
 - **图状态**：`InteractiveGraphState` 只含阶段/计数/结果类型/安全原因/引用/preparing 待办；`live_messages` 只在 `_RunScope`，不进入图状态/checkpoint。
 - **真实 SQL 边界**：`test_agent_segment_recovery.py`/`test_agent_segments.py` 15 项和更宽 SQL 聚焦 248 项继续覆盖 T07 租约、恢复、提交、C5 账本、交互/消息；T11 没有新增 schema，也没有把纯图替身当作真实事务证明。
@@ -226,5 +238,5 @@ T11 不生成 `TradeIntent`、不访问私有账户、不调用模拟/真实订�
 ## 7. 自测与正式审查状态
 
 - 自测状态：**`verified`**。实现、聚焦/阶段/SQL/恢复/quick/full/静态检查均完成；本文件不把开发自测称为正式审查通过。
-- 正式审查状态：**`awaiting_review`**（首轮 `changes_requested`，R1–R3 已修复；等待原审查助手复审；`reviewed_tip` 未填写）。
+- 正式审查状态：**`awaiting_review`**（首轮 3 项及二次复审 R1/R2 剩余问题均已修复；等待原审查助手再次复审；`reviewed_tip` 未填写）。
 - 未进入 T12/T13/T14；未修改自动交易限制、默认审核、产品内计划审核或真实资金权限。开发模块审查与产品内交易计划审核分别管理。
